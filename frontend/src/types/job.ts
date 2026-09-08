@@ -77,6 +77,8 @@ export interface JobDefinition {
   status: JobDefinitionStatus
   statusDisplayName: string
   description: string | null
+  /** 所属任务目录(功能 16);缺省表示未分类 */
+  catalogId?: string | null
   /** 类型特有的配置。结构由 jobType 决定,前端按类型渲染对应表单 */
   config: Record<string, unknown>
   version: number
@@ -108,6 +110,7 @@ export interface JobUpsertRequest {
   name: string
   jobType: JobType
   description?: string
+  catalogId?: string | null
   config: Record<string, unknown>
   cronExpression?: string
   cronTimezone?: string
@@ -115,6 +118,74 @@ export interface JobUpsertRequest {
   timeoutMs?: number
   retryMaxAttempts?: number
   retryBackoffSeconds?: number
+}
+
+// ── 任务目录(功能 16)────────────────────────────────────────────────
+
+export interface TaskCatalogNode {
+  id: string
+  parentId: string | null
+  name: string
+  description: string | null
+  sortOrder: number
+  /** 该目录**直接**挂载的任务数,不含子目录 —— 与树的展示一致 */
+  taskCount: number
+  children: TaskCatalogNode[]
+}
+
+/**
+ * 目录树。
+ *
+ * 未分类计数单独返回而不是塞成一个 id 为 null 的节点:它不是一个能改名、
+ * 能移动、能删除的目录,而是"没有目录"这件事本身。混进节点列表会让
+ * 每个操作都要先判断"这个节点是不是那个假的"。
+ */
+export interface CatalogTree {
+  nodes: TaskCatalogNode[]
+  uncategorizedCount: number
+}
+
+export interface CatalogNodeRequest {
+  parentId?: string | null
+  name: string
+  description?: string
+  sortOrder?: number
+}
+
+// ── 批量新增(功能 14)────────────────────────────────────────────────
+
+/** 批量创建的是 N 个独立定义 —— 创建完之后它们各自编译、各自调度、各自有执行记录 */
+export interface BatchCreateRequest {
+  /** 任务名模板,{table} 会被替换成表名 */
+  namePattern?: string
+  description?: string
+  catalogId?: string | null
+
+  sourceDataSourceId: string
+  sourceDatabase?: string
+  sourceSchema?: string
+  tables: string[]
+
+  targetDataSourceId: string
+  targetDatabase?: string
+  targetSchema?: string
+  targetTablePrefix?: string
+  targetTableSuffix?: string
+
+  writeMode?: string
+  batchSize?: number
+  timeoutMs?: number
+  retryMaxAttempts?: number
+
+  cronExpression?: string
+  cronTimezone?: string
+  misfirePolicy?: string
+}
+
+export interface BatchCreateResult {
+  created: JobDefinition[]
+  /** 部分成功是正常结果,不是异常 —— 失败的逐条带原因 */
+  failed: Array<{ table: string; reason: string }>
 }
 
 export interface ScheduleRequest {

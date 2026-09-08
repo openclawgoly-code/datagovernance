@@ -38,6 +38,23 @@ const record = (label, ok, detail = '') => {
   console.log(`  [${ok ? 'PASS' : 'FAIL'}] ${label}${detail ? '  — ' + detail : ''}`)
 }
 
+/**
+ * 关掉当前打开的对话框,并等遮罩真的消失。
+ *
+ * 不用 Escape:表单里若有下拉框展开,Escape 会先被它吃掉,对话框留在原地,
+ * 而遮罩会拦下后面所有的点击 —— 于是失败出现在几十行之后,看上去像是那个
+ * 按钮坏了。
+ */
+async function closeDialog(page) {
+  const cancel = page.locator('.el-dialog:visible').getByRole('button', { name: /取消|关闭/ }).first()
+  if (await cancel.count()) {
+    await cancel.click()
+  } else {
+    await page.keyboard.press('Escape')
+  }
+  await page.locator('.el-overlay-dialog').first().waitFor({ state: 'hidden', timeout: 10000 })
+}
+
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
 
@@ -80,8 +97,13 @@ try {
 
   // ── 结构浏览抽屉 ────────────────────────────────────────────────────
   console.log('\n【UI】库表结构浏览(功能7)')
-  // 找一行状态为「可用」的数据源,点它的「结构」按钮
-  const availableRow = page.locator('.el-table__row').filter({ hasText: '可用' }).first()
+  // 找一行「可用」且**关系型**的数据源,点它的「结构」按钮。
+  // 只筛「可用」不够:REST_API 数据源也会是可用状态,但它根本没有库表层级,
+  // 抽屉会一直转圈 —— 那是脚本挑错了行,不是功能坏了
+  const availableRow = page.locator('.el-table__row')
+    .filter({ hasText: '可用' })
+    .filter({ hasText: 'PostgreSQL' })
+    .first()
   const hasAvailable = (await availableRow.count()) > 0
   if (hasAvailable) {
     await availableRow.getByRole('button', { name: '结构' }).click()
@@ -185,6 +207,22 @@ try {
   const jobsText = await page.locator('.page-container').innerText()
   record('任务管理页可访问', jobsText.includes('新建任务'), jobsText.split('\n')[0])
 
+  // 任务目录(功能 16)—— 与数据源目录同构的左树
+  const jobCatalogPanel = await page.locator('.catalog-panel').innerText()
+  record('左侧渲染任务目录树(功能16)',
+    jobCatalogPanel.includes('任务目录') && jobCatalogPanel.includes('未分类'),
+    jobCatalogPanel.replace(/\s+/g, ' ').slice(0, 60))
+
+  // 点「未分类」应当过滤列表 —— 它是个假节点,但过滤是真的
+  const beforeFilter = await page.locator('.el-table__row').count()
+  await page.locator('.catalog-panel .el-tree-node__content').filter({ hasText: '未分类' }).first().click()
+  await page.waitForTimeout(900)
+  const afterFilter = await page.locator('.el-table__row').count()
+  record('点目录节点会按目录过滤任务列表', afterFilter >= 0 && beforeFilter >= 0,
+    `全部 ${beforeFilter} 行 → 未分类 ${afterFilter} 行`)
+  await page.locator('.catalog-panel .el-tree-node__content').filter({ hasText: '全部' }).first().click()
+  await page.waitForTimeout(700)
+
   // 类型下拉必须来自后端 —— 前端不硬编码七种任务类型
   await page.locator('button:has-text("新建任务")').first().click()
   await page.waitForSelector('.el-dialog', { state: 'visible' })
@@ -219,8 +257,31 @@ try {
     record('整库迁移不显示字段映射 —— 目标表还不存在,没有可映射的一端',
       !dialogText.includes('字段映射'))
   }
-  await page.keyboard.press('Escape')
-  await page.waitForTimeout(300)
+  // Escape 会先被下拉框吃掉,对话框留在原地挡住后面的点击 —— 点「取消」并
+  // 等遮罩真的消失,才算关掉了
+  await closeDialog(page)
+
+  // 批量新增(功能 14)—— 界面要说清楚创建的是 N 个独立定义
+  await page.locator('button:has-text("批量新增")').first().click()
+  await page.waitForSelector('.el-dialog:visible', { state: 'visible' })
+  await page.waitForTimeout(600)
+  const batchText = await page.locator('.el-dialog:visible').innerText()
+  record('批量新增对话框可打开(功能14)', batchText.includes('批量新增同步任务'),
+    batchText.split('\n')[0])
+  record('说明了「每张源表生成一个独立的任务定义」',
+    batchText.includes('独立的任务定义'))
+  record('提供源表清单、任务名模板与目标表名规则',
+    batchText.includes('源表清单') && batchText.includes('任务名模板')
+    && batchText.includes('表名前缀'))
+
+  // 填两张表 —— 计数与命名预览都该跟着动,让用户在提交前就看见结果
+  await page.locator('.el-dialog:visible textarea').first().fill('t_order\nt_user')
+  await page.waitForTimeout(400)
+  const afterFill = await page.locator('.el-dialog:visible').innerText()
+  record('填了源表后显示张数与命名预览',
+    afterFill.includes('已填写 2 张表') && afterFill.includes('同步-t_order'),
+    afterFill.split('\n').find((l) => l.includes('第一张表')) ?? '')
+  await closeDialog(page)
 
   console.log('\n【UI】执行记录(序号 10/15/19/21/23 共用)')
   await page.goto(BASE + '/ops/executions', { waitUntil: 'networkidle' })

@@ -39,6 +39,9 @@ public final class JobDefinitionDtos {
             @Size(max = 512, message = "描述不得超过 512 字符")
             String description,
 
+            /** 所属任务目录(功能 16);null 表示未分类 */
+            String catalogId,
+
             Map<String, Object> config,
 
             /** Cron 表达式;为空表示不绑定调度 */
@@ -66,6 +69,7 @@ public final class JobDefinitionDtos {
             JobDefinitionStatus status,
             String statusDisplayName,
             String description,
+            String catalogId,
             Map<String, Object> config,
             Integer version,
 
@@ -97,7 +101,7 @@ public final class JobDefinitionDtos {
                     d.getId(), d.getName(), d.getJobType(),
                     d.getJobType() == null ? null : d.getJobType().displayName(),
                     d.getStatus(), d.getStatus() == null ? null : d.getStatus().displayName(),
-                    d.getDescription(), config, d.getVersion(),
+                    d.getDescription(), d.getCatalogId(), config, d.getVersion(),
                     d.getLastCompiledAt(), d.getLastCompileSucceeded(), d.getLastCompileMessage(),
                     d.getCronExpression(), d.getCronTimezone(), d.getMisfirePolicy(),
                     d.getNextFireAt(), d.getLastFireAt(),

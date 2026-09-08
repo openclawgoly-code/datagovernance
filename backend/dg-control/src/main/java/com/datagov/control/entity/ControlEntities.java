@@ -41,6 +41,9 @@ public final class ControlEntities {
         private JobDefinitionStatus status;
         private String description;
 
+        /** 所属任务目录(功能 16);null 表示未分类 —— 强制归类会让新建多一步无谓的选择 */
+        private String catalogId;
+
         /** 类型特有的配置。结构由 jobType 决定 */
         private String configJson;
 

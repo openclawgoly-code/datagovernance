@@ -11,8 +11,10 @@ import com.datagov.control.dto.JobDefinitionDtos.JobDefinitionView;
 import com.datagov.control.dto.JobDefinitionDtos.ScheduleRequest;
 import com.datagov.control.dto.JobDefinitionDtos.SchedulePreview;
 import com.datagov.control.dto.JobDefinitionDtos.UpsertRequest;
+import com.datagov.control.service.BatchJobCreator;
 import com.datagov.control.service.JobDefinitionService;
 import com.datagov.control.service.JobExecutionService;
+import com.datagov.control.service.TaskCatalogService;
 import com.datagov.runtime.dto.ExecutionView;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -43,11 +45,17 @@ public class JobDefinitionController {
 
     private final JobDefinitionService jobService;
     private final JobExecutionService executionService;
+    private final TaskCatalogService catalogService;
+    private final BatchJobCreator batchCreator;
 
     public JobDefinitionController(JobDefinitionService jobService,
-                                   JobExecutionService executionService) {
+                                   JobExecutionService executionService,
+                                   TaskCatalogService catalogService,
+                                   BatchJobCreator batchCreator) {
         this.jobService = jobService;
         this.executionService = executionService;
+        this.catalogService = catalogService;
+        this.batchCreator = batchCreator;
     }
 
     /** 任务类型元数据 —— 前端的类型下拉与"能不能配调度"的判断都读它,不硬编码。 */
@@ -74,8 +82,67 @@ public class JobDefinitionController {
             @RequestParam(defaultValue = "20") long size,
             @RequestParam(required = false) JobType jobType,
             @RequestParam(required = false) JobDefinitionStatus status,
-            @RequestParam(required = false) String keyword) {
-        return ApiResponse.ok(jobService.list(page, size, jobType, status, keyword));
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String catalogId) {
+        return ApiResponse.ok(jobService.list(page, size, jobType, status, keyword, catalogId));
+    }
+
+    // ── 任务目录(功能 16)──────────────────────────────────────────────
+
+    public record CatalogTree(List<TaskCatalogService.CatalogNodeView> nodes,
+                              int uncategorizedCount) {
+    }
+
+    public record CatalogNodeRequest(String parentId, String name, String description,
+                                     Integer sortOrder) {
+    }
+
+    @GetMapping("/catalog")
+    @RequirePermission("control:job:read")
+    @Operation(summary = "任务目录树",
+            description = "人工维护的组织结构,与数据源目录同构。未分类计数单独返回")
+    public ApiResponse<CatalogTree> catalogTree() {
+        return ApiResponse.ok(new CatalogTree(
+                catalogService.tree(), catalogService.uncategorizedCount()));
+    }
+
+    @PostMapping("/catalog")
+    @RequirePermission("control:catalog:manage")
+    @Operation(summary = "新建任务目录")
+    public ApiResponse<TaskCatalogService.CatalogNodeView> createCatalog(
+            @RequestBody CatalogNodeRequest request) {
+        return ApiResponse.ok(catalogService.create(request.parentId(), request.name(),
+                request.description(), request.sortOrder()));
+    }
+
+    @PutMapping("/catalog/{id}")
+    @RequirePermission("control:catalog:manage")
+    @Operation(summary = "编辑任务目录")
+    public ApiResponse<TaskCatalogService.CatalogNodeView> updateCatalog(
+            @PathVariable String id, @RequestBody CatalogNodeRequest request) {
+        return ApiResponse.ok(catalogService.update(id, request.name(),
+                request.description(), request.sortOrder()));
+    }
+
+    @DeleteMapping("/catalog/{id}")
+    @RequirePermission("control:catalog:manage")
+    @Operation(summary = "删除任务目录",
+            description = "非空目录不可删除 —— 级联删除会带走一整棵子树下的任务定义")
+    public ApiResponse<Void> deleteCatalog(@PathVariable String id) {
+        catalogService.delete(id);
+        return ApiResponse.ok();
+    }
+
+    // ── 批量新增(功能 14)──────────────────────────────────────────────
+
+    @PostMapping("/batch")
+    @RequirePermission("control:job:create")
+    @Operation(summary = "批量创建同步任务",
+            description = "每张源表生成一个独立的任务定义 —— 执行时也是各自独立的执行记录。"
+                    + "部分成功是正常结果:失败的逐条返回原因,成功的照常创建")
+    public ApiResponse<BatchJobCreator.BatchResult> createBatch(
+            @RequestBody BatchJobCreator.BatchRequest request) {
+        return ApiResponse.ok(batchCreator.createAll(request));
     }
 
     @GetMapping("/{id}")

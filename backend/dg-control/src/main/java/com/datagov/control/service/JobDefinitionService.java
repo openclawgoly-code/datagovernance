@@ -326,9 +326,20 @@ public class JobDefinitionService {
 
     public PageResult<JobDefinitionView> list(long page, long size, JobType jobType,
                                               JobDefinitionStatus status, String keyword) {
+        return list(page, size, jobType, status, keyword, null);
+    }
+
+    /** @param catalogId 任务目录过滤(功能 16);"__none__" 表示只看未分类 */
+    public PageResult<JobDefinitionView> list(long page, long size, JobType jobType,
+                                              JobDefinitionStatus status, String keyword,
+                                              String catalogId) {
         String workspaceId = WorkspaceContext.requireWorkspaceId();
+        boolean uncategorized = "__none__".equals(catalogId);
         LambdaQueryWrapper<JobDefinition> wrapper = new LambdaQueryWrapper<JobDefinition>()
                 .eq(JobDefinition::getWorkspaceId, workspaceId)
+                .isNull(uncategorized, JobDefinition::getCatalogId)
+                .eq(!uncategorized && catalogId != null && !catalogId.isBlank(),
+                        JobDefinition::getCatalogId, catalogId)
                 .eq(jobType != null, JobDefinition::getJobType, jobType)
                 .eq(status != null, JobDefinition::getStatus, status)
                 .like(keyword != null && !keyword.isBlank(), JobDefinition::getName, keyword)
@@ -446,6 +457,7 @@ public class JobDefinitionService {
         definition.setName(request.name().trim());
         definition.setJobType(request.jobType());
         definition.setDescription(request.description());
+        definition.setCatalogId(request.catalogId());
         definition.setConfigJson(writeJson(request.config()));
         definition.setTimeoutMs(request.timeoutMs());
         definition.setRetryMaxAttempts(request.retryMaxAttempts());

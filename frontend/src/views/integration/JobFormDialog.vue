@@ -5,7 +5,7 @@ import { jobApi } from '@/api/job'
 import { dataSourceApi } from '@/api/datasource'
 import DdlPreviewDrawer from './DdlPreviewDrawer.vue'
 import type { DataSource } from '@/types/datasource'
-import type { JobDefinition, JobType, JobTypeInfo } from '@/types/job'
+import type { JobDefinition, JobType, JobTypeInfo, TaskCatalogNode } from '@/types/job'
 
 /**
  * 新建 / 编辑任务定义。
@@ -26,12 +26,15 @@ const editingId = ref<string | null>(null)
 const formRef = ref<FormInstance>()
 const types = ref<JobTypeInfo[]>([])
 const dataSources = ref<DataSource[]>([])
+const catalogs = ref<TaskCatalogNode[]>([])
 const ddlDrawer = ref<InstanceType<typeof DdlPreviewDrawer>>()
 
 const form = reactive({
   name: '',
   jobType: '' as '' | JobType,
   description: '',
+  /** 所属任务目录(功能 16);null 表示未分类 */
+  catalogId: null as string | null,
   timeoutMs: 7200000,
   retryMaxAttempts: 1,
   retryBackoffSeconds: 30,
@@ -89,8 +92,13 @@ const rules = computed<FormRules>(() => ({
   jobType: [{ required: true, message: '请选择任务类型', trigger: 'change' }],
 }))
 
-async function open(row: JobDefinition | null, typeList: JobTypeInfo[]) {
+async function open(
+  row: JobDefinition | null,
+  typeList: JobTypeInfo[],
+  catalogNodes: TaskCatalogNode[] = [],
+) {
   types.value = typeList
+  catalogs.value = catalogNodes
   editingId.value = row?.id ?? null
   ddlOverrides.value = {}
 
@@ -98,6 +106,7 @@ async function open(row: JobDefinition | null, typeList: JobTypeInfo[]) {
     name: row?.name ?? '',
     jobType: row?.jobType ?? '',
     description: row?.description ?? '',
+    catalogId: row?.catalogId ?? null,
     timeoutMs: row?.timeoutMs ?? 7200000,
     retryMaxAttempts: row?.retryMaxAttempts ?? 1,
     retryBackoffSeconds: row?.retryBackoffSeconds ?? 30,
@@ -201,6 +210,7 @@ async function onSubmit() {
       name: form.name,
       jobType: form.jobType as JobType,
       description: form.description || undefined,
+      catalogId: form.catalogId,
       config,
       timeoutMs: form.timeoutMs,
       retryMaxAttempts: form.retryMaxAttempts,
@@ -482,6 +492,19 @@ defineExpose({ open })
         <span class="text-muted" style="margin: 0 8px">次(含首次),退避</span>
         <el-input-number v-model="form.retryBackoffSeconds" :min="0" :max="3600" :step="10" />
         <span class="text-muted" style="margin-left: 8px">秒起,每次翻倍</span>
+      </el-form-item>
+
+      <el-form-item label="任务目录">
+        <el-tree-select
+          v-model="form.catalogId"
+          :data="catalogs"
+          :props="{ label: 'name', children: 'children' }"
+          node-key="id"
+          check-strictly
+          clearable
+          placeholder="不选则为未分类"
+          style="width: 100%"
+        />
       </el-form-item>
 
       <el-form-item label="描述">

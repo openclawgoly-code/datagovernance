@@ -561,7 +561,9 @@ print("\n【9】文件解析(功能12)与接口解析(功能13)")
 # 起一个本地 HTTP 服务当接口数据源 —— 比 mock 更能验证真实的 HTTP 路径
 import http.server, json as _json, socketserver, threading
 
-API_PORT = int(os.environ.get("DG_VERIFY_STUB_PORT", "18099"))
+# 0 = 让内核挑一个空闲端口。固定端口会在上一次运行中途失败时留下占用,
+# 于是重跑报「地址已被占用」,把真正要查的那个失败盖掉
+STUB_PORT_REQUESTED = int(os.environ.get("DG_VERIFY_STUB_PORT", "0"))
 
 
 class _StubHandler(http.server.BaseHTTPRequestHandler):
@@ -583,7 +585,12 @@ class _StubHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-stub = socketserver.TCPServer(("127.0.0.1", API_PORT), _StubHandler)
+class _StubServer(socketserver.TCPServer):
+    allow_reuse_address = True
+
+
+stub = _StubServer(("127.0.0.1", STUB_PORT_REQUESTED), _StubHandler)
+API_PORT = stub.server_address[1]
 threading.Thread(target=stub.serve_forever, daemon=True).start()
 
 api_dst = f"p2_api_dst_{RUN}"
@@ -660,6 +667,174 @@ check("接口解析记录归入 API_PARSE 种类",
 
 stub.shutdown()
 psql(f"DROP TABLE IF EXISTS dg_probe_schema.{api_dst};")
+
+
+# ── 功能 16:任务目录 ─────────────────────────────────────────────────
+print("\n【功能 16】任务目录 —— 人工维护的组织结构")
+
+root_cat = call("POST", "/jobs/catalog",
+                {"name": f"数仓-{RUN}", "description": "ODS 层同步"})["data"]
+check("新建根目录", root_cat["id"].startswith("tsc_"), root_cat["id"])
+
+child_cat = call("POST", "/jobs/catalog",
+                 {"parentId": root_cat["id"], "name": "ODS"})["data"]
+check("新建子目录", child_cat["parentId"] == root_cat["id"], child_cat["parentId"])
+
+dup_status, dup_body = call("POST", "/jobs/catalog",
+                            {"name": f"数仓-{RUN}"}, raw=True)
+check("同级重名被拒绝", dup_status != 200 and "已有" in json.dumps(dup_body, ensure_ascii=False),
+      f"HTTP {dup_status}")
+
+# 同名但在不同父目录下应当允许 —— 树的每一层是独立的命名空间
+sibling = call("POST", "/jobs/catalog",
+               {"parentId": child_cat["id"], "name": f"数仓-{RUN}"})["data"]
+check("不同父目录下可以重名", sibling["name"] == f"数仓-{RUN}", sibling["name"])
+
+# 深度:根(1) → ODS(2) → 同名(3) → 第四层(4) 应当被拒
+deep_status, deep_body = call("POST", "/jobs/catalog",
+                              {"parentId": sibling["id"], "name": "太深了"}, raw=True)
+check("目录层级超过 4 层被拒绝",
+      deep_status != 200 and "层级" in json.dumps(deep_body, ensure_ascii=False),
+      f"HTTP {deep_status}")
+
+tree = call("GET", "/jobs/catalog")["data"]
+mine = [n for n in tree["nodes"] if n["id"] == root_cat["id"]]
+check("目录树按父子关系嵌套返回",
+      len(mine) == 1 and len(mine[0]["children"]) == 1
+      and mine[0]["children"][0]["id"] == child_cat["id"],
+      json.dumps([n["name"] for n in tree["nodes"]], ensure_ascii=False))
+
+before_uncat = tree["uncategorizedCount"]
+check("未分类计数单独返回", isinstance(before_uncat, int) and before_uncat > 0,
+      f"{before_uncat} 个未分类")
+
+# 任务挂在叶子节点上,好让两条删除保护各自独立可测:
+# 叶子被任务挡住,它的父目录被子目录挡住
+cat_job = call("POST", "/jobs", {
+    "name": f"P2-归类任务-{RUN}", "jobType": "OFFLINE_SYNC",
+    "catalogId": sibling["id"],
+    "config": {
+        "sourceDataSourceId": ds_id, "sourceDatabase": PG_DB,
+        "sourceSchema": "dg_probe_schema", "sourceTable": src_table,
+        "targetDataSourceId": ds_id, "targetDatabase": PG_DB,
+        "targetSchema": "dg_probe_schema", "targetTable": dst_table,
+        "fieldMappings": {"id": "id"}, "writeMode": "APPEND", "batchSize": 100,
+    },
+})["data"]
+check("任务可以归属目录", cat_job["catalogId"] == sibling["id"], cat_job["catalogId"])
+
+tree2 = call("GET", "/jobs/catalog")["data"]
+mid = next(n["children"][0] for n in tree2["nodes"] if n["id"] == root_cat["id"])
+leaf = mid["children"][0]
+check("任务计数落在直接挂载的那个目录上", leaf["taskCount"] == 1, f"{leaf['taskCount']} 个")
+check("计数不向上累加 —— 父目录仍是 0(与树的展示一致)",
+      mid["taskCount"] == 0, f"{mid['taskCount']} 个")
+check("归类后未分类计数不变(该任务本来就是新建的)",
+      tree2["uncategorizedCount"] == before_uncat,
+      f"{before_uncat} → {tree2['uncategorizedCount']}")
+
+by_cat = call("GET", f"/jobs?catalogId={sibling['id']}&size=100")["data"]
+check("按目录过滤任务列表",
+      [r["id"] for r in by_cat["records"]] == [cat_job["id"]],
+      f"{by_cat['total']} 条")
+
+uncat = call("GET", "/jobs?catalogId=__none__&size=100")["data"]
+# 响应全局省略 null 字段(application.yml 的 non_null),所以"没有 catalogId"
+# 就是未分类 —— 用 .get() 而不是下标
+check("__none__ 过滤出未分类任务",
+      uncat["total"] == before_uncat
+      and all(r.get("catalogId") is None for r in uncat["records"]),
+      f"{uncat['total']} 条")
+
+busy_status, busy_body = call("DELETE", f"/jobs/catalog/{sibling['id']}", raw=True)
+check("含任务的目录不可删除(级联删除会带走几个月的调度配置)",
+      busy_status != 200 and "个任务" in busy_body.get("message", ""),
+      f"HTTP {busy_status} {busy_body.get('message')}")
+
+parent_status, parent_body = call("DELETE", f"/jobs/catalog/{child_cat['id']}", raw=True)
+check("含子目录的目录不可删除",
+      parent_status != 200 and "子目录" in parent_body.get("message", ""),
+      f"HTTP {parent_status} {parent_body.get('message')}")
+
+renamed = call("PUT", f"/jobs/catalog/{root_cat['id']}",
+               {"name": f"数仓改名-{RUN}", "sortOrder": 5})["data"]
+check("目录可以改名", renamed["name"] == f"数仓改名-{RUN}", renamed["name"])
+
+call("DELETE", f"/jobs/{cat_job['id']}")
+empty_status, _ = call("DELETE", f"/jobs/catalog/{sibling['id']}", raw=True)
+check("清空后目录可以删除", empty_status == 200, f"HTTP {empty_status}")
+call("DELETE", f"/jobs/catalog/{child_cat['id']}")
+call("DELETE", f"/jobs/catalog/{root_cat['id']}")
+
+
+# ── 功能 14:批量新增 ─────────────────────────────────────────────────
+print("\n【功能 14】批量新增 —— 创建的是 N 个独立定义,不是一个批量任务")
+
+batch_tables = [f"bt_{RUN}_a", f"bt_{RUN}_b", f"bt_{RUN}_c"]
+batch_req = {
+    "namePattern": f"P2-批量-{RUN}-" + "{table}",
+    "description": "批量创建验证",
+    "sourceDataSourceId": ds_id, "sourceDatabase": PG_DB,
+    "sourceSchema": "dg_probe_schema", "tables": batch_tables,
+    "targetDataSourceId": ds_id, "targetDatabase": PG_DB,
+    "targetSchema": "dg_probe_schema", "targetTablePrefix": "ods_",
+    "writeMode": "APPEND", "batchSize": 500, "timeoutMs": 60000,
+}
+batch = call("POST", "/jobs/batch", batch_req)["data"]
+check("批量创建返回逐表结果",
+      len(batch["created"]) == 3 and len(batch["failed"]) == 0,
+      f"成功 {len(batch['created'])} 失败 {len(batch['failed'])}")
+
+check("每张表一个独立的任务定义(ID 各不相同)",
+      len({j["id"] for j in batch["created"]}) == 3,
+      str([j["id"][:12] for j in batch["created"]]))
+
+check("任务名按模板渲染",
+      sorted(j["name"] for j in batch["created"])
+      == sorted(f"P2-批量-{RUN}-{t}" for t in batch_tables),
+      str([j["name"] for j in batch["created"]]))
+
+first = call("GET", f"/jobs/{batch['created'][0]['id']}")["data"]
+check("源表逐个写进各自的配置",
+      first["config"]["sourceTable"] in batch_tables, first["config"]["sourceTable"])
+check("目标表名加了前缀",
+      first["config"]["targetTable"] == "ods_" + first["config"]["sourceTable"],
+      first["config"]["targetTable"])
+check("批量创建的是草稿,仍需各自编译发布", first["status"] == "DRAFT", first["status"])
+
+# 部分成功:重跑同一批,其中一张换成新表名。3 张里 3 张重名 + 1 张新的
+mixed = dict(batch_req, tables=batch_tables + [f"bt_{RUN}_d"])
+partial = call("POST", "/jobs/batch", mixed)["data"]
+check("部分成功是正常结果,不是整批回滚",
+      len(partial["created"]) == 1 and len(partial["failed"]) == 3,
+      f"成功 {len(partial['created'])} 失败 {len(partial['failed'])}")
+check("失败逐条带表名与原因",
+      sorted(f["table"] for f in partial["failed"]) == sorted(batch_tables)
+      and all(f["reason"] for f in partial["failed"]),
+      str(partial["failed"][:1]))
+
+over_status, over_body = call("POST", "/jobs/batch",
+                              dict(batch_req, tables=[f"t{i}" for i in range(201)]),
+                              raw=True)
+check("超过批量上限被拒绝(201 张更像是想要整库迁移)",
+      over_status != 200 and "最多批量创建 200" in over_body.get("message", ""),
+      f"HTTP {over_status} {over_body.get('message')}")
+
+empty_status2, empty_body2 = call("POST", "/jobs/batch",
+                                  dict(batch_req, tables=[]), raw=True)
+check("没选源表被拒绝",
+      empty_status2 != 200 and "源表" in empty_body2.get("message", ""),
+      f"HTTP {empty_status2} {empty_body2.get('message')}")
+
+# 批量创建的定义没有字段映射 —— 编译必须明确报出来,而不是编译通过后跑出个空表
+bc = call("POST", f"/jobs/{batch['created'][0]['id']}/compile")["data"]
+check("批量创建的定义缺字段映射时编译失败(不猜映射)",
+      not bc["succeeded"] and any("映射" in d["message"] for d in bc["diagnostics"]),
+      bc["summary"])
+
+for j in batch["created"] + partial["created"]:
+    call("DELETE", f"/jobs/{j['id']}")
+
 
 # ── 清理 ────────────────────────────────────────────────────────────
 psql(f"DROP TABLE IF EXISTS dg_probe_schema.{src_table};"

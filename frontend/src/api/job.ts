@@ -1,6 +1,10 @@
 import { http } from './request'
 import type { PageResult } from '@/types/api'
 import type {
+  BatchCreateRequest,
+  BatchCreateResult,
+  CatalogNodeRequest,
+  CatalogTree,
   CompileDiagnostic,
   CompileResponse,
   DdlPreviewRequest,
@@ -14,6 +18,7 @@ import type {
   JobUpsertRequest,
   ScheduleRequest,
   SchedulePreview,
+  TaskCatalogNode,
 } from '@/types/job'
 
 /**
@@ -34,6 +39,8 @@ export const jobApi = {
     jobType?: string
     status?: string
     keyword?: string
+    /** 任务目录过滤(功能 16);'__none__' 表示只看未分类 */
+    catalogId?: string
   }): Promise<PageResult<JobDefinition>> {
     return http.get<PageResult<JobDefinition>>('/jobs', params)
   },
@@ -106,6 +113,36 @@ export const jobApi = {
   /** 立即执行一次 */
   run(id: string): Promise<Execution> {
     return http.post<Execution>(`/jobs/${id}/run`)
+  },
+
+  /**
+   * 批量创建同步任务(功能 14)。
+   *
+   * 部分成功是正常结果 —— 20 张表里 3 张重名,另外 17 张照常创建。所以这个
+   * 调用几乎不会 reject,要看的是返回值里的 failed 列表。
+   */
+  createBatch(payload: BatchCreateRequest): Promise<BatchCreateResult> {
+    return http.post<BatchCreateResult>('/jobs/batch', payload)
+  },
+}
+
+/** 任务目录(功能 16)。与数据源目录同构,但删除保护与计数口径不同。 */
+export const taskCatalogApi = {
+  tree(): Promise<CatalogTree> {
+    return http.get<CatalogTree>('/jobs/catalog')
+  },
+
+  create(payload: CatalogNodeRequest): Promise<TaskCatalogNode> {
+    return http.post<TaskCatalogNode>('/jobs/catalog', payload)
+  },
+
+  update(id: string, payload: CatalogNodeRequest): Promise<TaskCatalogNode> {
+    return http.put<TaskCatalogNode>(`/jobs/catalog/${id}`, payload)
+  },
+
+  /** 非空目录会被后端拒绝(409),不做前端预判 —— 判断依据在服务端 */
+  remove(id: string): Promise<void> {
+    return http.delete<void>(`/jobs/catalog/${id}`)
   },
 }
 
