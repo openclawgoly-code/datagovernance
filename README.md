@@ -102,13 +102,18 @@ cd frontend && pnpm install && pnpm run dev
 ## 测试
 
 ```bash
+./scripts/start-test-postgres.sh            # 起一个本地 PostgreSQL(可反复执行)
 mvn test                                    # 全部后端测试
 mvn -pl backend/dg-data-connectors test     # 连接器(含真实数据库端到端)
 cd frontend && pnpm run build               # 前端类型检查与构建
 ```
 
-连接器测试用 `embedded-postgres` 与 `mariaDB4j` 起**真实数据库进程**做端到端验证,
-不依赖 Docker。另有一套 Testcontainers 测试,在没有 Docker 的环境下自动跳过而非失败。
+连接器的端到端测试打一个**真实的 PostgreSQL** —— 只有真实的 `DatabaseMetaData`
+才能验证结构探测与类型映射,mock 做不到。没起数据库时这些用例**跳过而非失败**,
+所以改一行类型映射不必先准备环境。
+
+另有一套 Testcontainers 版本(`PostgreSqlConnectorContainerIT`)供 CI 使用,
+在没有 Docker 的环境下同样自动跳过。
 
 ## 演进路线
 

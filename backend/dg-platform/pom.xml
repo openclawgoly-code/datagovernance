@@ -30,6 +30,11 @@
     <dependency>
       <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId>
     </dependency>
+    <!-- 凭据载荷在加密前先序列化为 JSON(authType/username/secret 三段),
+         所以 databind 是本模块的真实依赖,不是从装配层蹭来的 -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.security</groupId><artifactId>spring-security-crypto</artifactId>
     </dependency>
