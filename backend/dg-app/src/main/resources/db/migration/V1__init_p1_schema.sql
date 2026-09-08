@@ -29,8 +29,7 @@ CREATE TABLE pf_workspace (
     code                VARCHAR(64)   NOT NULL,          -- 空间标识,全局唯一
     name                VARCHAR(128)  NOT NULL,          -- 空间名称
     description         VARCHAR(512),
-    secret_key_enc      TEXT          NOT NULL,          -- 空间密钥,AES-GCM 密文
-    status              VARCHAR(32)   NOT NULL DEFAULT 'ACTIVE',  -- ACTIVE / DISABLED
+    status              VARCHAR(32)   NOT NULL DEFAULT 'ACTIVE',  -- ACTIVE / SUSPENDED
     created_at          TIMESTAMPTZ   NOT NULL DEFAULT now(),
     created_by          VARCHAR(64),
     updated_at          TIMESTAMPTZ   NOT NULL DEFAULT now(),
@@ -39,6 +38,23 @@ CREATE TABLE pf_workspace (
 );
 CREATE UNIQUE INDEX uk_pf_workspace_code ON pf_workspace (code) WHERE deleted = FALSE;
 COMMENT ON TABLE pf_workspace IS '空间(租户)。注意: 这是平台功能概念,不是架构中的 Space。';
+
+-- 空间鉴权密钥 —— 功能 28「空间鉴权密钥管理」
+-- 对应 SPACE-MODEL.md C+D.1 的 WorkspaceSecret 对象。
+-- 单独成表而不是内联在 pf_workspace 上,是为了支持 RotateWorkspaceSecret:
+-- 轮换要保留 rotated_at 与历史,内联字段做不到"换了但旧的还能用一小段时间"。
+CREATE TABLE pf_workspace_secret (
+    id                  VARCHAR(64)   PRIMARY KEY,
+    workspace_id        VARCHAR(64)   NOT NULL,
+    access_key          VARCHAR(128)  NOT NULL,
+    secret_key_enc      TEXT          NOT NULL,          -- AES-GCM 密文
+    status              VARCHAR(32)   NOT NULL DEFAULT 'ACTIVE',  -- ACTIVE / RETIRED
+    rotated_at          TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    created_by          VARCHAR(64)
+);
+CREATE UNIQUE INDEX uk_pf_workspace_secret_ak ON pf_workspace_secret (access_key);
+CREATE INDEX idx_pf_workspace_secret_ws ON pf_workspace_secret (workspace_id, status);
 
 -- 用户 —— 功能 30
 CREATE TABLE pf_user (
@@ -119,14 +135,24 @@ CREATE TABLE pf_user_role (
 );
 CREATE INDEX idx_pf_user_role_lookup ON pf_user_role (workspace_id, user_id);
 
--- 接口认证凭据托管 —— 功能 4(RestAPI 数据源)的凭据部分
--- 归属 Platform 而非 Metadata: 凭据的生命周期、轮换与授权独立于任何一个数据源
+-- 凭据托管 —— 功能 4「无认证/基础认证/Token 认证」+ 功能 1-3 的数据库口令
+--
+-- ┌─ 这是整个 P1 最重要的一条边界(SPACE-MODEL.md C+D.1「关键设计」)────┐
+-- │ Credential 只存在于 Platform Space。Metadata 的 md_datasource 持有的  │
+-- │ 是 credential_id —— 一个不可解密的引用,而不是口令本身。              │
+-- │                                                                      │
+-- │ 这不是洁癖: 等保要求凭据不落业务库。若把 password_enc 放进            │
+-- │ md_datasource,那么任何一次数据源列表查询、导出、日志打印都可能        │
+-- │ 把密文带出去,而密文一旦泄漏加上主密钥泄漏就是明文。                  │
+-- │ 明文只在提交作业时经注入通道解密一次(P1 见下方 issue_handle 说明)。 │
+-- └──────────────────────────────────────────────────────────────────────┘
 CREATE TABLE pf_credential (
     id                  VARCHAR(64)   PRIMARY KEY,
     workspace_id        VARCHAR(64)   NOT NULL,
     name                VARCHAR(128)  NOT NULL,
-    auth_type           VARCHAR(32)   NOT NULL,          -- NONE / BASIC / BEARER / API_KEY / OAUTH2_CLIENT
-    payload_enc         TEXT          NOT NULL,          -- AES-GCM 密文,内含该认证方式所需的全部字段
+    -- 取值对齐 SPACE-MODEL.md 的 Credential.type
+    auth_type           VARCHAR(32)   NOT NULL,          -- NONE / BASIC / TOKEN / PASSWORD
+    payload_enc         TEXT          NOT NULL,          -- AES-GCM 密文,即文档中的 secretRef 所指内容
     description         VARCHAR(512),
     created_at          TIMESTAMPTZ   NOT NULL DEFAULT now(),
     created_by          VARCHAR(64),
@@ -148,19 +174,25 @@ CREATE TABLE md_datasource (
     name                VARCHAR(128)  NOT NULL,
     type                VARCHAR(32)   NOT NULL,          -- DataSourceType 枚举名
     family              VARCHAR(32)   NOT NULL,          -- RELATIONAL / MPP / FILE / HTTP
-    status              VARCHAR(32)   NOT NULL,          -- DRAFT/TESTING/ACTIVE/UNREACHABLE/DISABLED
+    -- 状态取值对齐 SPACE-MODEL.md E.1 的 DataSourceDef 状态机
+    status              VARCHAR(32)   NOT NULL,          -- DRAFT/TESTING/AVAILABLE/UNREACHABLE/DISABLED/ARCHIVED
     description         VARCHAR(512),
 
-    -- 连接参数。密码单独加密存放,其余为明文配置。
+    -- ── 连接参数 ────────────────────────────────────────────────────
+    -- 注意这里【没有】password_enc,而且不该有(SPACE-MODEL.md G「Metadata
+    -- 不得存储凭据明文,只存 credentialRef」)。口令一律通过 credential_id
+    -- 指向 pf_credential;Metadata 拿不到、也无权解密。
+    --
+    -- username 保留在此: 它不是秘密,列表页要显示,放进凭据里反而会让
+    -- 「这个库用哪个账号连的」变成一次解密操作。秘密与标识分开是有意的。
     host                VARCHAR(255),
     port                INT,
     database_name       VARCHAR(128),
     username            VARCHAR(128),
-    password_enc        TEXT,                            -- AES-GCM 密文
     properties_json     TEXT,                            -- 驱动扩展参数,JSON 对象
     jdbc_url_override   VARCHAR(1024),
     base_url            VARCHAR(1024),                   -- RestAPI 用
-    credential_id       VARCHAR(64),                     -- 引用 pf_credential,RestAPI 用
+    credential_id       VARCHAR(64),                     -- → pf_credential.id,唯一的凭据通路
     connect_timeout_ms  INT           NOT NULL DEFAULT 10000,
     read_timeout_ms     INT           NOT NULL DEFAULT 30000,
 
@@ -181,6 +213,8 @@ CREATE TABLE md_datasource (
 CREATE UNIQUE INDEX uk_md_datasource_name ON md_datasource (workspace_id, name) WHERE deleted = FALSE;
 CREATE INDEX idx_md_datasource_workspace ON md_datasource (workspace_id, deleted);
 CREATE INDEX idx_md_datasource_type ON md_datasource (workspace_id, type) WHERE deleted = FALSE;
+-- 支撑「这条凭据还被哪些数据源引用」—— 凭据删除保护要用
+CREATE INDEX idx_md_datasource_credential ON md_datasource (credential_id) WHERE deleted = FALSE;
 
 -- 数据源版本历史 —— 功能 8「版本」语义的落点
 CREATE TABLE md_datasource_version (
