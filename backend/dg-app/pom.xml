@@ -38,6 +38,11 @@
     <dependency>
       <groupId>org.springdoc</groupId><artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
     </dependency>
+    <!-- 分页插件所在的 artifact(MyBatis-Plus 3.5.9 起单独发布)。
+         只有装配层需要它 —— 各 Space 的服务用 selectPage,但注册插件是 app 的事。 -->
+    <dependency>
+      <groupId>com.baomidou</groupId><artifactId>mybatis-plus-jsqlparser</artifactId>
+    </dependency>
 
     <dependency>
       <groupId>org.flywaydb</groupId><artifactId>flyway-core</artifactId>

@@ -115,6 +115,28 @@ cd frontend && pnpm run build               # 前端类型检查与构建
 另有一套 Testcontainers 版本(`PostgreSqlConnectorContainerIT`)供 CI 使用,
 在没有 Docker 的环境下同样自动跳过。
 
+### P1 验收
+
+单元测试之外,还有一份打**真实运行中的应用**的端到端验收脚本,逐条核对 P1 的
+四个完成判据。它可反复执行:
+
+```bash
+./scripts/start-test-postgres.sh                # 1. 起测试数据库
+mvn -q install -DskipTests                      # 2. 构建
+DG_DB_URL=jdbc:postgresql://127.0.0.1:55432/datagovernance \
+DG_DB_USER=postgres DG_DB_PASSWORD=postgres \
+DG_SECRET_KEY="$(openssl rand -base64 32)" \
+DG_JWT_SIGNING_KEY="$(openssl rand -base64 48)" \
+DG_ADMIN_PASSWORD='换成你的口令' \
+  java -jar backend/dg-app/target/dg-app-0.1.0-SNAPSHOT.jar &   # 3. 启动
+
+DG_ADMIN_PASSWORD='换成你的口令' python3 scripts/verify-p1.py    # 4. 验收
+```
+
+它验证的不只是"接口通了",还包括几条容易在重构中悄悄失效的约束:数据源响应体里
+不存在任何口令字段、手工测试失败回到 `DRAFT` 而非 `UNREACHABLE`、未验证的数据源
+不允许浏览结构、跨空间取数据返回 404 而不泄露资源是否存在。
+
 ## 演进路线
 
 | 阶段 | 内容 | 完成判据 |
