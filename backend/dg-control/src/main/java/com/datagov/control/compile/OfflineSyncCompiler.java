@@ -34,6 +34,12 @@ import java.util.Map;
 @Component
 public class OfflineSyncCompiler implements JobCompiler {
 
+    /** 这个编译器认识的配置键。多出来的会被 warnUnknownKeys 报出来 */
+    private static final java.util.Set<String> KNOWN_KEYS = java.util.Set.of(
+            "sourceDataSourceId", "sourceDatabase", "sourceSchema", "sourceTable",
+            "targetDataSourceId", "targetDatabase", "targetSchema", "targetTable",
+            "fieldMappings", "fieldRules", "whereClause", "writeMode", "batchSize");
+
     /** 写入批次的默认值与上限。批次过大时一次失败要回滚的数据量也大。 */
     static final int DEFAULT_BATCH_SIZE = 1000;
     static final int MAX_BATCH_SIZE = 50_000;
@@ -49,6 +55,10 @@ public class OfflineSyncCompiler implements JobCompiler {
     public CompileResult compile(CompileContext context) {
         CompileResult.Collector collector = new CompileResult.Collector();
         Map<String, Object> config = context.config();
+
+        // 拼错的键会被静默忽略 —— 在脱敏字段上那就是一次数据泄露。
+        // 见 CompilerSupport.warnUnknownKeys 的说明
+        CompilerSupport.warnUnknownKeys(collector, config, KNOWN_KEYS);
         String workspaceId = CompilerSupport.workspaceOf(context.definition());
 
         String sourceDs = str(config, "sourceDataSourceId");

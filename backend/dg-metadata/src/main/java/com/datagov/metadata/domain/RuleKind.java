@@ -70,7 +70,29 @@ public enum RuleKind {
 
     /** 去空格 */
     TRIM("去空格", Category.TRANSFORM,
-            Map.of("mode", "BOTH / LEADING / TRAILING"));
+            Map.of("mode", "BOTH / LEADING / TRAILING")),
+
+    /**
+     * 脱敏(序号 35)。
+     *
+     * <p>健康医疗数据属<b>敏感个人信息</b>(架构风险 R8)。对接全民健康信息
+     * 平台时,姓名、身份证号、手机号、住址这些字段在落地之前就要脱敏 ——
+     * 落地之后再脱敏,明文已经在目标库里躺过一遍了。
+     *
+     * <p>它是不可逆的,这一点与 {@link #DECRYPT} 相反:解密是为了让数据可用,
+     * 脱敏是为了让数据<b>不可还原</b>。所以没有"解脱敏"这个规则,
+     * 也没有任何参数能把它变回去。
+     *
+     * <p>{@code HASH} 模式保留可比较性(同一个身份证号总是脱成同一个值,
+     * 因而仍能做 join 与去重),但需要一个盐 —— 没有盐的哈希对身份证号这种
+     * 取值空间有限的字段是可以被穷举还原的,那不叫脱敏。
+     */
+    MASK("脱敏", Category.TRANSFORM,
+            Map.of("mode", "PARTIAL(保留头尾)/ HASH(不可逆但可比较)/ FIXED(全部替换)",
+                    "keepPrefix", "PARTIAL:保留前几位,默认 3",
+                    "keepSuffix", "PARTIAL:保留后几位,默认 4",
+                    "maskChar", "PARTIAL / FIXED:替换字符,默认 *",
+                    "saltCredentialId", "HASH:盐所在的凭据 ID —— 不是盐本身"));
 
     public enum Category {
         CLEANSE("清洗"),

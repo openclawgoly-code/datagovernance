@@ -230,9 +230,13 @@ by_type = call("GET", "/executions?page=1&size=50&jobRefType=OFFLINE_SYNC")["dat
 check("按 jobRefType 过滤即得到「离线同步执行记录」页(序号 15)",
       by_type["total"] >= 1, f"{by_type['total']} 条")
 
-# 用一个本平台不会产生执行的种类:换成 MIGRATION 会让这条断言依赖
-# 「第 7 节还没跑」,而那是一种会随脚本增删而失效的耦合
-empty = call("GET", "/executions?page=1&size=50&jobRefType=PYTHON_JOB")["data"]
+# 用一个本平台<b>结构上</b>不会产生执行的种类。WORKFLOW_NODE 是这样一个:
+# 工作流的节点是以它们各自的种类下发的(OFFLINE_SYNC 之类),这个枚举值
+# 只作为分类保留,从来没有执行落在它名下。
+#
+# 这里原本用的是 PYTHON_JOB,后来 P5 把它变成了一种真任务,这条断言随之
+# 失效 —— 选"眼下恰好没有记录"的种类总会这样,要选"结构上不可能有"的
+empty = call("GET", "/executions?page=1&size=50&jobRefType=WORKFLOW_NODE")["data"]
 check("过滤到没有记录的种类返回空,而不是串到别的种类",
       empty["total"] == 0, f"{empty['total']} 条")
 
@@ -431,8 +435,11 @@ psql(f"DROP SCHEMA IF EXISTS dg_mig_target_{RUN} CASCADE;"
 print("\n【8】规则管理(功能 17)—— 定义归 Metadata、执行归 Runtime 的双栖对象")
 
 kinds = call("GET", "/rules/kinds")["data"]
+# 断言下界而不是精确值:这个清单会随需求增长(P5 加了脱敏),
+# 而"前端不硬编码参数表单"这件事与具体有几种无关
 check("规则种类元数据由后端下发(前端不硬编码参数表单)",
-      len(kinds) == 8, f"{len(kinds)} 种")
+      len(kinds) >= 8 and all(k.get("paramSpec") is not None for k in kinds),
+      f"{len(kinds)} 种")
 check("清洗与转换两类齐备",
       {"CLEANSE", "TRANSFORM"} == {k["category"] for k in kinds},
       str(sorted({k["category"] for k in kinds})))

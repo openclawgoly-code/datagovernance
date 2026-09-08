@@ -3,7 +3,9 @@ package com.datagov.control.compile;
 import com.datagov.control.entity.ControlEntities.JobDefinition;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 各编译器共用的校验片段。
@@ -143,5 +145,34 @@ public final class CompilerSupport {
     /** 定义所属空间 —— 编译器要传给 MetadataLookup 的作用域。 */
     public static String workspaceOf(JobDefinition definition) {
         return definition.getWorkspaceId();
+    }
+
+    /**
+     * 报出配置里编译器<b>不认识</b>的键。
+     *
+     * <p>没有这条检查时,一个拼错的键会被静默忽略:编译通过、执行成功、
+     * 而那个配置从来没有生效过。这个失败模式在多数字段上只是"没生效",
+     * 但在<b>脱敏</b>上是一次数据泄露 —— 用户配了脱敏规则,任务报告成功,
+     * 明文却原样落进了目标库,而没有任何一处告诉过他。
+     *
+     * <p>给 WARNING 而不是 ERROR:配置里多带一个平台不认识的键(比如前端
+     * 塞进来的界面状态)本身不该让任务无法编译。但它必须被看见 ——
+     * 诊断对话框会把警告一并显示出来。
+     */
+    public static void warnUnknownKeys(CompileResult.Collector collector,
+                                       Map<String, Object> config,
+                                       Set<String> knownKeys) {
+        List<String> unknown = config.keySet().stream()
+                .filter(key -> !knownKeys.contains(key))
+                .sorted()
+                .toList();
+        if (unknown.isEmpty()) {
+            return;
+        }
+        collector.warn(CompileStage.STRUCTURAL_VALIDATION, "config",
+                "配置里有 %d 个平台不认识的键:%s".formatted(unknown.size(),
+                        String.join(", ", unknown)),
+                "它们不会生效。若本意是配置某个功能,请核对键名 —— "
+                        + "一个拼错的键会让配置静默失效,而任务照常报告成功");
     }
 }

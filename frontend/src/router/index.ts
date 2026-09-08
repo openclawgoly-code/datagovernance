@@ -35,6 +35,21 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/metadata/DataSourceListView.vue'),
         meta: { title: '数据源', permission: 'metadata:datasource:read' },
       },
+      // 注册中心与语义映射(序号 34 的契约第 3、4 条)
+      {
+        path: 'metadata/registry',
+        name: 'registry',
+        component: () => import('@/views/metadata/RegistryView.vue'),
+        meta: { title: '数据集与模型', permission: 'metadata:registry:read' },
+      },
+      // Python 任务复用任务管理页,靠 meta.jobType 钉死类型 —— 与离线开发、
+      // 工作流编排同一个做法:菜单是同一个列表的投影
+      {
+        path: 'dev/python',
+        name: 'python-jobs',
+        component: () => import('@/views/integration/JobListView.vue'),
+        meta: { title: 'Python 任务', permission: 'control:job:read', jobType: 'PYTHON_JOB' },
+      },
       {
         path: 'integration/jobs',
         name: 'jobs',

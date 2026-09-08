@@ -31,7 +31,18 @@ public enum JobType {
     BATCH("批处理任务", JobRefType.BATCH_DEV, true),
 
     /** 序号 22:工作流 */
-    WORKFLOW("工作流", JobRefType.WORKFLOW, true);
+    WORKFLOW("工作流", JobRefType.WORKFLOW, true),
+
+    /**
+     * 序号 34:Intelligence 的训练 / 预标注作业。
+     *
+     * <p>这是 SPACE-MODEL.md C+D.8 <b>契约第 2 条</b>的落地:训练与预标注
+     * 作业通过 Control 提交,复用统一 Execution 事实模型 —— 因而自动获得
+     * 监控(24)、告警(25)、审计(27),不必在 Intelligence 那边再建一套。
+     *
+     * <p>可调度:预标注通常是"每天把新进来的影像跑一遍"。
+     */
+    PYTHON_JOB("Python 任务", JobRefType.PYTHON_JOB, true);
 
     private final String displayName;
     private final JobRefType runtimeType;

@@ -15,6 +15,8 @@ export type JobType =
   | 'STREAMING'
   | 'BATCH'
   | 'WORKFLOW'
+  /** 序号 34:Intelligence 的训练 / 预标注作业(契约第 2 条) */
+  | 'PYTHON_JOB'
 
 /**
  * 任务定义状态,与 SPACE-MODEL.md E.2 一致。

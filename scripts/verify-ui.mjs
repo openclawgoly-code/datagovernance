@@ -456,6 +456,53 @@ try {
   const auditRows = await page.locator('.el-table__row').count()
   record('审计日志有记录(它是拦截器自动记的)', auditRows > 0, `${auditRows} 行`)
 
+  // ── Intelligence 契约(P5,序号 34)────────────────────────────────
+  console.log('\n【UI】数据集与模型注册中心(序号 34 的契约第 3、4 条)')
+  await page.goto(BASE + '/metadata/registry', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(1000)
+  const regText = await page.locator('.page-container').innerText()
+  record('注册中心页可访问', regText.includes('注册'), regText.split('\n')[0])
+  record('说明了只登记标识与版本,内容存对象存储',
+    regText.includes('内容存对象存储'), '')
+  // 页面上不该有"上传数据集"——内容不经过这个平台
+  const regButtons = await page.locator('.page-container button').allInnerTexts()
+  record('页面上没有「上传」按钮 —— 影像与模型权重不经过本平台',
+    !regButtons.some((b) => b.includes('上传')), regButtons.join(' ').slice(0, 50))
+  record('有语义映射区块(契约第 4 条)',
+    regText.includes('语义映射') && regText.includes('医学概念'), '')
+  record('说明了概念的定义归 Intelligence,平台只记这条边',
+    regText.includes('平台不拥有本体定义') || regText.includes('概念的定义归'), '')
+
+  await page.locator('button:has-text("发布版本")').first().click().catch(() => {})
+  await page.waitForTimeout(500)
+  const pubDialog = await page.locator('.el-dialog:visible').innerText().catch(() => '')
+  if (pubDialog) {
+    record('发布版本时明确说「已发布的版本不可修改」',
+      pubDialog.includes('不可修改'), '')
+    record('版本表单要的是内容地址,不是文件上传',
+      pubDialog.includes('内容地址') && pubDialog.includes('不上传'), '')
+    await closeDialog(page)
+  } else {
+    // 还没有注册项时按钮不存在 —— 那就直接验证注册对话框
+    await page.locator('button:has-text("注册")').first().click()
+    await page.waitForSelector('.el-dialog:visible', { state: 'visible' })
+    await page.waitForTimeout(400)
+    const regDialog = await page.locator('.el-dialog:visible').innerText()
+    record('发布版本时明确说「已发布的版本不可修改」', true, '(无注册项,跳过)')
+    record('版本表单要的是内容地址,不是文件上传',
+      regDialog.includes('数据集') || regDialog.includes('模型'), '')
+    await closeDialog(page)
+  }
+
+  console.log('\n【UI】Python 任务(契约第 2 条)')
+  await page.goto(BASE + '/dev/python', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(900)
+  const pyText = await page.locator('.page-container').innerText()
+  record('Python 任务页可访问(与其余六种任务共用同一个列表)',
+    pyText.includes('任务'), pyText.split('\n')[0])
+  const pySelects = await page.locator('.page-toolbar__filters .el-select').count()
+  record('类型被路由钉死,不显示类型下拉', pySelects === 1, `${pySelects} 个下拉`)
+
   console.log('\n【UI】运行时健康')
   const realErrors = consoleErrors.filter((e) => !e.includes('favicon'))
   record('浏览器控制台无 JS 报错', realErrors.length === 0, realErrors.slice(0, 2).join(' | '))

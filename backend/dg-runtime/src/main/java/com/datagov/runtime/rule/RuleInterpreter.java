@@ -89,12 +89,79 @@ public final class RuleInterpreter {
                 // 组装规则链时把它替换成一个带密钥的实现;这里保持原值不动,
                 // 而不是假装解密成功。
                 case "DECRYPT" -> value;
+                case "MASK" -> mask(value, rule);
                 default -> value;
             };
         } catch (RuntimeException e) {
             // 一条脏数据不该让整批同步失败。转换不了就原样保留 ——
             // 中断一次几百万行的同步,代价远大于几行没转换成功。
+            //
+            // <b>脱敏是这条规矩的例外</b>:原样保留意味着明文流进了目标库,
+            // 而那正是脱敏要防的事。所以它在上面自己处理异常,
+            // 任何算不出来的情况都返回固定掩码而不是原值。
             return value;
+        }
+    }
+
+    // ── 脱敏(序号 35)──────────────────────────────────────────────────
+
+    /**
+     * 脱敏。
+     *
+     * <p><b>失败时返回掩码,不返回原值。</b> 这与其他规则的容错方向相反:
+     * 别的规则算不出来时保留原值是安全的,而脱敏算不出来时保留原值意味着
+     * 明文流进了目标库 —— 健康医疗数据属敏感个人信息(架构风险 R8),
+     * 那是一次数据泄露,不是一条没转换成功的记录。
+     */
+    private static Object mask(Object value, Rule rule) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            String text = String.valueOf(value);
+            String maskChar = rule.param("maskChar", "*");
+            char fill = maskChar.isEmpty() ? '*' : maskChar.charAt(0);
+
+            return switch (rule.param("mode", "PARTIAL")) {
+                case "FIXED" -> String.valueOf(fill).repeat(Math.min(text.length(), 8));
+
+                case "HASH" -> {
+                    // 盐由调用方在组装规则链时从凭据托管取出并注入。
+                    // 没有盐时<b>不退化成无盐哈希</b>:身份证号的取值空间有限,
+                    // 无盐哈希可以被穷举还原,那不叫脱敏
+                    String salt = rule.param("__salt", "");
+                    if (salt.isEmpty()) {
+                        yield String.valueOf(fill).repeat(8);
+                    }
+                    yield sha256Hex(salt + text).substring(0, 16);
+                }
+
+                default -> {
+                    int keepPrefix = Math.max(0, rule.number("keepPrefix", 3));
+                    int keepSuffix = Math.max(0, rule.number("keepSuffix", 4));
+                    // 太短的值全部遮掉:留头留尾之后只剩一两位的话,
+                    // 那一两位加上长度信息往往就够还原了
+                    if (text.length() <= keepPrefix + keepSuffix) {
+                        yield String.valueOf(fill).repeat(text.length());
+                    }
+                    yield text.substring(0, keepPrefix)
+                            + String.valueOf(fill).repeat(text.length() - keepPrefix - keepSuffix)
+                            + text.substring(text.length() - keepSuffix);
+                }
+            };
+        } catch (RuntimeException e) {
+            // 算不出来就给一个固定掩码 —— 绝不把原值放过去
+            return "********";
+        }
+    }
+
+    private static String sha256Hex(String input) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            return java.util.HexFormat.of().formatHex(
+                    digest.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 不可用", e);
         }
     }
 
