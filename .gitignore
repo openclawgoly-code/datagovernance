@@ -50,3 +50,6 @@ embedded-pg/
 application-local.yml
 application-local.yaml
 secrets/
+
+### 数据集缓存(seed-public-datasets.sh 下载与生成的内容,不进库)###
+.seed-cache/

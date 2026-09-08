@@ -144,6 +144,7 @@ cd frontend && pnpm run build               # 前端类型检查与构建
 | `verify-p3.py` | 77 | 实时保活状态机、离线开发跑真 SQL、工作流条件求值与级联取消 |
 | `verify-p4.py` | 60 | 五个监控口径、告警抑制窗口、Webhook 真推送、审计不可变 |
 | `verify-p5.py` | 50 | Intelligence 四条契约、脱敏在落地前生效 |
+| `verify-p6-datasets.py` | 26 | 公开数据集:分区表结构探测、异构类型保真、整库迁移对照、GBK 中文文件解析 |
 | `verify-ui.mjs` | 82 | 真实浏览器驱动的全部页面 |
 
 它们验证的不是"接口通了",而是那些容易在重构中悄悄失效的约束。几个例子:
@@ -156,6 +157,46 @@ cd frontend && pnpm run build               # 前端类型检查与构建
 
 后三条各自抓到过一个真实缺陷:进度回调整行写回抹掉了取消状态、
 被取消的工作流永远停在「取消中」、拼错的配置键被静默忽略导致脱敏失效。
+
+### 公开数据集验收(P6)
+
+前五份脚本的数据是它们自己造的:表是现建的,列是挑好的,编码一律 UTF-8,
+没有分区、没有自定义类型、没有中文列名。那样的数据能证明"功能通不通",
+证明不了"遇到真实的库会不会塌"。P6 用公开数据集补上这一段:
+
+```bash
+./scripts/seed-public-datasets.sh            # 下载 + 灌库 + 备文件素材
+./scripts/seed-public-datasets.sh ftp start  # 起本地只读 FTP(文件解析要用)
+DG_ADMIN_PASSWORD='换成你的口令' python3 scripts/verify-p6-datasets.py
+```
+
+| 数据集 | 来源 | 验证什么 |
+|---|---|---|
+| Pagila | PostgreSQL 官方示例库的社区移植 | 15 张表藏在 55 个分区里;ENUM / DOMAIN / `text[]` / `tsvector` / `vector` / 生成列 |
+| Chinook | 官方同时提供 PG / MySQL / Oracle / SQLServer 四套脚本 | 整库迁移唯一有**参照答案**的形态 —— 迁完拿官方版逐表对行数与内容 |
+| 健康样本 | Synthea 官方样本;取不到时本地生成同结构替身 | 中文表头 + GBK 编码 + 合法校验位的合成身份证号,走 FTP 做文件解析与脱敏 |
+
+素材全部落在 `.seed-cache/`(已 gitignore)。身份证号是本地合成的,校验位算对
+但号段与生日随机组合,不对应任何真人;哪一份是官方样本、哪一份是替身,
+写在生成出来的 `PROVENANCE.txt` 里 —— 两者混在一起而无从分辨,会让后续
+所有基于它的结论都失去依据。
+
+**首次运行抓到四个缺陷**(断言现为红色,尚未修):
+
+1. **分区污染结构树,父表反而不见了。** `AbstractJdbcConnector` 的
+   `BROWSABLE_TABLE_TYPES` 不含 `PARTITIONED TABLE`,而 pgjdbc 把分区父表报成
+   这个类型、把 55 个子分区报成普通 `TABLE` —— 结果恰好反过来:用户看不到
+   `payment`,却要在 55 个月度碎片里找路。
+2. **FTP 流被关两次就抛异常。** try-with-resources 同时持有 `BufferedReader`
+   和底层流,关闭时 `FilterInputStream.close()` 被调用两次,第二次在已断开的
+   连接上调 `completePendingCommand()`。表现最坏:200 行全部写进目标表了,
+   执行状态却是 `FAILED` —— 值班的人重跑一次就是双写。
+3. **`path` 指向文件本身时拼出不存在的路径。** FTP 对一个文件执行 `LIST`
+   会返回该文件自己那一条,`FileParseRunner.resolveFiles` 把它当成目录清单,
+   拼出 `/health/x.csv/x.csv`。编译器的配置说明写的是「path 文件或目录路径」。
+4. **`FileParseCompiler` 没有接 `warnUnknownKeys`。** P5 给离线同步补的那道防线
+   没有覆盖文件解析这条路径 —— 同一个拼错键名的错误在这里依然静默通过,
+   而这恰恰是脱敏最要紧的一条链路。
 
 ### P1 验收(示例)
 
