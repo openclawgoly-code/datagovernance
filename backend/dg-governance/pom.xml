@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.datagov</groupId>
+    <artifactId>dg-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>dg-governance</artifactId>
+  <name>dg-governance</name>
+  <description>Governance/Trust Space: 任务监控、告警规则与告警信息、审计日志、告警渠道 (功能 24-27、33)。</description>
+
+  <!--
+    ┌─ 架构约束的编译期证明 ────────────────────────────────────────┐
+    │ 这里没有 dg-control 依赖,而且永远不该有。                     │
+    │                                                              │
+    │ Governance 的 must_not_do 第二条是「不得向任何 Space 发出      │
+    │ Command」——需要干预时发事件,由对方决定要不要照做。           │
+    │ 若这里能看见 dg-control,「告警时顺手把任务暂停一下」会在       │
+    │ 三个月内出现,而那一行代码会让依赖图变成环:                   │
+    │ control → runtime → (事件) → governance → control。           │
+    │                                                              │
+    │ 依赖 dg-runtime 是<b>只读</b>的:监控要聚合执行事实(R4),      │
+    │ 它读 rt_execution,但不写。审计与告警是它自己的表。            │
+    │                                                              │
+    │ 依赖 dg-metadata 同样只读:审计要把数据源 ID 翻译成人看得懂     │
+    │ 的名字。                                                      │
+    └──────────────────────────────────────────────────────────────┘
+  -->
+  <dependencies>
+    <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-metadata</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-runtime</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>com.baomidou</groupId><artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-mail</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId><artifactId>jackson-datatype-jsr310</artifactId>
+    </dependency>
+  </dependencies>
+</project>

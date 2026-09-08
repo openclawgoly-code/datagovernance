@@ -17,7 +17,8 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 @MapperScan({"com.datagov.platform.mapper", "com.datagov.metadata.mapper",
-        "com.datagov.runtime.mapper", "com.datagov.control.mapper"})
+        "com.datagov.runtime.mapper", "com.datagov.control.mapper",
+        "com.datagov.governance.mapper"})
 public class MybatisPlusConfig {
 
     @Bean

@@ -10,7 +10,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.UUID;
@@ -65,6 +67,39 @@ public class GlobalExceptionHandler {
         ErrorCode code = ErrorCode.SYS_VALIDATION_FAILED;
         return ResponseEntity.status(code.httpStatus())
                 .body(ApiResponse.fail(code.code(), message, traceId));
+    }
+
+    /**
+     * 路径不存在。
+     *
+     * <p>没有这一条,任何一个拼错的 URL 都会掉进下面的兜底里,变成一个 500 加
+     * 一行「未预期异常」的错误日志。后果不只是响应码不对:真正的内部错误会被
+     * 淹没在一堆拼写错误里,而那正是错误日志唯一的用途。
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotFound(NoResourceFoundException ex,
+                                                            HttpServletRequest request) {
+        log.debug("路径不存在 {} {}", request.getMethod(), request.getRequestURI());
+        return ResponseEntity.status(404)
+                .body(ApiResponse.fail(ErrorCode.SYS_NOT_FOUND.code(),
+                        "接口不存在: " + request.getRequestURI(), null));
+    }
+
+    /**
+     * 方法不被支持 —— 路径对但动词错。
+     *
+     * <p>与 404 分开:审计日志只有 GET 而没有 DELETE,收到 405 的调用方能立刻
+     * 知道"这个资源在,但它不允许删",而 404 会让人以为路径写错了。
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotAllowed(
+            HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
+        log.debug("方法不支持 {} {}", request.getMethod(), request.getRequestURI());
+        return ResponseEntity.status(405)
+                .body(ApiResponse.fail(ErrorCode.SYS_VALIDATION_FAILED.code(),
+                        "%s 不支持 %s,允许:%s".formatted(request.getRequestURI(),
+                                request.getMethod(), ex.getSupportedHttpMethods()),
+                        null));
     }
 
     /**

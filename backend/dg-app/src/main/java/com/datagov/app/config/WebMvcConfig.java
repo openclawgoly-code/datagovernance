@@ -1,6 +1,8 @@
 package com.datagov.app.config;
 
+import com.datagov.app.web.AuditInterceptor;
 import com.datagov.app.web.AuthInterceptor;
+import com.datagov.governance.service.AuditService;
 import com.datagov.platform.config.SecurityProperties;
 import com.datagov.platform.service.AuthService;
 import com.datagov.platform.service.PermissionService;
@@ -17,21 +19,29 @@ public class WebMvcConfig implements WebMvcConfigurer {
     private final WorkspaceService workspaceService;
     private final PermissionService permissionService;
     private final SecurityProperties properties;
+    private final AuditService auditService;
 
     public WebMvcConfig(AuthService authService,
                         WorkspaceService workspaceService,
                         PermissionService permissionService,
-                        SecurityProperties properties) {
+                        SecurityProperties properties,
+                        AuditService auditService) {
         this.authService = authService;
         this.workspaceService = workspaceService;
         this.permissionService = permissionService;
         this.properties = properties;
+        this.auditService = auditService;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new AuthInterceptor(
                         authService, workspaceService, permissionService, properties))
+                .addPathPatterns("/api/**");
+        // 审计拦截器排在鉴权之后:它的 afterCompletion 会先于 AuthInterceptor 的
+        // 执行(Spring 逆序回调),因此还能读到 WorkspaceContext 里的调用者。
+        // 顺序反过来的话,每条审计记录的用户都是空的。
+        registry.addInterceptor(new AuditInterceptor(auditService))
                 .addPathPatterns("/api/**");
     }
 

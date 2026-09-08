@@ -21,6 +21,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.datagov.metadata",
         "com.datagov.runtime",
         "com.datagov.control",
+        "com.datagov.governance",
         "com.datagov.data.connector"
 })
 public class DataGovernanceApplication {
