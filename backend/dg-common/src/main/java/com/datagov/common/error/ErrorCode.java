@@ -53,7 +53,11 @@ public enum ErrorCode {
     DAT_CONNECT_FAILED("DAT_CONNECT_FAILED", 502, "连接目标数据源失败"),
     DAT_AUTH_FAILED("DAT_AUTH_FAILED", 502, "目标数据源认证失败"),
     DAT_TIMEOUT("DAT_TIMEOUT", 504, "连接目标数据源超时"),
-    DAT_INTROSPECT_FAILED("DAT_INTROSPECT_FAILED", 502, "读取目标数据源结构失败");
+    DAT_INTROSPECT_FAILED("DAT_INTROSPECT_FAILED", 502, "读取目标数据源结构失败"),
+    /** 功能7:只允许查询类语句。以 400 而非 403 返回 —— 这是请求内容的问题,不是权限问题 */
+    DAT_SQL_NOT_ALLOWED("DAT_SQL_NOT_ALLOWED", 400, "只允许执行查询类 SQL 语句"),
+    DAT_QUERY_FAILED("DAT_QUERY_FAILED", 502, "执行查询失败"),
+    DAT_UNSUPPORTED_OPERATION("DAT_UNSUPPORTED_OPERATION", 400, "该数据源类型不支持此操作");
 
     private final String code;
     private final int httpStatus;

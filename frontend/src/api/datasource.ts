@@ -10,6 +10,7 @@ import type {
   DataSourceVersion,
 } from '@/types/datasource'
 import type { CatalogPage } from '@/types/catalog'
+import type { SqlQueryRequest, SqlQueryResult } from '@/types/query'
 
 /** 数据源(功能 1-4、6、8)与数据源目录(功能 5)、库表结构浏览(功能 7)。 */
 export const dataSourceApi = {
@@ -85,6 +86,16 @@ export const dataSourceApi = {
     refresh = false,
   ): Promise<CatalogPage> {
     return http.get<CatalogPage>(`/datasources/${id}/catalog`, { ...path, refresh })
+  },
+
+  /**
+   * 执行自定义查询(功能 7)。
+   *
+   * 后端只接受查询类语句,并强制行数上限与超时 —— 前端不需要也不应该
+   * 自己做语法校验(那会造出第二份规则,两份迟早不一致)。
+   */
+  query(id: string, request: SqlQueryRequest): Promise<SqlQueryResult> {
+    return http.post<SqlQueryResult>(`/datasources/${id}/query`, request)
   },
 }
 

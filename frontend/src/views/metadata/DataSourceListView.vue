@@ -6,6 +6,7 @@ import { statusMeta } from '@/utils/datasource-status'
 import DataSourceFormDialog from './DataSourceFormDialog.vue'
 import CatalogBrowserDrawer from './CatalogBrowserDrawer.vue'
 import ProbeScheduleDialog from './ProbeScheduleDialog.vue'
+import SqlConsoleDrawer from './SqlConsoleDrawer.vue'
 import type {
   ConnectivityResult,
   DataSource,
@@ -27,6 +28,7 @@ const selectedCatalog = ref('')
 const formDialog = ref<InstanceType<typeof DataSourceFormDialog>>()
 const browserDrawer = ref<InstanceType<typeof CatalogBrowserDrawer>>()
 const probeDialog = ref<InstanceType<typeof ProbeScheduleDialog>>()
+const sqlConsole = ref<InstanceType<typeof SqlConsoleDrawer>>()
 
 /** 前端按目录过滤而不是让后端加参数:P1 单空间数据源数量有限,
  *  一次取回再过滤比给列表接口加一个只有这里用的参数更简单。 */
@@ -89,6 +91,10 @@ function onBrowse(row: DataSource) {
 
 function onProbe(row: DataSource) {
   probeDialog.value?.open(row)
+}
+
+function onQuery(row: DataSource) {
+  sqlConsole.value?.open(row)
 }
 
 /** 连通性测试。结果用长驻通知而不是一闪而过的 toast —— 用户往往需要
@@ -321,7 +327,7 @@ async function onDeleteCatalog() {
               </template>
             </el-table-column>
 
-            <el-table-column label="操作" width="320" fixed="right">
+            <el-table-column label="操作" width="380" fixed="right">
               <template #default="{ row }">
                 <el-button
                   v-permission="'metadata:datasource:test'"
@@ -340,6 +346,16 @@ async function onDeleteCatalog() {
                   @click="onBrowse(row as DataSource)"
                 >
                   结构
+                </el-button>
+                <el-button
+                  v-permission="'metadata:datasource:query'"
+                  link
+                  type="primary"
+                  :disabled="row.status !== 'AVAILABLE' || (row.family !== 'RELATIONAL' && row.family !== 'MPP')"
+                  :title="row.family !== 'RELATIONAL' && row.family !== 'MPP' ? '该类型没有 SQL 概念' : ''"
+                  @click="onQuery(row as DataSource)"
+                >
+                  查询
                 </el-button>
                 <el-button
                   v-permission="'metadata:datasource:update'"
@@ -399,6 +415,7 @@ async function onDeleteCatalog() {
     />
     <CatalogBrowserDrawer ref="browserDrawer" />
     <ProbeScheduleDialog ref="probeDialog" @saved="load" />
+    <SqlConsoleDrawer ref="sqlConsole" />
   </div>
 </template>
 

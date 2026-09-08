@@ -10,6 +10,8 @@ import com.datagov.data.spi.DataSourceConnector;
 import com.datagov.data.spi.DataSourceType;
 import com.datagov.data.spi.FileCatalogReader;
 import com.datagov.data.spi.RelationalCatalogReader;
+import com.datagov.data.spi.SqlQueryExecutor;
+import com.datagov.data.spi.query.SqlQuery;
 import com.datagov.data.spi.catalog.CatalogModel.CatalogPage;
 import com.datagov.data.spi.catalog.CatalogPath;
 import org.slf4j.Logger;
@@ -95,6 +97,18 @@ public class DefaultDataAccessGateway implements DataAccessGateway {
                 "%s 类型的数据源不支持结构浏览".formatted(type.displayName()),
                 "capabilities: canBrowseCatalog=%s canBrowseFiles=%s"
                         .formatted(capabilities.canBrowseCatalog(), capabilities.canBrowseFiles()));
+    }
+
+    @Override
+    public SqlQuery.Result executeQuery(DataSourceType type, ConnectionConfig config,
+                                        SqlQuery.Request request) {
+        DataSourceConnector connector = connector(type);
+        if (!(connector instanceof SqlQueryExecutor executor)) {
+            // FTP/SFTP/RestAPI 没有 SQL 概念 —— 它们不实现该接口,而不是实现了再抛异常
+            throw new BizException(ErrorCode.DAT_UNSUPPORTED_OPERATION,
+                    "%s 类型的数据源不支持 SQL 查询".formatted(type.displayName()));
+        }
+        return executor.executeQuery(type, config, request);
     }
 
     /**

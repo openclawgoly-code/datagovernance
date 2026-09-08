@@ -2,6 +2,7 @@ package com.datagov.data.spi;
 
 import com.datagov.data.spi.catalog.CatalogModel.CatalogPage;
 import com.datagov.data.spi.catalog.CatalogPath;
+import com.datagov.data.spi.query.SqlQuery;
 
 import java.util.List;
 
@@ -46,4 +47,15 @@ public interface DataAccessGateway {
      * </pre>
      */
     CatalogPage browse(DataSourceType type, ConnectionConfig config, CatalogPath path);
+
+    /**
+     * 执行自定义查询(功能 7)。
+     *
+     * <p>这是本网关上<b>唯一</b>接受用户输入语句的方法,因此也是唯一需要
+     * 语法层护栏的地方。它仍然是 Query 语义:{@link com.datagov.data.spi.query.ReadOnlySqlGuard}
+     * 保证只有查询类语句能通过,网关不因此获得写能力。
+     *
+     * @throws com.datagov.common.error.BizException 语句非只读、类型不支持 SQL、或执行失败
+     */
+    SqlQuery.Result executeQuery(DataSourceType type, ConnectionConfig config, SqlQuery.Request request);
 }

@@ -7,10 +7,14 @@ import com.datagov.data.spi.DataAccessGateway;
 import com.datagov.data.spi.DataSourceType;
 import com.datagov.data.spi.catalog.CatalogModel.CatalogPage;
 import com.datagov.data.spi.catalog.CatalogPath;
+import com.datagov.data.spi.query.SqlQuery;
 import com.datagov.metadata.service.CatalogService;
+import com.datagov.metadata.service.DataQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -27,10 +31,14 @@ import java.util.List;
 public class CatalogController {
 
     private final CatalogService catalogService;
+    private final DataQueryService dataQueryService;
     private final DataAccessGateway gateway;
 
-    public CatalogController(CatalogService catalogService, DataAccessGateway gateway) {
+    public CatalogController(CatalogService catalogService,
+                             DataQueryService dataQueryService,
+                             DataAccessGateway gateway) {
         this.catalogService = catalogService;
+        this.dataQueryService = dataQueryService;
         this.gateway = gateway;
     }
 
@@ -90,6 +98,24 @@ public class CatalogController {
                 : new CatalogPath(blankToNull(database), blankToNull(schema), blankToNull(table), null);
 
         return ApiResponse.ok(catalogService.browse(id, catalogPath, refresh));
+    }
+
+    public record QueryRequest(String sql, Integer maxRows, Integer timeoutSeconds) {
+    }
+
+    @PostMapping("/datasources/{id}/query")
+    @RequirePermission("metadata:datasource:query")
+    @Operation(summary = "执行自定义查询(功能7)",
+            description = "只允许查询类语句(SELECT/WITH/SHOW/DESC/EXPLAIN)。"
+                    + "强制行数上限与超时;结果超过上限时 truncated 为 true。"
+                    + "部署时应为数据查询配置只读数据库账号 —— 语法白名单是纵深防御,不是唯一防线。")
+    public ApiResponse<SqlQuery.Result> query(@PathVariable String id,
+                                              @RequestBody QueryRequest request) {
+        SqlQuery.Request spec = new SqlQuery.Request(
+                request.sql(),
+                request.maxRows() == null ? 0 : request.maxRows(),
+                request.timeoutSeconds() == null ? 0 : request.timeoutSeconds());
+        return ApiResponse.ok(dataQueryService.execute(id, spec));
     }
 
     @GetMapping("/datasources/{id}/capabilities")

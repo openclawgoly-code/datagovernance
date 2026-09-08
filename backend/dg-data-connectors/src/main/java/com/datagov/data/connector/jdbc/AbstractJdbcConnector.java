@@ -8,6 +8,9 @@ import com.datagov.data.spi.ConnectionConfig;
 import com.datagov.data.spi.ConnectivityResult;
 import com.datagov.data.spi.DataSourceType;
 import com.datagov.data.spi.RelationalCatalogReader;
+import com.datagov.data.spi.SqlQueryExecutor;
+import com.datagov.data.spi.query.ReadOnlySqlGuard;
+import com.datagov.data.spi.query.SqlQuery;
 import com.datagov.data.spi.catalog.CanonicalType;
 import com.datagov.data.spi.catalog.CatalogModel.ColumnInfo;
 import com.datagov.data.spi.catalog.CatalogModel.DatabaseInfo;
@@ -22,6 +25,7 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -42,7 +46,7 @@ import java.util.Set;
  * <p><b>无状态</b>:本类及子类不持有任何连接或配置。每个方法自己开连接、
  * 自己关闭。{@link ConnectionConfig} 里有明文口令,缓存它等于把口令留在堆上。
  */
-public abstract class AbstractJdbcConnector implements RelationalCatalogReader {
+public abstract class AbstractJdbcConnector implements RelationalCatalogReader, SqlQueryExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(AbstractJdbcConnector.class);
 
@@ -249,6 +253,105 @@ public abstract class AbstractJdbcConnector implements RelationalCatalogReader {
             return columns;
         } catch (SQLException ex) {
             throw ConnectorExceptions.introspectFailed("列出字段 " + path.display(), ex);
+        }
+    }
+
+    /**
+     * 执行自定义查询(功能 7)。
+     *
+     * <p>三道护栏缺一不可:只读校验、行数上限、查询超时。前者防误操作与注入,
+     * 后两者防"一条查询拖垮别人生产库" —— 平台连的是业务方的库,
+     * 它不该有能力对那些库做任何无界的事。
+     */
+    @Override
+    public SqlQuery.Result executeQuery(DataSourceType type, ConnectionConfig config,
+                                        SqlQuery.Request request) {
+        String sql = ReadOnlySqlGuard.requireReadOnly(request.sql());
+        long startedAt = System.nanoTime();
+
+        try (Connection connection = open(type, config)) {
+            // 能设只读就设:多一层由数据库自己强制的保障,比语法白名单可靠得多
+            trySetReadOnly(connection);
+
+            try (Statement statement = connection.createStatement()) {
+                statement.setQueryTimeout(request.timeoutSeconds());
+                // 多取一行用来判断是否被截断 —— 否则恰好等于上限时无法区分
+                // "刚好这么多"和"还有更多"
+                statement.setMaxRows(request.maxRows() + 1);
+                statement.setFetchSize(Math.min(request.maxRows() + 1, 500));
+
+                try (ResultSet rs = statement.executeQuery(sql)) {
+                    return readResult(rs, type, request.maxRows(), elapsedMillis(startedAt));
+                }
+            }
+        } catch (SQLException ex) {
+            ErrorCode code = ConnectorExceptions.classify(ex);
+            // 查询失败最常见的原因是 SQL 写错了,把数据库的原话带给用户
+            // 比一句"执行失败"有用得多
+            throw new BizException(ErrorCode.DAT_QUERY_FAILED,
+                    "查询执行失败: " + ex.getMessage(),
+                    "SQLState=%s vendorCode=%d classified=%s".formatted(
+                            ex.getSQLState(), ex.getErrorCode(), code.code()), ex);
+        }
+    }
+
+    private SqlQuery.Result readResult(ResultSet rs, DataSourceType type,
+                                       int maxRows, long elapsedMillis) throws SQLException {
+        ResultSetMetaData meta = rs.getMetaData();
+        int columnCount = meta.getColumnCount();
+        TypeMapper mapper = typeMapper(type);
+
+        List<SqlQuery.Column> columns = new ArrayList<>(columnCount);
+        for (int i = 1; i <= columnCount; i++) {
+            String rawType = meta.getColumnTypeName(i);
+            columns.add(new SqlQuery.Column(
+                    meta.getColumnLabel(i),
+                    rawType,
+                    mapper.map(rawType, meta.getColumnType(i),
+                            meta.getPrecision(i), meta.getScale(i))));
+        }
+
+        List<List<String>> rows = new ArrayList<>();
+        boolean truncated = false;
+        while (rs.next()) {
+            if (rows.size() >= maxRows) {
+                truncated = true;   // 多取的那一行证明后面还有
+                break;
+            }
+            List<String> row = new ArrayList<>(columnCount);
+            for (int i = 1; i <= columnCount; i++) {
+                row.add(renderCell(rs, i));
+            }
+            rows.add(row);
+        }
+        return new SqlQuery.Result(columns, rows, rows.size(), truncated, elapsedMillis);
+    }
+
+    /**
+     * 单元格一律转成字符串。
+     *
+     * <p>平台只负责展示,不承担把目标端类型映射成 Java 类型的责任 ——
+     * 那会引入一堆只在特定驱动上才出现的转换异常(Oracle 的 TIMESTAMP WITH
+     * LOCAL TIME ZONE、PostgreSQL 的自定义域类型等),而展示层根本不需要。
+     * 二进制列只报长度,不把几 MB 的 BLOB 塞进 JSON 响应。
+     */
+    private static String renderCell(ResultSet rs, int index) throws SQLException {
+        int sqlType = rs.getMetaData().getColumnType(index);
+        if (sqlType == java.sql.Types.BLOB || sqlType == java.sql.Types.LONGVARBINARY
+                || sqlType == java.sql.Types.VARBINARY || sqlType == java.sql.Types.BINARY) {
+            byte[] bytes = rs.getBytes(index);
+            return bytes == null ? null : "<binary %d bytes>".formatted(bytes.length);
+        }
+        String value = rs.getString(index);
+        return rs.wasNull() ? null : value;
+    }
+
+    /** 并非所有驱动都支持只读连接;不支持时静默跳过,语法护栏仍然生效。 */
+    private void trySetReadOnly(Connection connection) {
+        try {
+            connection.setReadOnly(true);
+        } catch (SQLException | UnsupportedOperationException e) {
+            log.debug("目标驱动不支持只读连接,依赖语法护栏", e);
         }
     }
 
