@@ -117,7 +117,7 @@ class DataSourceServiceTest {
     @DisplayName("缺少必填连接参数在保存前就被拒,而不是等到测连接")
     void missingRequiredFieldsRejectedBeforePersist() {
         DataSourceUpsertCommand noHost = new DataSourceUpsertCommand(
-                "坏配置", DataSourceType.MYSQL, null,
+                "坏配置", DataSourceType.MYSQL, null, null,
                 null, 3306, "db", "u", Map.of(), null, null, null, null, null);
 
         assertThatThrownBy(() -> service.create(noHost))
@@ -132,7 +132,7 @@ class DataSourceServiceTest {
     @DisplayName("RestAPI 类型必须有 baseUrl")
     void restApiRequiresBaseUrl() {
         DataSourceUpsertCommand noBaseUrl = new DataSourceUpsertCommand(
-                "接口", DataSourceType.REST_API, null,
+                "接口", DataSourceType.REST_API, null, null,
                 null, null, null, null, Map.of(), null, null, null, null, null);
 
         assertThatThrownBy(() -> service.create(noBaseUrl))
@@ -174,7 +174,7 @@ class DataSourceServiceTest {
         when(dataSourceMapper.selectOne(any())).thenReturn(existing);
 
         DataSourceUpsertCommand changed = new DataSourceUpsertCommand(
-                existing.getName(), DataSourceType.MYSQL, null,
+                existing.getName(), DataSourceType.MYSQL, null, null,
                 "new-host", 3306, "db", "u", Map.of(), null, null, null, null, null);
 
         DataSourceView view = service.update(existing.getId(), changed);
@@ -193,7 +193,7 @@ class DataSourceServiceTest {
         when(dataSourceMapper.selectOne(any())).thenReturn(existing);
 
         DataSourceUpsertCommand renamed = new DataSourceUpsertCommand(
-                "改个名字", DataSourceType.MYSQL, "补个描述",
+                "改个名字", DataSourceType.MYSQL, "补个描述", null,
                 existing.getHost(), existing.getPort(), existing.getDatabaseName(),
                 existing.getUsername(), Map.of(), null, null, null, null, null);
 
@@ -211,7 +211,7 @@ class DataSourceServiceTest {
         when(dataSourceMapper.selectOne(any())).thenReturn(existing);
 
         DataSourceUpsertCommand retyped = new DataSourceUpsertCommand(
-                existing.getName(), DataSourceType.POSTGRESQL, null,
+                existing.getName(), DataSourceType.POSTGRESQL, null, null,
                 existing.getHost(), 5432, "db", "u", Map.of(), null, null, null, null, null);
 
         assertThatThrownBy(() -> service.update(existing.getId(), retyped))
@@ -289,7 +289,7 @@ class DataSourceServiceTest {
     @DisplayName("对外视图与版本快照都不含任何口令字段")
     void neitherViewNorVersionSnapshotCarriesSecrets() throws Exception {
         DataSourceUpsertCommand withCredential = new DataSourceUpsertCommand(
-                "带凭据的库", DataSourceType.MYSQL, null,
+                "带凭据的库", DataSourceType.MYSQL, null, null,
                 "h", 3306, "db", "appuser", Map.of("useSSL", "false"),
                 null, null, "cred_123", null, null);
 
@@ -322,7 +322,7 @@ class DataSourceServiceTest {
     // ── 夹具 ────────────────────────────────────────────────────────────
 
     private static DataSourceUpsertCommand mysqlCommand(String name) {
-        return new DataSourceUpsertCommand(name, DataSourceType.MYSQL, "测试用",
+        return new DataSourceUpsertCommand(name, DataSourceType.MYSQL, "测试用", null,
                 "10.0.0.1", 3306, "appdb", "appuser", Map.of(),
                 null, null, null, null, null);
     }

@@ -32,6 +32,16 @@ public class DataSourceEntity {
     private DataSourceStatus status;
     private String description;
 
+    /** 所属目录(功能 5);null 表示未分类 */
+    private String catalogId;
+
+    // ── 周期连通性检查(功能 6)────────────────────────────────────────
+    // 与手工测试走不同的状态迁移边:探测失败进 UNREACHABLE(本来是好的),
+    // 手工失败回 DRAFT(配置可能没配对)。因此两者的时间戳也各记各的。
+    private Boolean probeEnabled;
+    private Integer probeIntervalMinutes;
+    private Instant lastProbeAt;
+
     // ── 连接参数(非机密部分)────────────────────────────────────────
     private String host;
     private Integer port;

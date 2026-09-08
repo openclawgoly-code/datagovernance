@@ -44,6 +44,10 @@ public class DataSourceService {
 
     private static final Logger log = LoggerFactory.getLogger(DataSourceService.class);
 
+    /** 周期检查的默认与最小间隔。下限存在的理由:防止有人填 1 分钟去打生产库。 */
+    private static final int DEFAULT_PROBE_INTERVAL_MINUTES = 30;
+    private static final int MIN_PROBE_INTERVAL_MINUTES = 5;
+
     private final DataSourceMapper dataSourceMapper;
     private final DataSourceVersionMapper versionMapper;
     private final DataAccessGateway gateway;
@@ -123,6 +127,10 @@ public class DataSourceService {
         entity.setId(Ids.of("ds"));
         entity.setWorkspaceId(workspaceId);
         entity.setStatus(DataSourceLifecycle.MACHINE.initial());
+        // 周期检查默认关闭:它会按间隔持续连接目标库,对生产库是真实负载。
+        // 默认开启等于替用户做了一个他不知情的决定。
+        entity.setProbeEnabled(false);
+        entity.setProbeIntervalMinutes(DEFAULT_PROBE_INTERVAL_MINUTES);
         entity.setVersion(1);
         entity.setCreatedAt(now);
         entity.setCreatedBy(operator);
@@ -250,6 +258,97 @@ public class DataSourceService {
         return gateway.testConnection(command.type(), assembler.assemble(probe, workspaceId));
     }
 
+    /**
+     * 开启/关闭周期连通性检查(功能 6「支持开启或关闭周期连通性检查」)。
+     *
+     * <p>这个开关是<b>定义</b>,归 Metadata;按开关去触发探测是<b>调度</b>,
+     * 归 Control Space。P1 还没有 Control,触发暂由装配层的定时任务承担,
+     * P2 迁走时改的是触发方,这里不用动。
+     */
+    @Transactional
+    public DataSourceView setProbeSchedule(String id, boolean enabled, Integer intervalMinutes) {
+        DataSourceEntity entity = requireInWorkspace(id);
+
+        if (entity.getStatus() == DataSourceStatus.ARCHIVED) {
+            throw new BizException(ErrorCode.MTD_DATASOURCE_NOT_ACTIVE, "已归档的数据源不可开启周期检查");
+        }
+        if (intervalMinutes != null && intervalMinutes < MIN_PROBE_INTERVAL_MINUTES) {
+            throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                    "周期检查间隔不得小于 %d 分钟,当前 %d —— 过于频繁的探测对目标库是持续负载"
+                            .formatted(MIN_PROBE_INTERVAL_MINUTES, intervalMinutes));
+        }
+
+        entity.setProbeEnabled(enabled);
+        if (intervalMinutes != null) {
+            entity.setProbeIntervalMinutes(intervalMinutes);
+        }
+        entity.setUpdatedAt(Instant.now());
+        entity.setUpdatedBy(WorkspaceContext.require().userId());
+        dataSourceMapper.updateById(entity);
+
+        log.info("周期连通性检查{} workspace={} id={} 间隔={}分钟",
+                enabled ? "已开启" : "已关闭", entity.getWorkspaceId(), id,
+                entity.getProbeIntervalMinutes());
+        return toView(entity);
+    }
+
+    /**
+     * 找出到期该做周期探测的数据源。
+     *
+     * <p>供调度器调用,<b>跨空间</b>查询 —— 这是全服务唯一不带 workspace_id 过滤的
+     * 方法,因为调度是平台级后台行为,不属于任何一个租户的请求上下文。
+     * 正因如此它不对外暴露,只能被同包的调度入口调用。
+     */
+    public List<DataSourceEntity> findDueForProbe(Instant now, int limit) {
+        return dataSourceMapper.selectList(new LambdaQueryWrapper<DataSourceEntity>()
+                        .eq(DataSourceEntity::getProbeEnabled, true)
+                        // 只探测已经验证过至少一次的数据源:DRAFT 状态的配置可能还没填完,
+                        // 拿它去连生产库既无意义又会刷屏告警
+                        .in(DataSourceEntity::getStatus,
+                                DataSourceStatus.AVAILABLE, DataSourceStatus.UNREACHABLE)
+                        .orderByAsc(DataSourceEntity::getLastProbeAt)
+                        .last("limit " + limit)).stream()
+                .filter(entity -> isDue(entity, now))
+                .toList();
+    }
+
+    private static boolean isDue(DataSourceEntity entity, Instant now) {
+        if (entity.getLastProbeAt() == null) {
+            return true;
+        }
+        int interval = entity.getProbeIntervalMinutes() == null
+                ? DEFAULT_PROBE_INTERVAL_MINUTES : entity.getProbeIntervalMinutes();
+        return entity.getLastProbeAt().plusSeconds(interval * 60L).isBefore(now);
+    }
+
+    /**
+     * 执行一次周期探测。由调度器调用,自带空间上下文。
+     *
+     * <p>与手工测试的区别在状态迁移:失败进 {@link DataSourceStatus#UNREACHABLE}
+     * 而非 DRAFT,并发出 {@code DataSourceUnreachable} 事件供 Governance 判断是否告警。
+     */
+    @Transactional
+    public ConnectivityResult probe(DataSourceEntity entity) {
+        DataSourceStatus before = entity.getStatus();
+
+        ConnectionConfig config = assembler.assemble(entity, entity.getWorkspaceId());
+        ConnectivityResult result = gateway.testConnection(entity.getType(), config);
+
+        DataSourceStatus target = DataSourceLifecycle.afterConnectivityResult(before, result.success(), true);
+        if (entity.getStatus() != target) {
+            transitionTo(entity, target, result.success() ? "ProbeSucceeded" : "ProbeFailed");
+        }
+        entity.setLastProbeAt(Instant.now());
+        entity.setLastTestAt(Instant.now());
+        entity.setLastTestSuccess(result.success());
+        entity.setLastTestMessage(truncate(result.message(), 1024));
+        entity.setLastTestLatencyMs(result.latencyMillis());
+        dataSourceMapper.updateById(entity);
+
+        publishOutcomeEvent(entity, before, result, true);
+        return result;
+    }
+
     /** DisableDataSource */
     @Transactional
     public DataSourceView disable(String id) {
@@ -330,6 +429,7 @@ public class DataSourceService {
         entity.setType(command.type());
         entity.setFamily(command.type().family());
         entity.setDescription(command.description());
+        entity.setCatalogId(command.catalogId());
         entity.setHost(command.host());
         entity.setPort(command.port());
         entity.setDatabaseName(command.databaseName());

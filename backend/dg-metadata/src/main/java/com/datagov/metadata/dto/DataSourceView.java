@@ -26,6 +26,14 @@ public record DataSourceView(
         DataSourceStatus status,
         String description,
 
+        /** 所属目录(功能 5);null 表示未分类 */
+        String catalogId,
+
+        // 周期连通性检查(功能 6)
+        Boolean probeEnabled,
+        Integer probeIntervalMinutes,
+        Instant lastProbeAt,
+
         String host,
         Integer port,
         String databaseName,
@@ -58,6 +66,10 @@ public record DataSourceView(
                 entity.getFamily(),
                 entity.getStatus(),
                 entity.getDescription(),
+                entity.getCatalogId(),
+                entity.getProbeEnabled(),
+                entity.getProbeIntervalMinutes(),
+                entity.getLastProbeAt(),
                 entity.getHost(),
                 entity.getPort(),
                 entity.getDatabaseName(),

@@ -64,6 +64,8 @@ public class DataSourceController {
             @NotBlank(message = "名称不能为空") String name,
             @NotNull(message = "类型不能为空") DataSourceType type,
             String description,
+            /** 所属目录(功能5);为空表示未分类 */
+            String catalogId,
             String host,
             Integer port,
             String databaseName,
@@ -155,6 +157,20 @@ public class DataSourceController {
                 toCommand(request, request.credentialId())));
     }
 
+    public record ProbeScheduleRequest(boolean enabled, Integer intervalMinutes) {
+    }
+
+    @PostMapping("/{id}/probe-schedule")
+    @RequirePermission("metadata:datasource:update")
+    @Operation(summary = "开启/关闭周期连通性检查",
+            description = "功能6 的后半句。间隔下限 5 分钟 —— 过于频繁的探测对目标库是持续负载。"
+                    + "默认关闭:替用户开启一个他不知情的后台连接行为是不合适的。")
+    public ApiResponse<DataSourceView> setProbeSchedule(
+            @PathVariable String id, @RequestBody ProbeScheduleRequest request) {
+        return ApiResponse.ok(dataSourceService.setProbeSchedule(
+                id, request.enabled(), request.intervalMinutes()));
+    }
+
     @PostMapping("/{id}/disable")
     @RequirePermission("metadata:datasource:update")
     @Operation(summary = "停用")
@@ -204,7 +220,7 @@ public class DataSourceController {
 
     private static DataSourceUpsertCommand toCommand(DataSourceRequest request, String credentialId) {
         return new DataSourceUpsertCommand(
-                request.name(), request.type(), request.description(),
+                request.name(), request.type(), request.description(), request.catalogId(),
                 request.host(), request.port(), request.databaseName(), request.username(),
                 request.properties(), request.jdbcUrlOverride(), request.baseUrl(),
                 credentialId, request.connectTimeoutMs(), request.readTimeoutMs());

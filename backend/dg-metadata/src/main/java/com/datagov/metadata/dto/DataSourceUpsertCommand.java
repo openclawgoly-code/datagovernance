@@ -28,6 +28,9 @@ public record DataSourceUpsertCommand(
         @Size(max = 512, message = "描述不得超过 512 字符")
         String description,
 
+        /** 所属目录(功能 5);null 表示未分类 —— 强制归类会让新建多一步无谓的选择 */
+        String catalogId,
+
         String host,
         Integer port,
         String databaseName,
