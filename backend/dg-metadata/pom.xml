@@ -42,6 +42,12 @@
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>
     </dependency>
+    <!-- 版本快照(md_datasource_version.snapshot_json)含 Instant 字段。
+         dg-app 里 Spring Boot 会自动注册这个模块,但本模块自己也序列化,
+         依赖就该显式声明,而不是指望装配层顺手带进来。 -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId><artifactId>jackson-datatype-jsr310</artifactId>
+    </dependency>
 
     <dependency>
       <groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope>
