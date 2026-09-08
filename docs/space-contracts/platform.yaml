@@ -1,0 +1,104 @@
+# Space Contract · Platform / Tenancy
+# 模板来源:space-model-generation-skill.md 第 6 节
+space:
+  name: platform
+  display_name: Platform / Tenancy Space
+  purpose: >
+    提供身份、租户作用域与凭据托管。回答"这是谁、他属于哪个 Workspace、
+    他能看见哪些菜单、这条连接的口令在哪里"。不理解任何业务语义。
+  category: Platform
+  owns_features: [28, 29, 30]
+  participates_in: [1, 2, 3, 4]
+
+  core_objects:
+    - Workspace           # 序号28 名称/标识/描述/启用停用
+    - WorkspaceSecret     # 序号28 空间鉴权密钥
+    - WorkspaceGrant      # 序号28 授权访问用户绑定/解绑
+    - User                # 序号30
+    - Role                # 序号29
+    - MenuPermission      # 序号29 菜单权限
+    - RoleAssignment
+    - Credential          # 序号4 无认证/基础认证/Token + 序号1-3 数据库口令
+
+  states:
+    Workspace: [ACTIVE, SUSPENDED, ARCHIVED]
+    User: [ACTIVE, DISABLED]
+    Credential: [ACTIVE, ROTATING, REVOKED]
+
+  commands:
+    - CreateWorkspace
+    - UpdateWorkspace
+    - EnableWorkspace
+    - SuspendWorkspace
+    - RotateWorkspaceSecret
+    - GrantWorkspaceAccess
+    - RevokeWorkspaceAccess
+    - CreateUser
+    - UpdateUser
+    - EnableUser
+    - DisableUser
+    - ResetPassword
+    - CreateRole
+    - UpdateRoleMenuPermissions
+    - AssignRole
+    - StoreCredential
+    - RotateCredential
+
+  queries:
+    - GetWorkspace
+    - ListWorkspaces
+    - ListWorkspaceMembers
+    - GetUser
+    - ListUsers
+    - GetRole
+    - GetEffectiveMenuPermissions
+    - IssueCredentialInjectionHandle   # 仅 runtime 可调,返回一次性句柄而非明文
+
+  events_produced:
+    - WorkspaceCreated
+    - WorkspaceSuspended
+    - WorkspaceSecretRotated
+    - UserDisabled
+    - PasswordReset
+    - RoleMenuPermissionsChanged
+    - AccessGranted
+    - AccessRevoked
+
+  events_consumed: []
+
+  policies:
+    - 每个业务对象必须携带 workspace_id,由 ORM 层强制注入过滤
+    - 凭据明文仅在 Runtime 提交作业时经一次性注入句柄解密
+    - 菜单权限只决定页面可见性,数据权限由 governance 判定
+
+  storage:
+    primary: PostgreSQL(独立实例或独立 schema,必须与元数据库隔离)
+    secrets: HashiCorp Vault / 国密 KMS / 硬件密码机
+    cache: Redis(菜单权限缓存)
+    rationale: 它是授权判定的输入,与业务同库会被业务查询绕过
+
+  runtime: iam-tenancy-service (Spring Boot)
+
+  depends_on: []
+
+  # 同步依赖(C/Q/R-W):调用方必须等待被调用方。此子图必须无环。
+  # 未列入的 depends_on 项为纯事件消费(异步),经 Kafka 解耦,不构成同步耦合。
+  depends_on_sync: []
+
+  consumed_by:
+    - ui
+    - metadata
+    - control
+    - runtime
+    - data
+    - governance
+    - intelligence
+
+  must_not_do:
+    - 不得感知业务对象语义,只知道对象归属哪个 Workspace
+    - 不得把凭据明文交给除 runtime 注入通道之外的任何调用方
+    - 不得把菜单权限当作数据权限
+
+  api_boundary: REST /api/v1/iam/**  + 内部 gRPC(凭据注入通道)
+  consistency: 强一致(单库事务)。授权判定不接受最终一致
+  versioning: API 版本化;Credential 支持轮换但不支持版本回溯

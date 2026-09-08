@@ -1,0 +1,121 @@
+# Space Contract · Runtime / Execution
+space:
+  name: runtime
+  display_name: Runtime / Execution Space
+  purpose: >
+    真正执行 control 批准并下发的物理计划,管理执行资源与作业制品,
+    并把执行事实回报出去。不理解业务语义,不做权限判定,不改元数据定义。
+  category: Execution
+  owns_features: [10, 15, 17, 19, 21, 23, 31, 32]   # 17 为执行侧(规则解释器)
+  participates_in: [6, 9, 11, 12, 13, 18, 20, 22, 34, 35]
+
+  core_objects:
+    - Execution              # 平台级统一执行事实,覆盖 10/15/19/21/23
+    - ExecutionAttempt
+    - ExecutionMetric        # rowsRead / rowsWritten / bytes / latencyMs / lag → 序号24 的唯一来源
+    - ExecutionLog
+    - ErrorLog
+    - Executor               # 序号31 Flink 执行器
+    - ExecutorPool
+    - ExecutorAssignment     # 序号31 自动分配
+    - Artifact               # 序号32 平台级 JAR
+    - FlinkJob
+    - K8sJob
+    - RuleInterpreter        # 序号17 执行侧
+
+  execution_job_ref_types:
+    - MIGRATION            # 序号9/10
+    - OFFLINE_SYNC         # 序号11/15
+    - FILE_PARSE           # 序号12
+    - API_PARSE            # 序号13
+    - STREAMING_DEV        # 序号18/19
+    - BATCH_DEV            # 序号20/21
+    - WORKFLOW             # 序号22/23
+    - WORKFLOW_NODE
+    - CONNECTIVITY_PROBE   # 序号6
+    - PYTHON_JOB           # 序号34 训练/预标注
+
+  states:
+    Execution: [PENDING, DISPATCHED, RUNNING, CANCELING, SUCCEEDED, FAILED, CANCELED, TIMEOUT]
+    StreamingJob: [STARTING, RUNNING, RESTARTING, STOPPING, STOPPED, FAILED]
+    Executor: [REGISTERED, HEALTHY, DRAINING, UNHEALTHY, REMOVED]
+
+  commands:
+    - DispatchExecution
+    - CancelExecution
+    - StartStreamingJob
+    - StopStreamingJob
+    - ProbeConnectivity
+    - RegisterExecutor
+    - DrainExecutor
+    - UploadArtifact
+    - DeleteArtifact
+
+  queries:
+    - GetExecution
+    - ListExecutions          # 五处"执行记录"页面共用,按 jobRefType 过滤
+    - GetExecutionLog
+    - GetExecutionAttempts
+    - ListExecutors
+    - GetExecutorLoad
+    - ListArtifacts
+
+  events_produced:
+    - ExecutionAccepted
+    - ExecutionStarted
+    - ExecutionProgressed      # 携带 ExecutionMetric
+    - ExecutionSucceeded
+    - ExecutionFailed
+    - ExecutionCanceled
+    - ExecutionTimedOut
+    - StreamingJobRestarted
+    - ExecutorRegistered
+    - ExecutorUnhealthy
+    - ArtifactUploaded
+    - ConnectivityProbeCompleted
+
+  events_consumed: []
+
+  policies:
+    - Execution 是全平台唯一的执行事实表(架构约束 R4,优先级最高)
+    - Retry 产生新的 ExecutionAttempt,不新建 Execution —— 否则序号24 的"执行总数"口径被重试污染
+    - 只执行 control 下发的 RetryPolicy,不自行决定是否重试
+    - Shell / Python 节点必须设置资源限额与网络策略
+    - 凭据经 platform 的一次性注入句柄获取,不落盘
+
+  storage:
+    facts: PostgreSQL 按时间分区(Execution / Attempt / Metric),与元数据库分离
+    logs: OpenSearch(按天滚动索引)
+    artifacts: MinIO / S3(按 workspace 前缀)
+    events: Kafka topic execution.*(量最大,独立 topic)
+
+  runtime: runtime-gateway (Spring Boot) + Apache Flink + Kubernetes + Flink K8s Operator
+
+  depends_on:
+    - data
+    - platform
+
+  # 同步依赖(C/Q/R-W):调用方必须等待被调用方。此子图必须无环。
+  # 未列入的 depends_on 项为纯事件消费(异步),经 Kafka 解耦,不构成同步耦合。
+  depends_on_sync:
+    - data
+    - platform
+
+  consumed_by:
+    - ui
+    - metadata
+    - control
+    - governance
+    - intelligence
+
+  must_not_do:
+    - 不得解释业务级 Workflow 语义(条件求值、依赖解析属 control)
+    - 不得自行决定权限
+    - 不得直接修改 metadata 定义,只能通过状态/事件 Contract 回写
+    - 不得自行决定是否重试
+    - 不得直接向用户发告警
+    - 不得让 Flink 的类型/异常/JobID 语义穿透到 control 之上
+
+  api_boundary: REST /api/v1/runtime/**  + Kafka execution.*
+  consistency: 执行事实最终一致;单个 Execution 状态迁移在本地事务内强一致
+  versioning: Execution 绑定其启动时的 defVersion,保证可复现

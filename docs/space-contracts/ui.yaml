@@ -1,0 +1,73 @@
+# Space Contract · UI / Experience
+space:
+  name: ui
+  display_name: UI / Experience Space
+  purpose: >
+    用户对平台能力的感知、配置、操作与结果呈现。是系统状态的投影,不是真相来源。
+  category: Experience
+  owns_features: []          # 不拥有任何领域对象
+  participates_in: [1..35]   # 全部 35 项的界面侧
+
+  core_objects:              # 前端状态,不落库
+    - WorkspaceSwitcher
+    - NavigationMenu         # 由 platform 的 MenuPermission 驱动渲染
+    - FormWizard             # 数据源创建、同步配置、字段映射
+    - SchemaTree             # 序号7 库/模式/表/字段/视图
+    - SqlEditor              # 序号7/18/20,含 SQL 格式化(纯前端能力)
+    - WorkflowCanvas         # 序号22 拖拽画布
+    - ExecutionRecordView    # 序号10/15/19/21/23 的统一组件,按 jobRefType 参数化
+    - MonitorDashboard       # 序号24
+    - AlertCenter            # 序号25/26
+    - InteractionState       # 草稿、未保存变更、乐观更新
+
+  states:
+    InteractionState: [PRISTINE, DIRTY, SAVING, SAVED, ERROR]
+
+  commands: []               # 不定义自己的领域 Command,只转发其他 Space 的
+  queries: []
+  events_produced: []
+  events_consumed: []
+
+  policies:
+    - 五处执行记录页面是同一组件的五次参数化实例,不是五套代码
+    - SQL 格式化是纯展示能力,可在前端;规则语义不可
+
+  storage:
+    browser: localStorage(仅限草稿与布局偏好)
+    note: 不持久化任何领域数据
+
+  runtime: platform-ui (React + TypeScript + Ant Design + React Flow/AntV X6)
+
+  depends_on:
+    - metadata
+    - control
+    - runtime
+    - data
+    - governance
+    - platform
+    - intelligence
+
+  # 同步依赖(C/Q/R-W):调用方必须等待被调用方。此子图必须无环。
+  # 未列入的 depends_on 项为纯事件消费(异步),经 Kafka 解耦,不构成同步耦合。
+  depends_on_sync:
+    - metadata
+    - control
+    - runtime
+    - data
+    - governance
+    - platform
+    - intelligence
+
+  consumed_by: []
+
+  must_not_do:
+    - 不得直接调用 Flink REST API 或 Kubernetes API
+    - 不得直接持有业务数据源连接
+    - 不得绕过 metadata 直接创建任务
+    - 不得在前端实现清洗/转换规则语义
+    - 不得持有或展示凭据明文
+    - 不得为五处执行记录写五套页面代码
+
+  api_boundary: 只消费其他 Space 的公开 REST API,经 APISIX 网关
+  consistency: 乐观更新 + 服务端确认;冲突以服务端为准
+  versioning: 前端版本独立发布;对后端 API 做版本兼容

@@ -1,0 +1,93 @@
+# Space Contract · Data
+space:
+  name: data
+  display_name: Data Space
+  purpose: >
+    平台所连接、读取、写入与承载的数据资源。只关心"怎么连上、怎么读、怎么写、
+    Schema 长什么样",不关心"什么时候读、该不该读"。
+  category: Data
+  owns_features: [6, 7, 35]
+  participates_in: [1, 2, 3, 4, 9, 11, 12, 13, 14, 34]
+
+  core_objects:
+    - Connector                 # MySQL Oracle SQLServer PostgreSQL DM8 StarRocks Doris FTP SFTP RestAPI
+    - DataSourceConnection
+    - ConnectivityProbeResult   # 序号6
+    - SchemaDiscoveryResult     # 序号7 库/模式/表/字段/视图
+    - QueryRequest
+    - QueryResult
+    - FileObject                # 序号3/12 CSV/JSON
+    - ApiEndpointResponse       # 序号4/13
+    - TypeMappingSpec           # 序号9 异构类型映射
+    - TargetTableDDL            # 序号9 预览并修改建表语句
+    - ExternalPlatformAdapter   # 序号35 全民健康信息平台
+
+  states:
+    DataSourceConnection: [IDLE, ACTIVE, BROKEN, CLOSED]
+    # Data Space 几乎没有独立业务生命周期 —— 这正是它作为能力空间而非业务空间的证据
+
+  # 只有真正改变外部世界状态的操作才是 Command,且均由 runtime 调用
+  commands:
+    - OpenConnection
+    - CreateTargetTable
+    - ReadBatch
+    - WriteBatch
+    - ParseFile
+    - FetchApi
+
+  queries:
+    - TestConnectivity          # 序号6:只返回结果,数据源状态改变发生在 metadata 侧
+    - ExecuteQuery              # 序号7:必须受控 —— 超时 + 行数上限 + 审计 + 只读白名单
+    - DiscoverSchema            # 序号7
+    - GenerateTargetDDL         # 序号9:预览,不落地
+    - PreviewData
+    - GetSchemaFromSource
+    - GetTypeMapping
+    - ListFiles
+
+  events_produced:
+    - ConnectivityTested
+    - SchemaDiscovered
+    - TargetTableCreated
+    - ExternalPlatformSyncCompleted
+
+  events_consumed: []
+
+  policies:
+    - 交互式查询强制超时与返回行数上限
+    - 每次交互式查询写入审计(序号7 是唯一直连业务库的用户可见能力)
+    - 序号35 外部平台数据不得直接落业务库,必须经 runtime 受控写入并留痕
+    - DM8 无 Flink 官方 connector,方言与类型映射需自研并单独排期(R7)
+
+  storage:
+    owns: 无持久化业务数据
+    cache: Redis(Schema 树缓存、查询结果短期分页缓存)
+    note: 严禁缓存业务数据
+
+  runtime: data-connector-service (Spring Boot + JDBC + Flink Connectors)
+
+  depends_on:
+    - platform
+
+  # 同步依赖(C/Q/R-W):调用方必须等待被调用方。此子图必须无环。
+  # 未列入的 depends_on 项为纯事件消费(异步),经 Kafka 解耦,不构成同步耦合。
+  depends_on_sync:
+    - platform
+
+  consumed_by:
+    - ui
+    - metadata
+    - runtime
+    - governance
+    - intelligence
+
+  must_not_do:
+    - 不得负责调度
+    - 不得实现用户权限决策
+    - 不得持有 UI 状态
+    - 不得缓存业务数据(查询结果短期分页缓存除外)
+    - 序号35 适配器不得绕过 runtime 直接写入业务库
+
+  api_boundary: REST /api/v1/data/**
+  consistency: 无自身一致性语义;透传底层数据源语义
+  versioning: Connector 按能力矩阵版本化(见 SPACE-MODEL.md L.1)

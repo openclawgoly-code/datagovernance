@@ -1,0 +1,128 @@
+# Space Contract · Control / Workflow Compiler
+space:
+  name: control
+  display_name: Control / Workflow Compiler Space
+  purpose: >
+    把用户定义的逻辑工作流编译成可执行物理计划,并负责触发、依赖解析、
+    条件求值、资源选择与执行生命周期控制。决定"如何执行",不亲自执行。
+  category: Control
+  owns_features: []     # 无独占功能项 —— 见 function-space-matrix.md 结尾说明
+  participates_in: [6, 9, 11, 12, 13, 14, 18, 20, 22]
+  note: >
+    需求清单里没有任何条目直接对应编译、依赖解析、条件求值、资源选择。
+    它们隐藏在"支持 Cron 表达式的周期调度策略配置"这类描述背后,
+    是最容易被低估工作量的部分。
+
+  core_objects:
+    - CompileRequest
+    - CompileResult              # 含错误定位,供 UI 精确报错
+    - LogicalPlan
+    - PhysicalPlan
+    - ExecutionPlan
+    - DispatchCommand
+    - ScheduleTrigger
+    - BatchDependencyResolver
+    - StreamingSupervision       # 流任务保活策略(R5)
+    - ConditionEvaluator         # 序号22 Conditions 节点求值器
+    - RetryPolicy
+    - ResourceRequirement
+    - ConnectivityProbeSchedule  # 序号6 周期检查开关
+
+  states:
+    Schedule: [BOUND, ACTIVE, PAUSED, EXPIRED]
+    CompileResult: [SUCCEEDED, FAILED]
+
+  compile_chain:
+    - SchemaValidation           # 源表/目标表字段是否存在、类型是否兼容
+    - DependencyValidation       # 数据源是否 AVAILABLE、规则是否存在、JAR 是否已上传
+    - PolicyValidation           # 调用 governance 判定发布/执行权限
+    - DagValidation              # 序号22:环、可达性、孤立节点
+    - TypeMappingCompatibility   # 序号9/11 字段映射与异构类型映射
+    - PlanOptimization           # 并行度、分片、写入批次
+    - PhysicalPlanGeneration
+    - RuntimeDispatch
+
+  commands_received:
+    - CompileDefinition
+    - TriggerNow
+    - RunOnce                    # 序号9 整库迁移
+    - PauseSchedule
+    - ResumeSchedule
+    - CancelExecution
+    - RetryExecution
+    - Backfill
+    - EnableConnectivityProbe    # 序号6
+    - DisableConnectivityProbe
+
+  commands_issued:
+    - DispatchExecution          # → runtime
+    - StartStreamingJob
+    - StopStreamingJob
+    - CancelExecution
+    - ProbeConnectivity
+
+  queries:
+    - GetCompileResult
+    - GetPhysicalPlan
+    - GetScheduleState
+    - ListUpcomingTriggers
+    - GetDependencyGraph
+
+  events_produced:
+    - CompileSucceeded
+    - CompileFailed
+    - ScheduleTriggered
+    - ExecutionDispatched
+    - DispatchRejected           # 无可用执行器/配额不足 —— 必须显式,否则"没跑"这件事静默丢失
+    - StreamingSupervisionEscalated
+
+  events_consumed:
+    - ExecutionSucceeded
+    - ExecutionFailed
+    - ExecutionCanceled
+    - ExecutorUnhealthy
+    - WorkspaceSuspensionOrdered   # from governance:消费后暂停该租户调度(不是被命令,保持依赖图无环)
+    - WorkspaceSuspended           # from platform
+
+  policies:
+    - streaming 与 batch 使用两套独立调度语义与状态机(R5)
+    - ConditionNode 在 control 内求值,绝不下发 runtime
+    - 只持有可由定义重新编译得到的 PhysicalPlan,不私存定义副本
+    - RetryPolicy 由 control 决定并随 DispatchCommand 下发
+
+  storage:
+    plans: PostgreSQL(PhysicalPlan 缓存,可丢弃可重建)
+    locks: Redis 独立 DB index(调度分布式锁)
+    events: Kafka
+
+  runtime: control-plane (Spring Boot + Cron 解析 + 分布式锁)
+
+  depends_on:
+    - metadata
+    - runtime
+    - governance
+    - platform
+
+  # 同步依赖(C/Q/R-W):调用方必须等待被调用方。此子图必须无环。
+  # 未列入的 depends_on 项为纯事件消费(异步),经 Kafka 解耦,不构成同步耦合。
+  depends_on_sync:
+    - metadata
+    - runtime
+    - governance
+    - platform
+
+  consumed_by:
+    - ui
+    - governance
+    - intelligence
+
+  must_not_do:
+    - 不得直接读写业务数据
+    - 不得私存定义副本
+    - 不得实现 Flink / K8s 提交细节
+    - 不得做身份认证与最终授权判定
+    - 不得把流任务与批任务塞进同一套调度语义
+
+  api_boundary: REST /api/v1/control/**
+  consistency: 调度触发需分布式锁保证 exactly-once 触发语义;编译结果可重建,允许丢失
+  versioning: PhysicalPlan 绑定输入的 defVersion,保证编译可复现

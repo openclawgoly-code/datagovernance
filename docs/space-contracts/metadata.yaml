@@ -1,0 +1,149 @@
+# Space Contract · Metadata / Semantic Kernel
+space:
+  name: metadata
+  display_name: Metadata / Semantic Kernel Space
+  purpose: >
+    系统的唯一真相来源。回答"系统里有什么、它们是什么、彼此如何关联、
+    当前是什么状态、是哪个版本"。所有定义态对象在此注册,没有第二注册中心。
+  category: Semantic
+  owns_features: [1, 2, 3, 4, 5, 8, 9, 11, 12, 13, 14, 16, 17, 18, 20, 22]   # 均指定义态
+  note_on_17: 序号17 规则管理是刻意的双栖设计 —— 定义归 metadata,解释执行归 runtime
+
+  core_objects:
+    # 数据源
+    - DataSourceDef            # type / connectionProfile / credentialRef / status
+    - DataSourceCatalogNode    # 序号5
+    # Schema
+    - Database
+    - SchemaObj
+    - Table
+    - Column
+    - View
+    - SchemaSnapshot
+    - SchemaVersion
+    # 规则
+    - Rule                     # 序号17 CLEANSING / TRANSFORM
+    - RuleParam
+    # 目录
+    - TaskCatalogNode          # 序号16
+    # 集成定义
+    - MigrationJobDef          # 序号9
+    - SyncJobDef               # 序号11
+    - FileParseJobDef          # 序号12
+    - ApiParseJobDef           # 序号13
+    - BatchSyncTemplate        # 序号14
+    # 开发定义
+    - StreamingDevJobDef       # 序号18
+    - BatchDevJobDef           # 序号20
+    # 编排定义
+    - WorkflowDef              # 序号22
+    - WorkflowNode
+    - WorkflowEdge
+    - ConditionNode
+    # 调度与关系
+    - ScheduleDef
+    - RelationEdge             # 序号8
+    - LineageNode
+    - DefinitionVersion
+
+  states:
+    DataSourceDef: [DRAFT, TESTING, AVAILABLE, UNREACHABLE, DISABLED, ARCHIVED]
+    JobDefinition: [DRAFT, VALIDATED, PUBLISHED, SCHEDULING, PAUSED, OFFLINE, ARCHIVED]
+
+  commands:
+    - RegisterDataSource
+    - UpdateDataSource
+    - DisableDataSource
+    - CreateDataSourceCatalogNode
+    - MoveDataSourceToCatalog
+    - RefreshSchema
+    - CreateRule
+    - UpdateRule
+    - DeleteRule
+    - CreateTaskCatalogNode
+    - CreateMigrationJobDef
+    - OverrideTargetDDL
+    - CreateSyncJobDef
+    - UpdateSyncJobDef
+    - BatchCreateSyncJobDefs
+    - CreateFileParseJobDef
+    - CreateApiParseJobDef
+    - CreateStreamingDevJobDef
+    - CreateBatchDevJobDef
+    - CreateWorkflowDef
+    - UpdateWorkflowGraph
+    - BindSchedule
+    - PublishDefinition
+    - OfflineDefinition
+
+  queries:
+    - GetDataSource
+    - ListDataSourcesByCatalog
+    - GetSchemaTree
+    - GetJobDef
+    - ListJobsByCatalog
+    - GetWorkflowGraph
+    - GetJobDataSourceRelations    # 序号8
+    - GetLineage
+    - GetDefinitionVersion
+    - DiffDefinitionVersions
+
+  events_produced:
+    - DataSourceRegistered
+    - DataSourceDisabled
+    - DataSourceUnreachable
+    - SchemaRefreshed
+    - SchemaDrifted                # 清单未要求,强烈建议:提前告警而非等执行失败
+    - RuleChanged
+    - JobDefPublished
+    - JobDefOfflined
+    - WorkflowPublished
+    - ScheduleBound
+
+  events_consumed:
+    - ExecutionSucceeded           # from runtime,回写定义的运行状态
+    - ExecutionFailed
+    - StreamingJobRestarted
+    - SchemaDiscovered             # from data
+
+  policies:
+    - 被任何 JobDef 引用的数据源不允许删除,只允许 DISABLED(依据序号8 关联信息)
+    - 已发布定义的修改产生新版本;运行中的 Execution 绑定其启动时的 defVersion
+    - 只存 credentialRef,不存凭据明文
+    - Cron 表达式是定义,触发不在此 Space
+
+  storage:
+    primary: PostgreSQL(全表 workspace_id 行级隔离,ORM 强制注入过滤)
+    cache: Redis(Schema 树)
+    graph: 暂不引入;血缘查询深度 > 3 跳且性能不足时评估 Nebula Graph
+
+  runtime: metadata-kernel (Spring Boot)
+
+  depends_on:
+    - data
+    - platform
+    - runtime      # E only:消费执行事件回写状态,从不主动查询
+
+  # 同步依赖(C/Q/R-W):调用方必须等待被调用方。此子图必须无环。
+  # 未列入的 depends_on 项为纯事件消费(异步),经 Kafka 解耦,不构成同步耦合。
+  depends_on_sync:
+    - data
+    - platform
+
+  consumed_by:
+    - ui
+    - control
+    - governance
+    - intelligence
+
+  must_not_do:
+    - 不得执行 Flink Job
+    - 不得直接连接业务数据源做数据处理
+    - 不得存储凭据明文
+    - 不得承担调度
+    - 不得写入 Execution 事实
+    - 不得替代 Workflow Compiler 做编译
+
+  api_boundary: REST /api/v1/metadata/**
+  consistency: 强一致(定义态必须强一致);从 runtime 回写的运行状态为最终一致
+  versioning: 所有定义对象统一 DefinitionVersion;支持 diff 与回溯

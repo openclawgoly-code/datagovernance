@@ -1,0 +1,136 @@
+# Space Contract · Intelligence
+# 状态:本期仅锁定边界与 Contract,内部实现独立立项(风险 R1)
+space:
+  name: intelligence
+  display_name: Intelligence Space
+  purpose: >
+    从结构化数据集成延伸到医学语义理解、知识图谱、标注、数据集制备与模型生命周期。
+    在本系统中是"架在平台之上的纵向业务域",不是横切关注点 ——
+    数据集成与数据开发(序号1-33)不依赖它,它单向消费平台能力。
+  category: Intelligence
+  scope: CONTRACT_ONLY
+  owns_features: [34]
+  participates_in: [35]
+
+  core_objects:
+    # 语义基石 —— "以 OWL 2 构建覆盖疾病、解剖、影像等七层医学概念体系"
+    - Ontology
+    - Concept
+    - Term
+    - ConceptLayer
+    - SemanticMapping
+    - EntityLink
+    - KnowledgeGraph
+    # 多智能体标注工厂 —— "3-5 个不同架构的 SOTA 模型协同作业,流水线/并行/竞争"
+    - PreAnnotationJob
+    - AgentEnsemble
+    - Annotation
+    - Label
+    - HumanReview
+    # 影像标注训练一体化 —— 数据飞轮
+    - SeedAnnotation
+    - AutoAnnotation
+    - HumanCorrection
+    - DatasetExpansion
+    # AI 质控与进化引擎 —— 四维度
+    - QualityDimension        # 标注质量 / 逻辑一致性 / 数据质量 / 模型质量
+    - ActiveLearningStrategy  # 不确定性采样
+    - ErrorAnalysis
+    # 产物
+    - Dataset
+    - DatasetVersion
+    - TrainingRun
+    - Model
+    - ModelVersion
+    - Evaluation
+    - Feedback
+
+  states:
+    Dataset: [DRAFT, ANNOTATING, REVIEWING, QC_PASSED, PUBLISHED, FROZEN]
+    Model: [TRAINING, EVALUATING, PUBLISHED, DEPRECATED]
+    Annotation: [PRE_ANNOTATED, HUMAN_CORRECTED, REVIEWED]
+
+  commands:
+    - ImportOntology
+    - MapColumnToConcept
+    - RunPreAnnotation
+    - SubmitHumanReview
+    - PublishDatasetVersion
+    - StartTrainingRun
+    - PublishModelVersion
+    - SubmitFeedback
+
+  queries:
+    - SearchConcept
+    - GetSemanticMapping
+    - GetDatasetVersion
+    - GetModelEvaluation
+
+  events_produced:
+    - OntologyPublished
+    - SemanticMappingChanged
+    - DatasetVersionPublished
+    - ModelVersionPublished
+    - EvaluationCompleted
+    - FeedbackIngested
+
+  events_consumed:
+    - ExecutionSucceeded
+    - ExecutionFailed
+    - SchemaRefreshed
+    - ExternalPlatformSyncCompleted   # 序号35
+
+  # 本期必须锁定的四条 Contract
+  platform_contract:
+    - id: C1_取数
+      rule: 不得直连业务数据源。原始数据必须通过平台集成任务(序号11-13)落地后只读消费
+    - id: C2_算力
+      rule: 训练与预标注作业经 control 提交为 PYTHON_JOB / K8S_JOB,复用统一 Execution 模型,自动获得监控(24)、告警(25)、审计(27)
+    - id: C3_注册
+      rule: Dataset / Model 的标识与版本注册进 metadata registry;内容(影像、标注、权重、本体)存对象存储。不建第二注册中心
+    - id: C4_语义
+      rule: Column ──MapsTo──> Concept 写入 metadata 的 RelationEdge,使医学语义可被平台血缘与影响分析看见
+
+  policies:
+    - PUBLISHED 后的 DatasetVersion 内容不可变,修改产生新版本
+    - Model 必须 TrainedOn 一个 FROZEN 或 PUBLISHED 的 DatasetVersion,保证训练可复现
+
+  storage:
+    metadata: 复用平台 metadata registry(标识与版本)
+    content: 独立对象存储(影像、标注文件、模型权重)
+    semantic: RDF Store / Graph Store(按规模选择)
+    note: 独立立项,独立存储实例
+
+  runtime: intelligence-platform(独立仓库、独立部署) + Python + K8s Job
+
+  depends_on:
+    - metadata
+    - control
+    - runtime
+    - data
+    - governance
+    - platform
+
+  # 同步依赖(C/Q/R-W):调用方必须等待被调用方。此子图必须无环。
+  # 未列入的 depends_on 项为纯事件消费(异步),经 Kafka 解耦,不构成同步耦合。
+  depends_on_sync:
+    - metadata
+    - control
+    - runtime
+    - data
+    - governance
+    - platform
+
+  consumed_by:
+    - ui
+    - governance
+
+  must_not_do:
+    - 不得替代 metadata registry
+    - 不得让本体、数据集、模型绕过版本管理
+    - 不得让模型训练修改原始 Dataset
+    - 不得直接连接业务数据源抽数
+
+  api_boundary: REST /api/v1/intelligence/**(独立部署,经同一网关)
+  consistency: 最终一致
+  versioning: Ontology / Dataset / Model 全部强制版本化,不可变发布

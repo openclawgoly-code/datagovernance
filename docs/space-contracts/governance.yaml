@@ -1,0 +1,130 @@
+# Space Contract · Governance / Trust
+space:
+  name: governance
+  display_name: Governance / Trust Space
+  purpose: >
+    回答"谁可以做、做了什么、为什么失败、该告警给谁、数据从哪里来"。
+    唯一有资格横向约束所有其他 Space 的空间。只判定、记录、通知,不执行业务。
+  category: Governance
+  owns_features: [24, 25, 26, 27, 33]
+  participates_in: [6, 10, 15, 19, 21, 23, 35]
+
+  core_objects:
+    - MonitorAggregate      # 序号24 五个口径
+    - AlertRule             # 序号25 范围/触发方式/渠道/频率
+    - AlertSuppression      # 序号25 "告警频率"的实现载体
+    - Alert                 # 序号26 今日+历史
+    - AlertChannel          # 序号33 含连通性测试、邮箱推送
+    - AuditRecord           # 序号27
+    - PolicyDecision
+    - Provenance
+    - LineageRecord         # 可信记录(本体归 metadata)
+    - SensitiveDataPolicy   # 序号35 合规
+    # 以下为清单未覆盖但预留,见风险 R10
+    - QualityRule           # NOT IN SCOPE
+    - QualityResult         # NOT IN SCOPE
+
+  monitor_metrics:          # 口径直接来自序号24 需求原文
+    - 任务实例执行总数
+    - 失败数
+    - 今日新增抽取
+    - 总计抽取
+    - 任务时延
+
+  states:
+    Alert: [TRIGGERED, NOTIFYING, NOTIFIED, SUPPRESSED, NOTIFY_FAILED, ACKNOWLEDGED, RESOLVED]
+    AlertRule: [ENABLED, DISABLED]
+    AlertChannel: [ACTIVE, UNREACHABLE, DISABLED]
+
+  commands:
+    - CreateAlertRule
+    - UpdateAlertRule
+    - EnableAlertRule
+    - DisableAlertRule
+    - CreateAlertChannel
+    - TestAlertChannel        # 序号33 连通性测试
+    - AcknowledgeAlert
+    - ResolveAlert
+
+  queries:
+    - GetMonitorDashboard     # 序号24 跨数据集成+数据开发聚合
+    - ListTodayAlerts         # 序号26
+    - ListHistoricalAlerts
+    - GetAlertDetail
+    - SearchAuditLog          # 序号27 跨数据集成+数据开发
+    - EvaluateAccess          # 被 control 在编译期同步调用
+    - GetLineageProvenance
+
+  events_produced:
+    - AlertTriggered
+    - AlertNotified
+    - AlertNotifyFailed
+    - AlertSuppressed
+    - AlertResolved
+    - AuditRecorded
+    - AccessDenied
+    - SensitiveDataAccessed
+    - WorkspaceSuspensionOrdered   # 由 control 消费;治理不向任何 Space 发命令
+
+  events_consumed:
+    - ExecutionAccepted
+    - ExecutionStarted
+    - ExecutionProgressed
+    - ExecutionSucceeded
+    - ExecutionFailed
+    - ExecutionCanceled
+    - ExecutionTimedOut
+    - DispatchRejected
+    - ExecutorUnhealthy
+    - StreamingSupervisionEscalated
+    - ConnectivityProbeCompleted
+    - DataSourceUnreachable
+    - SchemaDrifted
+    - JobDefPublished
+    - WorkspaceCreated
+    - AccessGranted
+    - DatasetVersionPublished      # from intelligence
+    - ModelVersionPublished
+
+  policies:
+    - 序号24/25/27 均明确要求跨数据集成与数据开发聚合 —— 这是统一 Execution 模型的三条独立证据(R4)
+    - 序号25 的"告警频率"实现为 NOTIFIED 后的抑制窗口
+    - 血缘本体归 metadata,血缘的可信记录与审计归此 Space
+    - 治理约束是编译的输入(control 在编译期调用 EvaluateAccess),不是事后检查
+
+  storage:
+    aggregates: PostgreSQL(由事件驱动的物化视图 —— 不得跨库 join 其他 Space)
+    audit: OpenSearch(独立保留期,通常远长于执行日志)
+    events: Kafka
+
+  runtime: governance-service (Spring Boot)
+
+  depends_on:
+    - metadata
+    - runtime
+    - platform
+    - data      # E only
+    - control      # E only:消费 DispatchRejected / StreamingSupervisionEscalated
+    - intelligence      # E only:消费 DatasetVersionPublished / ModelVersionPublished
+
+  # 同步依赖(C/Q/R-W):调用方必须等待被调用方。此子图必须无环。
+  # 未列入的 depends_on 项为纯事件消费(异步),经 Kafka 解耦,不构成同步耦合。
+  depends_on_sync:
+    - metadata
+    - runtime
+    - platform
+
+  consumed_by:
+    - ui
+    - control
+    - intelligence
+
+  must_not_do:
+    - 不得成为业务流程的执行者
+    - 不得向任何 Space 发出 Command(需要干预时发事件,保持依赖图无环)
+    - 不得直接读取其他 Space 的内部数据库表
+    - 不得拥有血缘的本体定义
+
+  api_boundary: REST /api/v1/governance/**
+  consistency: 监控与告警为最终一致(事件驱动);EvaluateAccess 为强一致同步调用
+  versioning: AlertRule 变更留痕;AuditRecord 不可变、只追加
