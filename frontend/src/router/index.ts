@@ -41,11 +41,45 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/integration/JobListView.vue'),
         meta: { title: '任务管理', permission: 'control:job:read' },
       },
+      // ── 数据开发(序号 18-23)────────────────────────────────────────
+      {
+        path: 'dev/streaming',
+        name: 'streaming-jobs',
+        component: () => import('@/views/dev/StreamingJobListView.vue'),
+        meta: { title: '实时开发', permission: 'control:job:read' },
+      },
+      // 离线开发与工作流编排复用任务管理页,靠 meta.jobType 钉死类型。
+      // 菜单与模块是多对多(SPACE-MODEL.md I.2):它们是同一个列表的三个投影,
+      // 复制三份组件只会让"给列表加一列"变成要改三个地方。
+      {
+        path: 'dev/batch',
+        name: 'batch-jobs',
+        component: () => import('@/views/integration/JobListView.vue'),
+        meta: { title: '离线开发', permission: 'control:job:read', jobType: 'BATCH' },
+      },
+      {
+        path: 'dev/workflows',
+        name: 'workflows',
+        component: () => import('@/views/integration/JobListView.vue'),
+        meta: { title: '工作流编排', permission: 'control:job:read', jobType: 'WORKFLOW' },
+      },
       {
         path: 'ops/executions',
         name: 'executions',
         component: () => import('@/views/integration/ExecutionListView.vue'),
         meta: { title: '执行记录', permission: 'runtime:execution:read' },
+      },
+      {
+        path: 'settings/executors',
+        name: 'executors',
+        component: () => import('@/views/settings/ExecutorListView.vue'),
+        meta: { title: '执行器管理', permission: 'runtime:executor:read' },
+      },
+      {
+        path: 'settings/artifacts',
+        name: 'artifacts',
+        component: () => import('@/views/settings/ArtifactListView.vue'),
+        meta: { title: '文件管理', permission: 'runtime:artifact:read' },
       },
       {
         path: 'settings/workspaces',

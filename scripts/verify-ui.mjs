@@ -283,6 +283,63 @@ try {
     afterFill.split('\n').find((l) => l.includes('第一张表')) ?? '')
   await closeDialog(page)
 
+  // ── 数据开发(P3,序号 18-23)────────────────────────────────────────
+  console.log('\n【UI】实时开发(功能 18)')
+  await page.goto(BASE + '/dev/streaming', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(900)
+  const streamText = await page.locator('.page-container').innerText()
+  record('实时开发页可访问', streamText.includes('实时任务'), streamText.split('\n')[0])
+  record('页面说明了流任务的状态机围绕「保活」',
+    streamText.includes('保活'), streamText.split('\n').find((l) => l.includes('保活')) ?? '')
+  record('保活重启上限来自后端,不是前端硬编码的数字',
+    /连续重启超过 \d+ 次/.test(streamText.replace(/\s+/g, ' ')),
+    streamText.replace(/\s+/g, ' ').match(/连续重启超过 \d+ 次/)?.[0] ?? '')
+
+  console.log('\n【UI】离线开发与工作流编排(功能 20/22)')
+  await page.goto(BASE + '/dev/workflows', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(900)
+  // 路由钉死了 jobType,类型下拉该消失 —— 在「工作流编排」页还能切成
+  // 「离线同步」只会让人困惑
+  const wfSelects = await page.locator('.page-toolbar__filters .el-select').count()
+  record('钉死类型的页面不再显示类型下拉(菜单是同一列表的投影)',
+    wfSelects === 1, `${wfSelects} 个下拉`)
+
+  await page.locator('button:has-text("新建任务")').first().click()
+  await page.waitForSelector('.el-dialog:visible', { state: 'visible' })
+  await page.waitForTimeout(900)
+  const wfDialog = await page.locator('.el-dialog:visible').innerText()
+  record('从工作流页新建时类型已预选为工作流', wfDialog.includes('工作流编排'),
+    wfDialog.split('\n').find((l) => l.includes('工作流')) ?? '')
+  record('出现节点与依赖边编辑器',
+    wfDialog.includes('添加任务节点') && wfDialog.includes('添加条件节点')
+    && wfDialog.includes('依赖边'))
+  record('说明了条件节点在平台内部求值,不下发执行引擎',
+    wfDialog.includes('不下发执行引擎'))
+
+  await page.locator('button:has-text("添加条件节点")').first().click()
+  await page.waitForTimeout(400)
+  const afterCond = await page.locator('.el-dialog:visible').innerText()
+  record('添加条件节点后出现判据编辑行', afterCond.includes('条件'),
+    afterCond.includes('cond1') ? 'cond1' : '')
+  await closeDialog(page)
+
+  console.log('\n【UI】执行器管理(功能 31)')
+  await page.goto(BASE + '/settings/executors', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(900)
+  const exText = await page.locator('.page-container').innerText()
+  record('执行器管理页可访问', exText.includes('执行器'), exText.split('\n')[0])
+  record('页面说明了执行器是资源而不是配置项(R2)',
+    exText.includes('不是配置项'), '')
+  record('说明了下线要先排空', exText.includes('排空'))
+
+  console.log('\n【UI】文件管理(功能 32)')
+  await page.goto(BASE + '/settings/artifacts', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(900)
+  const artText = await page.locator('.page-container').innerText()
+  record('文件管理页可访问', artText.includes('制品'), artText.split('\n')[0])
+  record('说明了制品不可变 —— 同名同版本只能上传一次',
+    artText.includes('不可变'), '')
+
   console.log('\n【UI】执行记录(序号 10/15/19/21/23 共用)')
   await page.goto(BASE + '/ops/executions', { waitUntil: 'networkidle' })
   await page.waitForTimeout(900)

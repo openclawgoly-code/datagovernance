@@ -336,3 +336,135 @@ export interface DdlPreviewResponse {
   warnings: string[]
   supportedOptions: Record<string, string>
 }
+
+// ── 实时任务运行态(功能 18)──────────────────────────────────────────
+
+/**
+ * 流任务的运行态。
+ *
+ * **不是 ExecutionStatus 的别名**:批执行围绕"触发与完成",流任务围绕"保活"。
+ * 所以这里没有 SUCCEEDED —— 一个跑了三个月的实时任务,问它"这次成功了吗"
+ * 是没有意义的问题。
+ */
+export type StreamingStatus =
+  | 'PUBLISHED'
+  | 'STARTING'
+  | 'RUNNING'
+  | 'RESTARTING'
+  | 'STOPPING'
+  | 'STOPPED'
+  | 'FAILED'
+
+export interface StreamingStatusInfo {
+  status: StreamingStatus
+  displayName: string
+  /** 平台认为它此刻该活着 */
+  active: boolean
+  canStart: boolean
+  canStop: boolean
+}
+
+export interface StreamingMeta {
+  statuses: StreamingStatusInfo[]
+  maxRestartAttempts: number
+}
+
+export interface StreamingState {
+  jobDefinitionId: string
+  jobName: string
+  status: StreamingStatus
+  statusDisplayName: string
+  active: boolean
+  /** 连续重启次数。逼近上限时该提醒用户去看日志 */
+  restartCount: number
+  maxRestartAttempts: number
+  startedAt: string | null
+  stoppedAt: string | null
+  executionId: string | null
+  message: string | null
+}
+
+// ── 执行器(功能 31)──────────────────────────────────────────────────
+
+export type ExecutorStatus = 'REGISTERED' | 'HEALTHY' | 'DRAINING' | 'UNHEALTHY' | 'REMOVED'
+
+export interface ExecutorStatusInfo {
+  status: ExecutorStatus
+  displayName: string
+  acceptsWork: boolean
+}
+
+export interface Executor {
+  id: string
+  name: string
+  kind: string
+  status: ExecutorStatus
+  statusDisplayName: string
+  workspaceId: string | null
+  /** 平台共享执行器,所有空间可用 */
+  shared: boolean
+  endpoint: string | null
+  maxConcurrency: number | null
+  runningCount: number | null
+  /** 还能接几个任务。排空中/不健康时恒为 0 */
+  availableSlots: number
+  lastHeartbeatAt: string | null
+  /** 心跳已超时 —— 状态字段可能还没被巡检更新 */
+  heartbeatStale: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ExecutorRegisterRequest {
+  name: string
+  kind?: string
+  endpoint?: string
+  maxConcurrency?: number
+  shared?: boolean
+}
+
+// ── 作业制品(功能 32)────────────────────────────────────────────────
+
+export interface Artifact {
+  id: string
+  workspaceId: string | null
+  name: string
+  version: string
+  type: string
+  description: string | null
+  sizeBytes: number | null
+  checksumSha256: string | null
+  originalFilename: string | null
+  /** 被多少个任务引用。> 0 时不可删除 */
+  refCount: number
+  platformLevel: boolean
+  createdAt: string
+  createdBy: string | null
+}
+
+// ── 工作流(功能 22)──────────────────────────────────────────────────
+
+export type WorkflowNodeKind = 'TASK' | 'CONDITION'
+
+/** 条件判据。取值来源只有三种 —— 这是一个封闭的小语言,不是任意表达式 */
+export interface WorkflowCondition {
+  source: 'UPSTREAM_STATUS' | 'UPSTREAM_ROWS_WRITTEN' | 'UPSTREAM_ROWS_READ'
+  operator: 'EQ' | 'NE' | 'GT' | 'GTE' | 'LT' | 'LTE'
+  value: string
+}
+
+export interface WorkflowNode {
+  id: string
+  name: string
+  kind: WorkflowNodeKind
+  /** TASK 节点引用的任务定义;CONDITION 节点为空 */
+  jobDefinitionId?: string | null
+  condition?: WorkflowCondition | null
+}
+
+export interface WorkflowEdge {
+  from: string
+  to: string
+  /** 从条件节点出发时必须标 TRUE / FALSE;任务节点出边不标 */
+  branch?: string | null
+}

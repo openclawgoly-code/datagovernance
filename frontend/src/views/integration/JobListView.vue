@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { jobApi, taskCatalogApi } from '@/api/job'
 import { confirmAction, confirmDanger } from '@/utils/confirm'
 import { formatDateTime } from '@/utils/format'
@@ -26,6 +26,16 @@ import type {
  */
 
 const router = useRouter()
+const route = useRoute()
+
+/**
+ * 路由钉死的任务类型。
+ *
+ * 「离线开发」「工作流编排」与「任务管理」是<b>同一个列表的三个投影</b>
+ * (SPACE-MODEL.md I.2「菜单与模块是多对多」)。钉死类型时隐藏类型下拉 ——
+ * 在一个叫「工作流编排」的页面上还能切成"离线同步",只会让人困惑。
+ */
+const pinnedType = computed(() => (route.meta.jobType as JobType | undefined) ?? null)
 
 const loading = ref(false)
 const rows = ref<JobDefinition[]>([])
@@ -133,7 +143,7 @@ async function load() {
     const page = await jobApi.list({
       page: query.page,
       size: query.size,
-      jobType: query.jobType || undefined,
+      jobType: pinnedType.value ?? (query.jobType || undefined),
       status: query.status || undefined,
       keyword: query.keyword || undefined,
       // 目录过滤走后端:任务数量会持续增长,拉全量再前端过滤迟早撑不住
@@ -151,8 +161,15 @@ onMounted(async () => {
   await Promise.all([load(), loadCatalogs()])
 })
 
+// 「离线开发」与「工作流编排」是同一个组件的两条路由,切换时组件不会重建,
+// 必须显式重查 —— 否则从一个页面点到另一个,列表纹丝不动
+watch(pinnedType, () => {
+  query.page = 1
+  load()
+})
+
 function onCreate() {
-  formDialog.value?.open(null, types.value, catalogTree.value.nodes)
+  formDialog.value?.open(null, types.value, catalogTree.value.nodes, pinnedType.value)
 }
 
 function onEdit(row: JobDefinition) {
@@ -323,6 +340,7 @@ function viewExecutions(row: JobDefinition) {
       <div class="page-toolbar">
         <div class="page-toolbar__filters">
           <el-select
+            v-if="!pinnedType"
             v-model="query.jobType"
             placeholder="全部类型"
             clearable

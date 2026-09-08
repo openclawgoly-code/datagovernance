@@ -1,11 +1,20 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { jobApi } from '@/api/job'
+import { artifactApi, jobApi } from '@/api/job'
 import { dataSourceApi } from '@/api/datasource'
 import DdlPreviewDrawer from './DdlPreviewDrawer.vue'
+import WorkflowGraphEditor from '@/views/dev/WorkflowGraphEditor.vue'
 import type { DataSource } from '@/types/datasource'
-import type { JobDefinition, JobType, JobTypeInfo, TaskCatalogNode } from '@/types/job'
+import type {
+  Artifact,
+  JobDefinition,
+  JobType,
+  JobTypeInfo,
+  TaskCatalogNode,
+  WorkflowEdge,
+  WorkflowNode,
+} from '@/types/job'
 
 /**
  * 新建 / 编辑任务定义。
@@ -81,9 +90,36 @@ const ddlOverrides = ref<Record<string, string>>({})
 /** 其余类型的配置走 JSON 兜底 */
 const rawConfigJson = ref('{}')
 
+/** 工作流的图(功能 22) */
+const wfNodes = ref<WorkflowNode[]>([])
+const wfEdges = ref<WorkflowEdge[]>([])
+/** 可被工作流引用的任务定义:已发布的、且不是工作流(本期不支持嵌套) */
+const wfCandidates = ref<JobDefinition[]>([])
+
+/** 实时/离线开发的配置(功能 18/20) */
+const devConfig = reactive({
+  sourceKind: 'SQL',
+  sql: '',
+  dataSourceId: '',
+  artifactId: '',
+  entryClass: '',
+  programArgs: '',
+  parallelism: 1,
+  checkpointIntervalMs: 60000,
+  restartStrategy: 'EXPONENTIAL',
+})
+const artifacts = ref<Artifact[]>([])
+
 const isSync = computed(() => form.jobType === 'OFFLINE_SYNC')
 const isMigration = computed(() => form.jobType === 'DB_MIGRATION')
-const isRaw = computed(() => !!form.jobType && !isSync.value && !isMigration.value)
+const isWorkflow = computed(() => form.jobType === 'WORKFLOW')
+/** 实时开发(18)与离线开发(20):编译期几乎一样,所以共用一套表单 */
+const isDev = computed(() => form.jobType === 'STREAMING' || form.jobType === 'BATCH')
+const isStreaming = computed(() => form.jobType === 'STREAMING')
+const isRaw = computed(
+  () => !!form.jobType && !isSync.value && !isMigration.value
+    && !isWorkflow.value && !isDev.value,
+)
 
 const selectedType = computed(() => types.value.find((t) => t.type === form.jobType) ?? null)
 
@@ -96,6 +132,8 @@ async function open(
   row: JobDefinition | null,
   typeList: JobTypeInfo[],
   catalogNodes: TaskCatalogNode[] = [],
+  /** 由路由钉死的类型(如「工作流编排」页新建时);null 表示让用户自己选 */
+  presetType: JobType | null = null,
 ) {
   types.value = typeList
   catalogs.value = catalogNodes
@@ -104,7 +142,7 @@ async function open(
 
   Object.assign(form, {
     name: row?.name ?? '',
-    jobType: row?.jobType ?? '',
+    jobType: row?.jobType ?? presetType ?? '',
     description: row?.description ?? '',
     catalogId: row?.catalogId ?? null,
     timeoutMs: row?.timeoutMs ?? 7200000,
@@ -113,6 +151,26 @@ async function open(
   })
 
   const config = (row?.config ?? {}) as Record<string, unknown>
+  if (row?.jobType === 'WORKFLOW') {
+    wfNodes.value = (config.nodes as WorkflowNode[] | undefined)?.map((n) => ({ ...n })) ?? []
+    wfEdges.value = (config.edges as WorkflowEdge[] | undefined)?.map((e) => ({ ...e })) ?? []
+  } else {
+    wfNodes.value = []
+    wfEdges.value = []
+  }
+  if (row?.jobType === 'STREAMING' || row?.jobType === 'BATCH') {
+    Object.assign(devConfig, {
+      sourceKind: str(config.sourceKind) || 'SQL',
+      sql: str(config.sql),
+      dataSourceId: str(config.dataSourceId),
+      artifactId: str(config.artifactId),
+      entryClass: str(config.entryClass),
+      programArgs: str(config.programArgs),
+      parallelism: Number(config.parallelism ?? 1),
+      checkpointIntervalMs: Number(config.checkpointIntervalMs ?? 60000),
+      restartStrategy: str(config.restartStrategy) || 'EXPONENTIAL',
+    })
+  }
   if (row?.jobType === 'OFFLINE_SYNC') {
     Object.assign(syncConfig, {
       sourceDataSourceId: str(config.sourceDataSourceId),
@@ -162,10 +220,33 @@ function str(value: unknown): string {
   return value == null ? '' : String(value)
 }
 
-function onTypeChange() {
+async function onTypeChange() {
   mappingRows.value = []
   rawConfigJson.value = '{}'
   ddlOverrides.value = {}
+  wfNodes.value = []
+  wfEdges.value = []
+  // 工作流要选引用的任务,开发任务要选制品 —— 按需拉,不在打开对话框时
+  // 就把两份列表都请求一遍
+  if (isWorkflow.value) {
+    await loadWorkflowCandidates()
+  } else if (isDev.value) {
+    await loadArtifacts()
+  }
+}
+
+/** 可被引用的任务:已发布状态,且排除工作流自己与其他工作流 */
+async function loadWorkflowCandidates() {
+  const page = await jobApi.list({ page: 1, size: 200 })
+  wfCandidates.value = page.records.filter(
+    (j) => j.jobType !== 'WORKFLOW'
+      && ['PUBLISHED', 'SCHEDULING', 'PAUSED'].includes(j.status),
+  )
+}
+
+async function loadArtifacts() {
+  const page = await artifactApi.list({ page: 1, size: 200 })
+  artifacts.value = page.records
 }
 
 function buildConfig(): Record<string, unknown> {
@@ -180,6 +261,29 @@ function buildConfig(): Record<string, unknown> {
   }
   if (isMigration.value) {
     return { ...migrationConfig, ddlOverrides: ddlOverrides.value }
+  }
+  if (isWorkflow.value) {
+    return { nodes: wfNodes.value, edges: wfEdges.value }
+  }
+  if (isDev.value) {
+    const base: Record<string, unknown> = {
+      sourceKind: devConfig.sourceKind,
+      parallelism: devConfig.parallelism,
+    }
+    if (devConfig.sourceKind === 'SQL') {
+      base.sql = devConfig.sql
+      // 批作业的 SQL 要在某个数据源上跑;流作业的 SQL 由引擎解析,不需要
+      if (!isStreaming.value) base.dataSourceId = devConfig.dataSourceId
+    } else {
+      base.artifactId = devConfig.artifactId
+      base.entryClass = devConfig.entryClass
+      base.programArgs = devConfig.programArgs
+    }
+    if (isStreaming.value) {
+      base.checkpointIntervalMs = devConfig.checkpointIntervalMs
+      base.restartStrategy = devConfig.restartStrategy
+    }
+    return base
   }
   try {
     return JSON.parse(rawConfigJson.value) as Record<string, unknown>
@@ -470,6 +574,96 @@ defineExpose({ open })
         <el-form-item label="写入批次">
           <el-input-number v-model="migrationConfig.batchSize" :min="1" :max="50000" :step="100" />
         </el-form-item>
+      </template>
+
+      <!-- ── 工作流(功能 22)──────────────────────────────────────── -->
+      <template v-if="isWorkflow">
+        <el-divider content-position="left">工作流编排</el-divider>
+        <WorkflowGraphEditor
+          v-model:nodes="wfNodes"
+          v-model:edges="wfEdges"
+          :candidates="wfCandidates"
+        />
+      </template>
+
+      <!-- ── 实时开发(18)/ 离线开发(20)——编译期几乎一样,共用一套表单 -->
+      <template v-if="isDev">
+        <el-divider content-position="left">作业内容</el-divider>
+        <el-form-item label="作业形态">
+          <el-radio-group v-model="devConfig.sourceKind">
+            <el-radio value="SQL">写 SQL</el-radio>
+            <el-radio value="JAR">上传的 JAR</el-radio>
+            <el-radio value="PYTHON">Python 包</el-radio>
+          </el-radio-group>
+        </el-form-item>
+
+        <template v-if="devConfig.sourceKind === 'SQL'">
+          <el-form-item v-if="!isStreaming" label="执行数据源">
+            <el-select v-model="devConfig.dataSourceId" filterable style="width: 100%">
+              <el-option
+                v-for="d in dataSources"
+                :key="d.id"
+                :label="`${d.name}(${d.type})`"
+                :value="d.id"
+              />
+            </el-select>
+            <div class="text-muted">SQL 会在这个库上按分号切分后,在一个事务里顺序执行</div>
+          </el-form-item>
+          <el-form-item label="作业 SQL">
+            <el-input
+              v-model="devConfig.sql"
+              type="textarea"
+              :rows="8"
+              class="text-mono"
+              placeholder="多条语句用分号分隔;字符串里的分号不会被切开"
+            />
+          </el-form-item>
+        </template>
+
+        <template v-else>
+          <el-form-item label="制品">
+            <el-select v-model="devConfig.artifactId" filterable style="width: 100%">
+              <el-option
+                v-for="a in artifacts"
+                :key="a.id"
+                :label="`${a.name}:${a.version}(${a.type})`"
+                :value="a.id"
+              />
+            </el-select>
+            <div class="text-muted">在「基础配置 → 文件管理」里上传</div>
+          </el-form-item>
+          <el-form-item v-if="devConfig.sourceKind === 'JAR'" label="入口类">
+            <el-input v-model="devConfig.entryClass" placeholder="com.example.Main" />
+            <div class="text-muted">平台不去反编译 JAR 猜 main 方法在哪</div>
+          </el-form-item>
+          <el-form-item label="程序参数">
+            <el-input v-model="devConfig.programArgs" placeholder="选填" />
+          </el-form-item>
+        </template>
+
+        <el-form-item label="并行度">
+          <el-input-number v-model="devConfig.parallelism" :min="1" :max="512" />
+        </el-form-item>
+
+        <template v-if="isStreaming">
+          <el-form-item label="checkpoint">
+            <el-input-number
+              v-model="devConfig.checkpointIntervalMs"
+              :min="1000"
+              :step="10000"
+            />
+            <span class="text-muted" style="margin-left: 8px">
+              毫秒。不配的话重启后会从头开始消费
+            </span>
+          </el-form-item>
+          <el-form-item label="重启策略">
+            <el-select v-model="devConfig.restartStrategy" style="width: 220px">
+              <el-option label="指数退避" value="EXPONENTIAL" />
+              <el-option label="固定间隔" value="FIXED_DELAY" />
+              <el-option label="不重启" value="NONE" />
+            </el-select>
+          </el-form-item>
+        </template>
       </template>
 
       <!-- ── 其余类型:JSON 兜底 ──────────────────────────────────── -->

@@ -96,6 +96,15 @@ export const http = {
   delete<T>(url: string, params?: Record<string, unknown>): Promise<T> {
     return request<T>({ url, method: 'DELETE', params })
   },
+  /**
+   * 文件上传。
+   *
+   * 不显式设置 Content-Type —— 浏览器要自己填 multipart 的 boundary,
+   * 手写一个 'multipart/form-data' 会把 boundary 丢掉,后端解析出一个空表单。
+   */
+  upload<T>(url: string, form: FormData): Promise<T> {
+    return request<T>({ url, method: 'POST', data: form })
+  },
 }
 
 export default service

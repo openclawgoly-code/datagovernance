@@ -6,6 +6,7 @@ import type {
   CancelResult,
   CatalogNodeRequest,
   CatalogTree,
+  Artifact,
   CompileDiagnostic,
   CompileResponse,
   DdlPreviewRequest,
@@ -13,12 +14,17 @@ import type {
   Execution,
   ExecutionDetail,
   ExecutionQuery,
+  Executor,
+  ExecutorRegisterRequest,
+  ExecutorStatusInfo,
   JobDefinition,
   JobRefTypeInfo,
   JobTypeInfo,
   JobUpsertRequest,
   ScheduleRequest,
   SchedulePreview,
+  StreamingMeta,
+  StreamingState,
   TaskCatalogNode,
 } from '@/types/job'
 
@@ -185,5 +191,97 @@ export const executionApi = {
 export const ddlApi = {
   preview(payload: DdlPreviewRequest): Promise<DdlPreviewResponse> {
     return http.post<DdlPreviewResponse>('/ddl/preview', payload)
+  },
+}
+
+/**
+ * 实时任务的启停(功能 18)。
+ *
+ * 与 jobApi.run 是两套语义相反的动词:那个是"跑一次然后结束",这个是
+ * "让它一直活着"。放在同一个对象上会让调用方以为它们只是叫法不同。
+ */
+export const streamingApi = {
+  /** 运行态元数据。状态标签与按钮可用性都读它,不硬编码 */
+  meta(): Promise<StreamingMeta> {
+    return http.get<StreamingMeta>('/streaming-jobs/states')
+  },
+
+  list(): Promise<StreamingState[]> {
+    return http.get<StreamingState[]>('/streaming-jobs')
+  },
+
+  get(id: string): Promise<StreamingState> {
+    return http.get<StreamingState>(`/streaming-jobs/${id}`)
+  },
+
+  /** 已在运行时后端返回 409 —— 重复启动多半意味着有人以为它没起来 */
+  start(id: string): Promise<StreamingState> {
+    return http.post<StreamingState>(`/streaming-jobs/${id}/start`)
+  },
+
+  stop(id: string): Promise<StreamingState> {
+    return http.post<StreamingState>(`/streaming-jobs/${id}/stop`)
+  },
+}
+
+/** 执行器(功能 31)。菜单在「基础配置」下,归属却是 Runtime(R2) */
+export const executorApi = {
+  statuses(): Promise<ExecutorStatusInfo[]> {
+    return http.get<ExecutorStatusInfo[]>('/executors/statuses')
+  },
+
+  list(): Promise<Executor[]> {
+    return http.get<Executor[]>('/executors')
+  },
+
+  register(payload: ExecutorRegisterRequest): Promise<Executor> {
+    return http.post<Executor>('/executors', payload)
+  },
+
+  /** 排空:不再派新活,等手上的跑完。这是下线执行器的唯一正确入口 */
+  drain(id: string): Promise<Executor> {
+    return http.post<Executor>(`/executors/${id}/drain`)
+  },
+
+  resume(id: string): Promise<Executor> {
+    return http.post<Executor>(`/executors/${id}/resume`)
+  },
+
+  remove(id: string): Promise<Executor> {
+    return http.post<Executor>(`/executors/${id}/remove`)
+  },
+}
+
+/** 作业制品(功能 32)。制品不可变:同名同版本只能上传一次 */
+export const artifactApi = {
+  list(params: { page: number; size: number; type?: string; keyword?: string }):
+      Promise<PageResult<Artifact>> {
+    return http.get<PageResult<Artifact>>('/artifacts', params)
+  },
+
+  /**
+   * 上传。
+   *
+   * 走 FormData 而不是 JSON:一个 JAR 转成 base64 会膨胀三分之一,
+   * 而制品上限是 512MB。
+   */
+  upload(file: File, meta: { name: string; version?: string; type?: string; description?: string }):
+      Promise<Artifact> {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('name', meta.name)
+    if (meta.version) form.append('version', meta.version)
+    if (meta.type) form.append('type', meta.type)
+    if (meta.description) form.append('description', meta.description)
+    return http.upload<Artifact>('/artifacts', form)
+  },
+
+  /** 被任务引用的制品不可删,后端返回 409 —— 前端不做预判 */
+  remove(id: string): Promise<void> {
+    return http.delete<void>(`/artifacts/${id}`)
+  },
+
+  downloadUrl(id: string): string {
+    return `/api/v1/artifacts/${id}/content`
   },
 }
