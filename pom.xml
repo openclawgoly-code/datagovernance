@@ -173,6 +173,13 @@
           <forkCount>1</forkCount>
           <reuseForks>true</reuseForks>
           <argLine>-Xmx1g -Duser.timezone=Asia/Shanghai</argLine>
+          <includes>
+            <include>**/*Test.java</include>
+            <!-- *IT 是需要真实外部依赖(数据库/Docker)的测试。它们在依赖不可用时
+                 以 Assumptions 跳过而非失败,因此可以和单元测试跑在同一阶段;
+                 单独拆 failsafe 只会让「本地跑一次 mvn test 就能验完」这件事变复杂。 -->
+            <include>**/*IT.java</include>
+          </includes>
         </configuration>
       </plugin>
     </plugins>

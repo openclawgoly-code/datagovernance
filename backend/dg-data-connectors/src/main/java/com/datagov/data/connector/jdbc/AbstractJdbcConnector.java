@@ -1,0 +1,361 @@
+package com.datagov.data.connector.jdbc;
+
+import com.datagov.common.error.BizException;
+import com.datagov.common.error.ErrorCode;
+import com.datagov.data.connector.ConnectorExceptions;
+import com.datagov.data.connector.mapping.TypeMapper;
+import com.datagov.data.spi.ConnectionConfig;
+import com.datagov.data.spi.ConnectivityResult;
+import com.datagov.data.spi.DataSourceType;
+import com.datagov.data.spi.RelationalCatalogReader;
+import com.datagov.data.spi.catalog.CanonicalType;
+import com.datagov.data.spi.catalog.CatalogModel.ColumnInfo;
+import com.datagov.data.spi.catalog.CatalogModel.DatabaseInfo;
+import com.datagov.data.spi.catalog.CatalogModel.SchemaInfo;
+import com.datagov.data.spi.catalog.CatalogModel.TableInfo;
+import com.datagov.data.spi.catalog.CatalogModel.TableKind;
+import com.datagov.data.spi.catalog.CatalogPath;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Properties;
+import java.util.Set;
+
+/**
+ * JDBC 连接器共性实现。
+ *
+ * <p>结构探测统一走 {@link DatabaseMetaData} 而非各家系统表:标准接口在所有
+ * 驱动上都能用,方言差异收敛成几个可覆写的钩子。代价是拿不到引擎特有的
+ * 元信息(如 Doris 的分区模型),但那属于 P2 建表时才需要的东西 ——
+ * P1 的目标是"能浏览库表结构",标准接口完全够用。
+ *
+ * <p><b>无状态</b>:本类及子类不持有任何连接或配置。每个方法自己开连接、
+ * 自己关闭。{@link ConnectionConfig} 里有明文口令,缓存它等于把口令留在堆上。
+ */
+public abstract class AbstractJdbcConnector implements RelationalCatalogReader {
+
+    private static final Logger log = LoggerFactory.getLogger(AbstractJdbcConnector.class);
+
+    /** 只探测表与视图。系统表、索引、别名等对用户没有意义,列出来只会淹没真正要找的表。 */
+    private static final String[] BROWSABLE_TABLE_TYPES = {
+            "TABLE", "VIEW", "MATERIALIZED VIEW", "EXTERNAL TABLE"
+    };
+
+    // ── 子类必须提供 ────────────────────────────────────────────────────
+
+    protected abstract String buildJdbcUrl(DataSourceType type, ConnectionConfig config);
+
+    protected abstract TypeMapper typeMapper(DataSourceType type);
+
+    // ── 子类可覆写的方言钩子 ────────────────────────────────────────────
+
+    /**
+     * 把超时写进驱动属性。
+     *
+     * <p>每家驱动的参数名都不一样,而且<b>必须</b>设 —— 没有超时的探测会在
+     * 目标库不可达时一直挂着,几次点击就能把 HTTP 线程池占满。
+     */
+    protected void applyTimeouts(Properties props, ConnectionConfig config) {
+        // 默认用 JDBC 标准的 loginTimeout(秒)。子类应覆写为自家参数以获得更精确的控制。
+        props.setProperty("loginTimeout", String.valueOf(Math.max(1, config.connectTimeoutMillis() / 1000)));
+    }
+
+    /**
+     * 列库用的 SQL。返回 null 表示改用 {@link DatabaseMetaData#getCatalogs()}。
+     *
+     * <p>Oracle / 达梦这类"没有独立库概念"的引擎应返回 null 并覆写
+     * {@link #listDatabases} 的行为(见下面的默认实现如何处理空结果)。
+     */
+    protected String listDatabasesSql() {
+        return null;
+    }
+
+    /** {@link DatabaseMetaData} 调用中 catalog 参数取什么。 */
+    protected String metadataCatalog(ConnectionConfig config, CatalogPath path) {
+        return path.database() != null ? path.database() : config.database();
+    }
+
+    /** {@link DatabaseMetaData} 调用中 schema 参数取什么。 */
+    protected String metadataSchema(ConnectionConfig config, CatalogPath path) {
+        return path.schema();
+    }
+
+    /**
+     * 为下钻到某个库而调整连接配置。
+     *
+     * <p>PostgreSQL 一个连接只能看见一个库,要列 X 库的表就必须连到 X 库上;
+     * MySQL 则一个连接可以跨库。默认不调整,由 PostgreSQL 子类覆写。
+     */
+    protected ConnectionConfig configForPath(ConnectionConfig config, CatalogPath path) {
+        return config;
+    }
+
+    // ── SPI 实现 ────────────────────────────────────────────────────────
+
+    @Override
+    public ConnectivityResult testConnection(DataSourceType type, ConnectionConfig config) {
+        long startedAt = System.nanoTime();
+        try (Connection connection = open(type, config)) {
+            // isValid 是 JDBC 标准的连通性检查,免去各方言 "SELECT 1" / "SELECT 1 FROM DUAL" 的差异
+            int timeoutSeconds = Math.max(1, config.readTimeoutMillis() / 1000);
+            if (!connection.isValid(timeoutSeconds)) {
+                return ConnectivityResult.failure(ErrorCode.DAT_CONNECT_FAILED, elapsedMillis(startedAt),
+                        ConnectorExceptions.userMessage(ErrorCode.DAT_CONNECT_FAILED, config.host(), config.port()),
+                        "连接已建立但 Connection.isValid 返回 false");
+            }
+            DatabaseMetaData metaData = connection.getMetaData();
+            String version = "%s %s".formatted(
+                    metaData.getDatabaseProductName(), metaData.getDatabaseProductVersion());
+            return ConnectivityResult.success(elapsedMillis(startedAt), version);
+
+        } catch (SQLException ex) {
+            ErrorCode code = ConnectorExceptions.classify(ex);
+            // 这里刻意不打堆栈:连接失败是高频的正常业务结果,打堆栈会淹没日志
+            log.debug("连通性测试失败 type={} target={} code={}", type, config.masked(), code.code());
+            return ConnectivityResult.failure(code, elapsedMillis(startedAt),
+                    ConnectorExceptions.userMessage(code, config.host(), config.port()),
+                    "SQLState=%s vendorCode=%d %s".formatted(
+                            ex.getSQLState(), ex.getErrorCode(), ex.getMessage()));
+
+        } catch (BizException ex) {
+            // 驱动缺失走这条路 —— 同样不该抛给调用方,而是作为失败结果返回
+            return ConnectivityResult.failure(ex.errorCode(), elapsedMillis(startedAt),
+                    ex.getMessage(), ex.detail());
+
+        } catch (RuntimeException ex) {
+            log.warn("连通性测试出现未预期异常 type={} target={}", type, config.masked(), ex);
+            return ConnectivityResult.failure(ErrorCode.DAT_CONNECT_FAILED, elapsedMillis(startedAt),
+                    ConnectorExceptions.userMessage(ErrorCode.DAT_CONNECT_FAILED, config.host(), config.port()),
+                    ex.getClass().getSimpleName() + ": " + ex.getMessage());
+        }
+    }
+
+    @Override
+    public List<DatabaseInfo> listDatabases(DataSourceType type, ConnectionConfig config) {
+        try (Connection connection = open(type, config)) {
+            String sql = listDatabasesSql();
+            List<DatabaseInfo> databases = sql != null
+                    ? queryDatabaseNames(connection, sql, config)
+                    : readCatalogs(connection);
+
+            // 引擎没有独立的库概念(Oracle / 达梦),或驱动没报出来:
+            // 用连接配置里的库名占位,让 UI 的层级结构保持一致。
+            if (databases.isEmpty() && config.database() != null) {
+                databases = List.of(new DatabaseInfo(config.database(), null, null, null));
+            }
+            return databases;
+        } catch (SQLException ex) {
+            throw ConnectorExceptions.introspectFailed("列出库列表", ex);
+        }
+    }
+
+    @Override
+    public List<SchemaInfo> listSchemas(DataSourceType type, ConnectionConfig config, CatalogPath path) {
+        ConnectionConfig effective = configForPath(config, path);
+        try (Connection connection = open(type, effective)) {
+            String catalog = metadataCatalog(effective, path);
+            List<SchemaInfo> schemas = new ArrayList<>();
+            try (ResultSet rs = connection.getMetaData().getSchemas(catalog, null)) {
+                while (rs.next()) {
+                    schemas.add(new SchemaInfo(rs.getString("TABLE_SCHEM"), null, null));
+                }
+            }
+            return schemas;
+        } catch (SQLException ex) {
+            throw ConnectorExceptions.introspectFailed("列出模式 " + path.display(), ex);
+        }
+    }
+
+    @Override
+    public List<TableInfo> listTables(DataSourceType type, ConnectionConfig config, CatalogPath path) {
+        ConnectionConfig effective = configForPath(config, path);
+        try (Connection connection = open(type, effective)) {
+            String catalog = metadataCatalog(effective, path);
+            String schema = metadataSchema(effective, path);
+
+            List<TableInfo> tables = new ArrayList<>();
+            try (ResultSet rs = connection.getMetaData()
+                    .getTables(catalog, schema, "%", BROWSABLE_TABLE_TYPES)) {
+                while (rs.next()) {
+                    tables.add(new TableInfo(
+                            rs.getString("TABLE_NAME"),
+                            toTableKind(rs.getString("TABLE_TYPE")),
+                            rs.getString("REMARKS"),
+                            null,   // 行数与体积需要引擎特有的统计表,P1 不采集
+                            null,
+                            null));
+                }
+            }
+            return tables;
+        } catch (SQLException ex) {
+            throw ConnectorExceptions.introspectFailed("列出表 " + path.display(), ex);
+        }
+    }
+
+    @Override
+    public List<ColumnInfo> listColumns(DataSourceType type, ConnectionConfig config, CatalogPath path) {
+        if (path.table() == null) {
+            throw new BizException(ErrorCode.DAT_INTROSPECT_FAILED, "未指定表名,无法列出字段");
+        }
+        ConnectionConfig effective = configForPath(config, path);
+        try (Connection connection = open(type, effective)) {
+            String catalog = metadataCatalog(effective, path);
+            String schema = metadataSchema(effective, path);
+            DatabaseMetaData metaData = connection.getMetaData();
+
+            Set<String> primaryKeys = readPrimaryKeys(metaData, catalog, schema, path.table());
+            TypeMapper mapper = typeMapper(type);
+
+            List<ColumnInfo> columns = new ArrayList<>();
+            try (ResultSet rs = metaData.getColumns(catalog, schema, path.table(), "%")) {
+                while (rs.next()) {
+                    String name = rs.getString("COLUMN_NAME");
+                    String rawType = rs.getString("TYPE_NAME");
+                    int jdbcType = rs.getInt("DATA_TYPE");
+                    Integer precision = nullableInt(rs, "COLUMN_SIZE");
+                    Integer scale = nullableInt(rs, "DECIMAL_DIGITS");
+
+                    CanonicalType canonical = mapper.map(rawType, jdbcType, precision, scale);
+                    if (canonical == CanonicalType.UNKNOWN) {
+                        // 记下来,便于事后补全映射表。这是 R7 的运行期反馈回路:
+                        // 生产上真实出现过的未知类型,比拍脑袋想出来的映射规则更值得实现。
+                        log.info("未能规范化的类型 type={} column={} rawType={} jdbcType={}",
+                                type, name, rawType, jdbcType);
+                    }
+
+                    columns.add(new ColumnInfo(
+                            name,
+                            rawType,
+                            canonical,
+                            precision,
+                            scale,
+                            rs.getInt("NULLABLE") != DatabaseMetaData.columnNoNulls,
+                            primaryKeys.contains(name),
+                            rs.getString("COLUMN_DEF"),
+                            rs.getString("REMARKS"),
+                            rs.getInt("ORDINAL_POSITION")));
+                }
+            }
+            return columns;
+        } catch (SQLException ex) {
+            throw ConnectorExceptions.introspectFailed("列出字段 " + path.display(), ex);
+        }
+    }
+
+    // ── 内部实现 ────────────────────────────────────────────────────────
+
+    /**
+     * 开一个连接。
+     *
+     * <p>没有用连接池: P1 的探测是低频、短时的交互式操作,池化带来的连接复用
+     * 收益不足以抵消"池要按数据源维度管理生命周期"的复杂度。P2 的同步任务
+     * 是持续高频读写,那时才需要池 —— 而那属于 Runtime Space,不在这里。
+     */
+    protected Connection open(DataSourceType type, ConnectionConfig config) throws SQLException {
+        String driverClass = type.driverClassName();
+        if (driverClass != null) {
+            try {
+                Class.forName(driverClass);
+            } catch (ClassNotFoundException e) {
+                throw ConnectorExceptions.driverMissing(driverClass, e);
+            }
+        }
+
+        Properties props = new Properties();
+        if (config.username() != null) {
+            props.setProperty("user", config.username());
+        }
+        if (config.password() != null) {
+            props.setProperty("password", config.password());
+        }
+        config.properties().forEach(props::setProperty);
+        applyTimeouts(props, config);
+
+        // 直填 URL 优先于按 host/port/database 拼装。信创与内网环境里经常需要
+        // 挂 failover 地址、Kerberos 参数或专有连接属性,拼装逻辑覆盖不完,
+        // 留一个直填口子比不断给拼装函数加分支更实际。
+        String override = config.jdbcUrlOverride();
+        String url = (override != null && !override.isBlank())
+                ? override.trim()
+                : buildJdbcUrl(type, config);
+
+        return DriverManager.getConnection(url, props);
+    }
+
+    private List<DatabaseInfo> queryDatabaseNames(Connection connection, String sql,
+                                                  ConnectionConfig config) throws SQLException {
+        List<DatabaseInfo> databases = new ArrayList<>();
+        try (Statement statement = connection.createStatement()) {
+            statement.setQueryTimeout(Math.max(1, config.readTimeoutMillis() / 1000));
+            try (ResultSet rs = statement.executeQuery(sql)) {
+                while (rs.next()) {
+                    databases.add(new DatabaseInfo(rs.getString(1), null, null, null));
+                }
+            }
+        }
+        return databases;
+    }
+
+    private List<DatabaseInfo> readCatalogs(Connection connection) throws SQLException {
+        List<DatabaseInfo> databases = new ArrayList<>();
+        try (ResultSet rs = connection.getMetaData().getCatalogs()) {
+            while (rs.next()) {
+                databases.add(new DatabaseInfo(rs.getString("TABLE_CAT"), null, null, null));
+            }
+        }
+        return databases;
+    }
+
+    private Set<String> readPrimaryKeys(DatabaseMetaData metaData, String catalog,
+                                        String schema, String table) {
+        Set<String> keys = new LinkedHashSet<>();
+        // 主键读取失败不该让整个字段列表失败 —— 少一个主键标记,总比什么都看不到强
+        try (ResultSet rs = metaData.getPrimaryKeys(catalog, schema, table)) {
+            while (rs.next()) {
+                keys.add(rs.getString("COLUMN_NAME"));
+            }
+        } catch (SQLException ex) {
+            log.debug("读取主键失败 table={},按无主键处理", table, ex);
+            return new HashSet<>();
+        }
+        return keys;
+    }
+
+    private static TableKind toTableKind(String jdbcTableType) {
+        if (jdbcTableType == null) {
+            return TableKind.OTHER;
+        }
+        return switch (jdbcTableType.toUpperCase()) {
+            case "TABLE", "BASE TABLE" -> TableKind.TABLE;
+            case "VIEW" -> TableKind.VIEW;
+            case "MATERIALIZED VIEW" -> TableKind.MATERIALIZED_VIEW;
+            case "EXTERNAL TABLE" -> TableKind.EXTERNAL_TABLE;
+            default -> TableKind.OTHER;
+        };
+    }
+
+    /** {@code getInt} 对 NULL 返回 0,这会把"未知精度"和"精度为 0"混为一谈,所以要显式判空。 */
+    private static Integer nullableInt(ResultSet rs, String column) throws SQLException {
+        int value = rs.getInt(column);
+        return rs.wasNull() ? null : value;
+    }
+
+    private static long elapsedMillis(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000L;
+    }
+
+    /** 端口:优先用配置的,没配就用该类型的默认端口。 */
+    protected static int portOrDefault(DataSourceType type, ConnectionConfig config) {
+        return config.port() != null && config.port() > 0 ? config.port() : type.defaultPort();
+    }
+}
