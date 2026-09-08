@@ -8,14 +8,14 @@
 
 素材由 scripts/seed-public-datasets.sh 准备:
 
-  Pagila      15 张表 + 165 个分区 + 8 个视图,含 ENUM / DOMAIN / text[] /
+  Pagila      15 张表 + 55 个分区 + 8 个视图,含 ENUM / DOMAIN / text[] /
               tsvector / vector(pgvector) / 生成列。DVD 租赁模型,PostgreSQL 官方
               示例库的社区移植版。
   Chinook     数字音乐商店,11 张表。官方同时提供 PG / MySQL / Oracle / SQLServer
               四套脚本 —— 这是整库迁移唯一能有"参照答案"的形态。
   健康样本    中文表头 + GBK 编码 + 合成身份证号,走本地只读 FTP。
 
-<b>断言的取舍</b>:这里只写"错了就一定是缺陷"的断言。像"分区数正好等于 165"
+<b>断言的取舍</b>:这里只写"错了就一定是缺陷"的断言。像"分区数正好等于 55"
 这种跟着上游数据集走的数字不写死,写死了下次上游加一个月的分区就变成假红。
 
 前置:
@@ -161,7 +161,7 @@ created_rules = []
 
 
 # ═══ 一、结构探测遇上真实的库(Pagila)═══════════════════════════════
-print("\n【一】结构探测(功能 5/6)—— Pagila:15 张表藏在 165 个分区里")
+print("\n【一】结构探测(功能 5/6)—— Pagila:15 张表藏在 55 个分区里")
 
 pagila_ds = make_pg_datasource(f"P6-Pagila-{RUN}", DB_PAGILA)
 created_datasources.append(pagila_ds)
@@ -189,7 +189,7 @@ print(f"       库里实际有:顶层表 {top_level} · 分区 {partitions} · �
 print(f"       平台返回了 {len(tables)} 条")
 
 # 分区是父表的存储细节,不是用户要浏览的对象。它们出现在表清单里,等于把
-# 用户真正要找的 15 张表埋进 165 条噪音里 —— 而且分区名带年月,列表按名字
+# 用户真正要找的 15 张表埋进几十条噪音里 —— 而且分区名带年月,列表按名字
 # 排序后,payment 的分区会把 p 开头的真实表挤到几屏之外。
 partition_names = set(psql(
     "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace"
@@ -447,8 +447,7 @@ else:
         # 自己就会干这件事
         check("执行状态与实际结果一致(数据写进去了就不该报失败)",
               not (loaded == 200 and ex["status"] == "FAILED"),
-              f"status={ex['status']} 但目标表已有 {loaded} 行,"
-              f"错误码 {ex.get('errorCode')}" if loaded else ex["status"])
+              f"{ex['status']},目标表 {loaded} 行")
 
     # 下面这一组断言全是"表里的内容对不对"。<b>一行都没落进来时它们会全部
     # 空转通过</b> —— 「没有明文身份证」在空表上永远成立,而那正是最不该

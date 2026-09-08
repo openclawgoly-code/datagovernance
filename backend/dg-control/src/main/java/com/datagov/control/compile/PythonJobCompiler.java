@@ -50,10 +50,24 @@ public class PythonJobCompiler implements JobCompiler {
         return JobType.PYTHON_JOB;
     }
 
+
+    /**
+     * 平台认识的配置键。不在这里的键会被警告 —— 一个拼错的键会让配置静默失效,
+     * 而任务照常报告成功。
+     */
+    private static final java.util.Set<String> KNOWN_KEYS = java.util.Set.of(
+            "artifactId", "entryModule", "programArgs", "env", "resources",
+            "inputDatasetIds", "outputArtifactId",
+            // 下面四个是「不得直连业务数据源」那条契约明确要拒绝的键。列在这里,
+            // 是为了让它们只触发那条说清了来龙去脉的错误,而不是再叠一条泛泛的
+            // "平台不认识这个键" —— 后者对已经拿到确切原因的人只是噪音。
+            "jdbcUrl", "host", "sourceTable", "connectionString");
+
     @Override
     public CompileResult compile(CompileContext context) {
         CompileResult.Collector collector = new CompileResult.Collector();
         Map<String, Object> config = context.config();
+        CompilerSupport.warnUnknownKeys(collector, config, KNOWN_KEYS);
         String workspaceId = CompilerSupport.workspaceOf(context.definition());
 
         String artifactId = str(config, "artifactId");

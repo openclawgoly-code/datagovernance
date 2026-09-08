@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * FTP 连接器(功能 2)。
@@ -81,14 +82,28 @@ public class FtpConnector implements FileCatalogReader {
             // 被动模式:主动模式要求服务端回连客户端端口,在 NAT/容器环境里几乎必然失败
             client.enterLocalPassiveMode();
 
+            FTPFile[] listed = client.listFiles(target);
+
+            // 对一个<b>文件</b>执行 LIST,FTP 返回的是"这个文件自己"那一条,而不是
+            // 报错 —— 结构上与对目录执行 LIST 的结果完全一样,分不出来。分不出来
+            // 的代价是给每一条拼路径时多拼一层:/data/x.csv/x.csv,而它不存在。
+            //
+            // CWD 进得去才是目录,这是 FTP 里唯一确定的答案。只在有歧义时问这一次:
+            // 清单只有一项、且那一项不是目录。目录里恰好只有一个文件也会走到这里,
+            // 那时 CWD 成功,结论仍然正确。
+            boolean targetIsDirectory = true;
+            if (listed.length == 1 && listed[0] != null && !listed[0].isDirectory()) {
+                targetIsDirectory = client.changeWorkingDirectory(target);
+            }
+
             List<FileEntry> entries = new ArrayList<>();
-            for (FTPFile file : client.listFiles(target)) {
+            for (FTPFile file : listed) {
                 if (file == null || ".".equals(file.getName()) || "..".equals(file.getName())) {
                     continue;
                 }
                 entries.add(new FileEntry(
                         file.getName(),
-                        joinPath(target, file.getName()),
+                        targetIsDirectory ? joinPath(target, file.getName()) : target,
                         file.isDirectory(),
                         file.getSize(),
                         file.getTimestamp() == null ? null : file.getTimestamp().toInstant()));
@@ -128,9 +143,22 @@ public class FtpConnector implements FileCatalogReader {
                 throw new IOException("打不开 FTP 文件 %s(%s)"
                         .formatted(target, client.getReplyString().trim()));
             }
+            // close 必须幂等。这不是防御性编程,是<b>正常调用路径就会关两次</b>:
+            //     try (InputStream in = openFile(...);
+            //          BufferedReader r = new BufferedReader(new InputStreamReader(in))) { }
+            // try-with-resources 逆序关闭 —— r.close() 会一路关到 in,然后
+            // try-with-resources 自己再关一次 in。第二次落到已经断开的 client 上,
+            // completePendingCommand() 里 _controlInput_ 是 null,抛 NPE。
+            //
+            // 最坏的是它抛得晚:数据早已整批写进目标表了,任务却报 FAILED。
+            // 值班的人重跑一次就是双写,而重试策略会自动替他重跑。
+            AtomicBoolean closed = new AtomicBoolean(false);
             return new java.io.FilterInputStream(stream) {
                 @Override
                 public void close() throws IOException {
+                    if (!closed.compareAndSet(false, true)) {
+                        return;
+                    }
                     super.close();
                     // completePendingCommand 必须调:不调的话控制连接会停在
                     // 一个未完成的传输上,下一次操作直接失败

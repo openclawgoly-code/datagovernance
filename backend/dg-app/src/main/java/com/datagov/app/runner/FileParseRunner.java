@@ -147,6 +147,13 @@ public class FileParseRunner implements JobRunner {
         if (entries.isEmpty()) {
             return List.of(path);
         }
+        // path 指名道姓写的就是一个文件时,连接器返回它自己那一条(path 与 target 相同)。
+        // 此时 filePattern 不该再参与筛选 —— 用户已经把文件名写出来了,再拿模式筛
+        // 一遍,只会在两者不一致时得到"匹配到 0 个文件"这种毫无线索的结果。
+        if (entries.size() == 1 && !entries.get(0).directory()
+                && entries.get(0).path().equals(path)) {
+            return List.of(path);
+        }
         return entries.stream()
                 .filter(e -> !e.directory())
                 .filter(e -> pattern == null || pattern.isBlank() || matches(e.name(), pattern))

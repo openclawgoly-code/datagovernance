@@ -9,6 +9,7 @@ import com.datagov.data.spi.catalog.CatalogModel.ColumnInfo;
 import com.datagov.data.spi.catalog.CatalogModel.DatabaseInfo;
 import com.datagov.data.spi.catalog.CatalogModel.SchemaInfo;
 import com.datagov.data.spi.catalog.CatalogModel.TableInfo;
+import com.datagov.data.spi.catalog.CatalogModel.TableKind;
 import com.datagov.data.spi.catalog.CatalogPath;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -39,6 +40,7 @@ class PostgreSqlConnectorLiveIT {
 
     private static final String TEST_SCHEMA = "dg_probe_schema";
     private static final String TEST_TABLE = "probe_all_types";
+    private static final String PARTITIONED_TABLE = "probe_partitioned";
 
     private final PostgreSqlConnector connector = new PostgreSqlConnector();
     private final ConnectionConfig config = LocalDatabases.postgresConfig();
@@ -79,6 +81,25 @@ class PostgreSqlConnectorLiveIT {
 
             statement.execute("CREATE VIEW %s.probe_view AS SELECT id, name FROM %s.%s"
                     .formatted(TEST_SCHEMA, TEST_SCHEMA, TEST_TABLE));
+
+            // 分区表。这个夹具的来历:拿真实的 Pagila 跑结构探测时,15 张业务表
+            // 被 55 个月度分区淹了,而用户真正要找的父表 payment 一条都没返回 ——
+            // pgjdbc 把父表报成 PARTITIONED TABLE(不在浏览白名单里),把子分区
+            // 报成普通 TABLE。恰好反过来。
+            statement.execute("""
+                    CREATE TABLE %s.%s (
+                        id      bigint      NOT NULL,
+                        paid_at timestamptz NOT NULL
+                    ) PARTITION BY RANGE (paid_at)
+                    """.formatted(TEST_SCHEMA, PARTITIONED_TABLE));
+            for (String month : new String[]{"01", "02", "03"}) {
+                statement.execute("""
+                        CREATE TABLE %s.%s_2025_%s PARTITION OF %s.%s
+                        FOR VALUES FROM ('2025-%s-01') TO ('2025-%s-01')
+                        """.formatted(TEST_SCHEMA, PARTITIONED_TABLE, month,
+                        TEST_SCHEMA, PARTITIONED_TABLE, month,
+                        String.format("%02d", Integer.parseInt(month) + 1)));
+            }
         }
     }
 
@@ -129,6 +150,28 @@ class PostgreSqlConnectorLiveIT {
         assertThat(result.success()).isFalse();
         assertThat(result.errorCode()).isNotNull();
         assertThat(result.detail()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("分区表:父表可见,子分区不出现在清单里")
+    void partitionedTableShowsParentAndHidesPartitions() {
+        List<TableInfo> tables = connector.listTables(DataSourceType.POSTGRESQL, config,
+                new CatalogPath(LocalDatabases.PG_DATABASE, TEST_SCHEMA, null, null));
+        List<String> names = tables.stream().map(TableInfo::name).toList();
+
+        assertThat(names)
+                .as("分区父表是用户要浏览的对象,必须在清单里")
+                .contains(PARTITIONED_TABLE);
+        assertThat(names)
+                .as("子分区是父表的存储细节,列出来只会把真正的业务表淹掉")
+                .noneMatch(name -> name.startsWith(PARTITIONED_TABLE + "_2025_"));
+
+        // 父表要归为普通表:对下游每一个消费方(查询、同步、迁移)它就是一张表
+        assertThat(tables)
+                .filteredOn(t -> t.name().equals(PARTITIONED_TABLE))
+                .singleElement()
+                .extracting(TableInfo::kind)
+                .isEqualTo(TableKind.TABLE);
     }
 
     @Test

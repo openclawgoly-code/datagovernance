@@ -144,7 +144,7 @@ cd frontend && pnpm run build               # 前端类型检查与构建
 | `verify-p3.py` | 77 | 实时保活状态机、离线开发跑真 SQL、工作流条件求值与级联取消 |
 | `verify-p4.py` | 60 | 五个监控口径、告警抑制窗口、Webhook 真推送、审计不可变 |
 | `verify-p5.py` | 50 | Intelligence 四条契约、脱敏在落地前生效 |
-| `verify-p6-datasets.py` | 26 | 公开数据集:分区表结构探测、异构类型保真、整库迁移对照、GBK 中文文件解析 |
+| `verify-p6-datasets.py` | 32 | 公开数据集:分区表结构探测、异构类型保真、整库迁移对照、GBK 中文文件解析 |
 | `verify-ui.mjs` | 82 | 真实浏览器驱动的全部页面 |
 
 它们验证的不是"接口通了",而是那些容易在重构中悄悄失效的约束。几个例子:
@@ -181,22 +181,34 @@ DG_ADMIN_PASSWORD='换成你的口令' python3 scripts/verify-p6-datasets.py
 写在生成出来的 `PROVENANCE.txt` 里 —— 两者混在一起而无从分辨,会让后续
 所有基于它的结论都失去依据。
 
-**首次运行抓到四个缺陷**(断言现为红色,尚未修):
+**首次运行抓到四个缺陷,均已修复**,断言现已全绿:
 
 1. **分区污染结构树,父表反而不见了。** `AbstractJdbcConnector` 的
    `BROWSABLE_TABLE_TYPES` 不含 `PARTITIONED TABLE`,而 pgjdbc 把分区父表报成
    这个类型、把 55 个子分区报成普通 `TABLE` —— 结果恰好反过来:用户看不到
    `payment`,却要在 55 个月度碎片里找路。
+   *修复*:白名单补上 `PARTITIONED TABLE` 并归为 `TableKind.TABLE`;新增方言钩子
+   `hiddenTableNames`,PostgreSQL 用 `relispartition` 把子分区滤掉。表清单从
+   78 条降到 24 条(15 表 + 1 分区父表 + 8 视图)。
 2. **FTP 流被关两次就抛异常。** try-with-resources 同时持有 `BufferedReader`
    和底层流,关闭时 `FilterInputStream.close()` 被调用两次,第二次在已断开的
    连接上调 `completePendingCommand()`。表现最坏:200 行全部写进目标表了,
    执行状态却是 `FAILED` —— 值班的人重跑一次就是双写。
+   *修复*:`close()` 用 `AtomicBoolean` 做成幂等。
 3. **`path` 指向文件本身时拼出不存在的路径。** FTP 对一个文件执行 `LIST`
-   会返回该文件自己那一条,`FileParseRunner.resolveFiles` 把它当成目录清单,
-   拼出 `/health/x.csv/x.csv`。编译器的配置说明写的是「path 文件或目录路径」。
+   会返回该文件自己那一条,与目录清单在结构上分不出来,于是给每条拼路径时
+   多拼了一层:`/health/x.csv/x.csv`。编译器的配置说明写的是「path 文件或目录路径」。
+   *修复*:FTP 用 `CWD` 试探(只在清单只有一项且非目录时问一次),SFTP 用
+   `stat().isDir()`;`resolveFiles` 在 path 已指名道姓时不再套用 `filePattern`。
 4. **`FileParseCompiler` 没有接 `warnUnknownKeys`。** P5 给离线同步补的那道防线
    没有覆盖文件解析这条路径 —— 同一个拼错键名的错误在这里依然静默通过,
    而这恰恰是脱敏最要紧的一条链路。
+   *修复*:检查后发现十个编译器里只有离线同步接了这道防线。给其余全部补上
+   `KNOWN_KEYS`;开发类作业(实时/离线/工作流)共用的键收在 `DevJobCompiler`,
+   子类用 `extraKnownKeys()` 追加自己的。
+
+缺陷 1 另有一条不依赖公开数据集的回归测试(`PostgreSqlConnectorLiveIT` 的
+分区夹具)—— 把修复撤掉它就变红,验证过。
 
 ### P1 验收(示例)
 

@@ -41,6 +41,19 @@ public class FileParseCompiler implements JobCompiler {
     private static final List<String> FORMATS = List.of("CSV", "JSON");
     private static final List<String> WRITE_MODES = List.of("APPEND", "OVERWRITE");
 
+    /**
+     * 平台认识的配置键。不在这里的键会被警告 —— 一个拼错的键会让配置静默失效,
+     * 而任务照常报告成功。
+     *
+     * <p>这条防线在文件解析上比在别处更要紧:走这条路进来的多半是外部交换文件,
+     * 而 {@code fieldRules} 拼错一个字母,明文就直接落进目标库了。
+     */
+    private static final java.util.Set<String> KNOWN_KEYS = java.util.Set.of(
+            "sourceDataSourceId", "path", "filePattern", "format", "charset",
+            "delimiter", "hasHeader", "jsonPath", "columns",
+            "targetDataSourceId", "targetDatabase", "targetSchema", "targetTable",
+            "fieldMappings", "fieldRules", "writeMode", "batchSize");
+
     @Override
     public JobType jobType() {
         return JobType.FILE_PARSE;
@@ -50,6 +63,7 @@ public class FileParseCompiler implements JobCompiler {
     public CompileResult compile(CompileContext context) {
         CompileResult.Collector collector = new CompileResult.Collector();
         Map<String, Object> config = context.config();
+        CompilerSupport.warnUnknownKeys(collector, config, KNOWN_KEYS);
         String workspaceId = CompilerSupport.workspaceOf(context.definition());
 
         CompilerSupport.requireAvailableDataSource(collector, context.metadata(), workspaceId,

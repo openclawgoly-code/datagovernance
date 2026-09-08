@@ -94,6 +94,11 @@ public class StreamingDevCompiler extends DevJobCompiler {
     }
 
     @Override
+    protected java.util.Set<String> extraKnownKeys() {
+        return java.util.Set.of("checkpointIntervalMs", "restartStrategy");
+    }
+
+    @Override
     protected void enrichPlan(Map<String, Object> plan, Map<String, Object> config) {
         putIfPresent(plan, "checkpointIntervalMs", longValue(config.get("checkpointIntervalMs")));
         plan.put("restartStrategy", config.getOrDefault("restartStrategy", "EXPONENTIAL"));

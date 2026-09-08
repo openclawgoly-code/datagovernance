@@ -7,8 +7,15 @@ import com.datagov.data.spi.ConnectorCapabilities;
 import com.datagov.data.spi.DataSourceType;
 import com.datagov.data.spi.catalog.CatalogModel.SchemaInfo;
 import com.datagov.data.spi.catalog.CatalogPath;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
@@ -23,6 +30,8 @@ import java.util.Set;
  */
 @Component
 public class PostgreSqlConnector extends AbstractJdbcConnector {
+
+    private static final Logger log = LoggerFactory.getLogger(PostgreSqlConnector.class);
 
     /** 系统模式。用户找的是业务表,不是 pg_catalog。 */
     private static final Set<String> SYSTEM_SCHEMAS =
@@ -106,5 +115,43 @@ public class PostgreSqlConnector extends AbstractJdbcConnector {
         return super.listSchemas(type, config, path).stream()
                 .filter(schema -> !SYSTEM_SCHEMAS.contains(schema.name()))
                 .toList();
+    }
+
+    /**
+     * 分区子表。
+     *
+     * <p>pgjdbc 把分区父表报成 {@code PARTITIONED TABLE}、把子分区报成普通
+     * {@code TABLE},两者在 {@code getTables} 的结果里没有任何别的差别 ——
+     * 所以只能回 pg_catalog 问一次。判据是 {@code relispartition},它对分区索引
+     * 同样为真,因此还要限定 {@code relkind}:{@code r} 普通表、{@code p} 分区表
+     * (子分区自己也可以再分区)。
+     *
+     * <p>失败时返回空集而不是抛异常:这是一次锦上添花的过滤,没查到就退回到
+     * "全都列出来"。为了藏几张表而让整个结构树打不开,是把代价搞反了。
+     */
+    @Override
+    protected Set<String> hiddenTableNames(Connection connection, String catalog, String schema)
+            throws SQLException {
+        String sql = """
+                SELECT c.relname
+                  FROM pg_class c
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE c.relispartition
+                   AND c.relkind IN ('r', 'p')
+                   AND n.nspname = COALESCE(?, current_schema())
+                """;
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, schema);
+            Set<String> names = new HashSet<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    names.add(rs.getString(1));
+                }
+            }
+            return names;
+        } catch (SQLException ex) {
+            log.debug("查询分区子表失败,本次不做过滤 schema={}", schema, ex);
+            return Set.of();
+        }
     }
 }

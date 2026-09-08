@@ -52,10 +52,22 @@ public class DbMigrationCompiler implements JobCompiler {
         return JobType.DB_MIGRATION;
     }
 
+
+    /**
+     * 平台认识的配置键。不在这里的键会被警告 —— 一个拼错的键会让配置静默失效,
+     * 而任务照常报告成功。
+     */
+    private static final java.util.Set<String> KNOWN_KEYS = java.util.Set.of(
+            "sourceDataSourceId", "sourceDatabase", "sourceSchema",
+            "targetDataSourceId", "targetDatabase", "targetSchema",
+            "tables", "tablePrefix", "tableSuffix", "lowercaseNames",
+            "createTable", "ddlOverrides", "writeMode", "batchSize");
+
     @Override
     public CompileResult compile(CompileContext context) {
         CompileResult.Collector collector = new CompileResult.Collector();
         Map<String, Object> config = context.config();
+        CompilerSupport.warnUnknownKeys(collector, config, KNOWN_KEYS);
         String workspaceId = CompilerSupport.workspaceOf(context.definition());
 
         String sourceDs = str(config, "sourceDataSourceId");

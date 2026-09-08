@@ -87,6 +87,11 @@ public class SftpConnector implements FileCatalogReader {
             channel = (ChannelSftp) session.openChannel("sftp");
             channel.connect(config.connectTimeoutMillis());
 
+            // ls 一个文件返回的是它自己那一条,与 ls 一个目录的结果分不出来 ——
+            // 与 FTP 同源的问题,后果也一样:给每一条拼路径时多拼一层。
+            // SFTP 有 stat,直接问就行,不必像 FTP 那样靠 CWD 试探。
+            boolean targetIsDirectory = channel.stat(target).isDir();
+
             List<FileEntry> entries = new ArrayList<>();
             Vector<ChannelSftp.LsEntry> listing = channel.ls(target);
             for (ChannelSftp.LsEntry entry : listing) {
@@ -96,7 +101,7 @@ public class SftpConnector implements FileCatalogReader {
                 }
                 entries.add(new FileEntry(
                         name,
-                        FtpConnector.joinPath(target, name),
+                        targetIsDirectory ? FtpConnector.joinPath(target, name) : target,
                         entry.getAttrs().isDir(),
                         entry.getAttrs().getSize(),
                         Instant.ofEpochSecond(entry.getAttrs().getMTime())));

@@ -2,9 +2,11 @@ package com.datagov.control.compile;
 
 import com.datagov.control.domain.JobType;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 实时开发(序号 18)与离线开发(序号 20)的共同编译逻辑。
@@ -25,6 +27,7 @@ abstract class DevJobCompiler implements JobCompiler {
     public CompileResult compile(CompileContext context) {
         CompileResult.Collector collector = new CompileResult.Collector();
         Map<String, Object> config = context.config();
+        CompilerSupport.warnUnknownKeys(collector, config, knownKeys());
 
         String sourceKind = str(config, "sourceKind");
         if (sourceKind == null || sourceKind.isBlank()) {
@@ -74,6 +77,28 @@ abstract class DevJobCompiler implements JobCompiler {
     }
 
     /** 各自特有的校验:流任务查 checkpoint,批任务查 Cron 语义之外的东西。 */
+    /**
+     * 所有开发类作业共有的配置键。不在已知集合里的键会被警告 —— 一个拼错的键
+     * 会让配置静默失效,而任务照常报告成功。
+     */
+    private static final Set<String> BASE_KNOWN_KEYS = Set.of(
+            "sourceKind", "sql", "artifactId", "entryClass", "parallelism", "engineConfig");
+
+    /** 子类自己那几个键。默认没有。 */
+    protected Set<String> extraKnownKeys() {
+        return Set.of();
+    }
+
+    private Set<String> knownKeys() {
+        Set<String> extra = extraKnownKeys();
+        if (extra.isEmpty()) {
+            return BASE_KNOWN_KEYS;
+        }
+        Set<String> all = new HashSet<>(BASE_KNOWN_KEYS);
+        all.addAll(extra);
+        return all;
+    }
+
     protected abstract void validateSpecifics(CompileContext context, Map<String, Object> config,
                                               CompileResult.Collector collector);
 

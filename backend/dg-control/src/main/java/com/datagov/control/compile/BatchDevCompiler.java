@@ -71,6 +71,15 @@ public class BatchDevCompiler extends DevJobCompiler {
         }
     }
 
+    /**
+     * checkpointIntervalMs 列为已知键,是为了让它只触发上面那条说清了原委的
+     * 「批任务不使用 checkpoint」提醒,而不是再叠一条泛泛的"平台不认识这个键"。
+     */
+    @Override
+    protected java.util.Set<String> extraKnownKeys() {
+        return java.util.Set.of("dataSourceId", "checkpointIntervalMs");
+    }
+
     @Override
     protected void enrichPlan(Map<String, Object> plan, Map<String, Object> config) {
         putIfPresent(plan, "dataSourceId", str(config, "dataSourceId"));

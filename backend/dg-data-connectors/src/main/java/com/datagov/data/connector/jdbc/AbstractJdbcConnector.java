@@ -54,9 +54,16 @@ public abstract class AbstractJdbcConnector
 
     private static final Logger log = LoggerFactory.getLogger(AbstractJdbcConnector.class);
 
-    /** 只探测表与视图。系统表、索引、别名等对用户没有意义,列出来只会淹没真正要找的表。 */
+    /**
+     * 只探测表与视图。系统表、索引、别名等对用户没有意义,列出来只会淹没真正要找的表。
+     *
+     * <p>{@code PARTITIONED TABLE} 必须在列 —— pgjdbc 用它表示分区父表。漏掉它的后果
+     * 不是"少一张表",而是<b>恰好反过来</b>:用户要找的 {@code payment} 被滤掉了,
+     * 而它的几十个子分区因为报的是普通 {@code TABLE} 反倒全列了出来。
+     * 子分区的隐藏见 {@link #hiddenTableNames}。
+     */
     private static final String[] BROWSABLE_TABLE_TYPES = {
-            "TABLE", "VIEW", "MATERIALIZED VIEW", "EXTERNAL TABLE"
+            "TABLE", "VIEW", "MATERIALIZED VIEW", "EXTERNAL TABLE", "PARTITIONED TABLE"
     };
 
     // ── 子类必须提供 ────────────────────────────────────────────────────
@@ -106,6 +113,21 @@ public abstract class AbstractJdbcConnector
      */
     protected ConnectionConfig configForPath(ConnectionConfig config, CatalogPath path) {
         return config;
+    }
+
+    /**
+     * 该模式下不该出现在表清单里的表名。
+     *
+     * <p>目前唯一的用途是分区子表。<b>分区是父表的存储细节,不是用户要浏览的对象</b>:
+     * 按月分区的表两年就是二十几个子分区,它们会把用户真正要找的表挤到几屏之外,
+     * 而对着某一个月度分区做同步或迁移几乎总是配错了。要看分区布局,走自定义查询。
+     *
+     * <p>JDBC 的 {@code getTables} 不提供"这张表是不是分区"的信息,所以只能由方言
+     * 自己回答。默认不隐藏任何表。
+     */
+    protected Set<String> hiddenTableNames(Connection connection, String catalog, String schema)
+            throws SQLException {
+        return Set.of();
     }
 
     // ── SPI 实现 ────────────────────────────────────────────────────────
@@ -191,12 +213,18 @@ public abstract class AbstractJdbcConnector
             String catalog = metadataCatalog(effective, path);
             String schema = metadataSchema(effective, path);
 
+            Set<String> hidden = hiddenTableNames(connection, catalog, schema);
+
             List<TableInfo> tables = new ArrayList<>();
             try (ResultSet rs = connection.getMetaData()
                     .getTables(catalog, schema, "%", BROWSABLE_TABLE_TYPES)) {
                 while (rs.next()) {
+                    String name = rs.getString("TABLE_NAME");
+                    if (hidden.contains(name)) {
+                        continue;
+                    }
                     tables.add(new TableInfo(
-                            rs.getString("TABLE_NAME"),
+                            name,
                             toTableKind(rs.getString("TABLE_TYPE")),
                             rs.getString("REMARKS"),
                             null,   // 行数与体积需要引擎特有的统计表,P1 不采集
@@ -478,7 +506,10 @@ public abstract class AbstractJdbcConnector
             return TableKind.OTHER;
         }
         return switch (jdbcTableType.toUpperCase()) {
-            case "TABLE", "BASE TABLE" -> TableKind.TABLE;
+            // 分区父表归为普通表:对下游的每一个消费方(浏览、查询、同步、迁移、建表)
+            // 它的行为与一张表完全一致。单独立一个枚举值,等于逼所有消费方去学一个
+            // 不改变任何处理方式的区别。
+            case "TABLE", "BASE TABLE", "PARTITIONED TABLE" -> TableKind.TABLE;
             case "VIEW" -> TableKind.VIEW;
             case "MATERIALIZED VIEW" -> TableKind.MATERIALIZED_VIEW;
             case "EXTERNAL TABLE" -> TableKind.EXTERNAL_TABLE;
