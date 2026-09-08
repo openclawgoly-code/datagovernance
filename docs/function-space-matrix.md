@@ -67,7 +67,7 @@
 | 序号 | 二级模块 | Owner Space | 参与 Space | 核心对象 | 落地模块 | 备注 |
 |---|---|---|---|---|---|---|
 | 34 | 高质量数据集制备 | **Intelligence** | Metadata(注册), Control(提交训练), Runtime(K8s Job), Data(只读) | `Ontology`, `Concept`, `PreAnnotationJob`, `Annotation`, `DatasetVersion`, `Model`, `Evaluation` | **intelligence-platform(独立立项)** | **R1:一行需求 = 一个平台**。本期只锁定四条 Contract(见 SPACE-MODEL.md C+D.8) |
-| 35 | 全民健康信息平台对接 | **Data**(适配器) | Governance(脱敏/授权/留痕), Intelligence(消费侧) | `ExternalPlatformAdapter` | data-connector-service + governance-service | **R8:外部依赖,接口规范未知;健康医疗数据属敏感个人信息**。按外部依赖单列里程碑 |
+| 35 | HIS 平台对接 | **Data**(适配器) | Governance(脱敏/授权/留痕), Intelligence(消费侧) | `ExternalPlatformAdapter` | data-connector-service + governance-service | **R8:外部依赖,需 HIS 厂商开放接口或库表授权,进度不由己方控制;健康医疗数据属敏感个人信息**。按外部依赖单列里程碑 |
 
 ---
 

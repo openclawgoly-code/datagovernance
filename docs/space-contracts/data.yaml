@@ -20,7 +20,7 @@ space:
     - ApiEndpointResponse       # 序号4/13
     - TypeMappingSpec           # 序号9 异构类型映射
     - TargetTableDDL            # 序号9 预览并修改建表语句
-    - ExternalPlatformAdapter   # 序号35 全民健康信息平台
+    - ExternalPlatformAdapter   # 序号35 HIS 平台(泛型:后续可扩展 LIS / PACS / EMR)
 
   states:
     DataSourceConnection: [IDLE, ACTIVE, BROKEN, CLOSED]
