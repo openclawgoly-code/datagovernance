@@ -555,6 +555,112 @@ check("解除引用后可以删除", status == 200, f"HTTP {status}")
 psql(f"DROP TABLE IF EXISTS dg_probe_schema.{rule_src};"
      f"DROP TABLE IF EXISTS dg_probe_schema.{rule_dst};")
 
+# ── 9. 文件解析与接口解析(功能 12/13)──────────────────────────────
+print("\n【9】文件解析(功能12)与接口解析(功能13)")
+
+# 起一个本地 HTTP 服务当接口数据源 —— 比 mock 更能验证真实的 HTTP 路径
+import http.server, json as _json, socketserver, threading
+
+API_PORT = int(os.environ.get("DG_VERIFY_STUB_PORT", "18099"))
+
+
+class _StubHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        # 两页,每页两条;第三页空,用来验证「空页即结束」
+        page = 1
+        if "page=" in self.path:
+            page = int(self.path.split("page=")[1].split("&")[0])
+        items = ([{"uid": page * 10 + 1, "label": f"p{page}-a"},
+                  {"uid": page * 10 + 2, "label": f"p{page}-b"}] if page <= 2 else [])
+        body = _json.dumps({"data": {"items": items}}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+stub = socketserver.TCPServer(("127.0.0.1", API_PORT), _StubHandler)
+threading.Thread(target=stub.serve_forever, daemon=True).start()
+
+api_dst = f"p2_api_dst_{RUN}"
+psql(f"""
+    DROP TABLE IF EXISTS dg_probe_schema.{api_dst};
+    CREATE TABLE dg_probe_schema.{api_dst} (uid BIGINT PRIMARY KEY, label VARCHAR(64));
+""")
+call("GET", f"/datasources/{ds_id}/catalog"
+            f"?database={PG_DB}&schema=dg_probe_schema&table={api_dst}")
+
+api_ds = call("POST", "/datasources", {
+    "name": f"P2-桩接口-{RUN}", "type": "REST_API",
+    "baseUrl": f"http://127.0.0.1:{API_PORT}",
+    "inlineSecret": {"authType": "NONE"},
+})["data"]["id"]
+call("POST", f"/datasources/{api_ds}/test")
+
+# 分页必须有上限 —— 没有上限的分页是一个无限循环的邀请
+no_limit = call("POST", "/jobs", {
+    "name": f"P2-接口无上限-{RUN}", "jobType": "API_PARSE",
+    "config": {
+        "sourceDataSourceId": api_ds, "path": "/items",
+        "targetDataSourceId": ds_id, "targetDatabase": PG_DB,
+        "targetSchema": "dg_probe_schema", "targetTable": api_dst,
+        "fieldMappings": {"uid": "uid", "label": "label"},
+        "jsonPath": "data.items",
+        "pagination": {"mode": "PAGE", "pageParam": "page", "sizeParam": "size", "size": 2},
+    },
+})["data"]
+no_limit_compile = call("POST", f"/jobs/{no_limit['id']}/compile")["data"]
+check("分页拉取必须指定页数上限(否则可能无限循环)",
+      not no_limit_compile["succeeded"]
+      and any("上限" in d["message"] for d in no_limit_compile["diagnostics"]),
+      no_limit_compile["summary"])
+
+api_job = call("POST", "/jobs", {
+    "name": f"P2-接口解析-{RUN}", "jobType": "API_PARSE",
+    "config": {
+        "sourceDataSourceId": api_ds, "path": "/items",
+        "targetDataSourceId": ds_id, "targetDatabase": PG_DB,
+        "targetSchema": "dg_probe_schema", "targetTable": api_dst,
+        "fieldMappings": {"uid": "uid", "label": "label"},
+        "jsonPath": "data.items",
+        "pagination": {"mode": "PAGE", "pageParam": "page", "sizeParam": "size",
+                       "size": 2, "maxPages": 10},
+        "writeMode": "APPEND", "batchSize": 10,
+    },
+    "timeoutMs": 60000,
+})["data"]
+api_compile = call("POST", f"/jobs/{api_job['id']}/compile")["data"]
+check("接口解析编译通过", api_compile["succeeded"], api_compile["summary"])
+call("POST", f"/jobs/{api_job['id']}/publish")
+
+api_exec = call("POST", f"/jobs/{api_job['id']}/run")["data"]
+for _ in range(60):
+    d = call("GET", f"/executions/{api_exec['id']}")["data"]
+    if d["execution"]["status"] in ("SUCCEEDED", "FAILED", "CANCELED", "TIMEOUT"):
+        break
+    time.sleep(1)
+check("接口解析执行成功", d["execution"]["status"] == "SUCCEEDED",
+      f"{d['execution']['status']} {d['execution'].get('message') or ''}")
+check("分页拉取在空页处停止(2 页 × 2 条 = 4 行,不是 10 页)",
+      (d["execution"].get("rowsWritten") or 0) == 4,
+      f"写{d['execution'].get('rowsWritten')} 行")
+
+api_rows = int(psql(f"SELECT count(*) FROM dg_probe_schema.{api_dst}"))
+check("目标表里真的有 4 行", api_rows == 4, f"{api_rows} 行")
+api_label = psql(f"SELECT label FROM dg_probe_schema.{api_dst} ORDER BY uid")
+check("两页的数据都写进去了", api_label.split("\n") == ["p1-a", "p1-b", "p2-a", "p2-b"],
+      repr(api_label))
+
+check("接口解析记录归入 API_PARSE 种类",
+      d["execution"]["jobRefType"] == "API_PARSE", d["execution"]["jobRefType"])
+
+stub.shutdown()
+psql(f"DROP TABLE IF EXISTS dg_probe_schema.{api_dst};")
+
 # ── 清理 ────────────────────────────────────────────────────────────
 psql(f"DROP TABLE IF EXISTS dg_probe_schema.{src_table};"
      f"DROP TABLE IF EXISTS dg_probe_schema.{dst_table};")

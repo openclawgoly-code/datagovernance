@@ -207,6 +207,11 @@ class DefaultDataAccessGatewayTest {
         @Override public List<FileEntry> listEntries(DataSourceType t, ConnectionConfig c, String path) {
             return List.of(new FileEntry("a.csv", "/data/a.csv", false, 10L, null));
         }
+
+        @Override public java.io.InputStream openFile(DataSourceType t, ConnectionConfig c, String path) {
+            return new java.io.ByteArrayInputStream("id,name\n1,x\n".getBytes(
+                    java.nio.charset.StandardCharsets.UTF_8));
+        }
     }
 
     private static final class StubHttpConnector implements DataSourceConnector {

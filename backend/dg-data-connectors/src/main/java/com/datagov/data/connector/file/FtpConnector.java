@@ -102,6 +102,51 @@ public class FtpConnector implements FileCatalogReader {
         }
     }
 
+    /**
+     * 打开文件读取(功能 12)。
+     *
+     * <p>返回的流<b>持有连接</b>:关流时才断开。提前断开会让读到一半的流突然
+     * 失效,而 FTP 的失效表现是静默截断 —— 你得到半个文件却不会收到任何错误。
+     */
+    @Override
+    public java.io.InputStream openFile(DataSourceType type, ConnectionConfig config, String path)
+            throws IOException {
+        String target = resolvePath(config, path);
+        FTPClient client = newClient(config);
+        try {
+            client.connect(config.host(), portOrDefault(config));
+            if (!client.login(nullToAnonymous(config.username()), nullToEmpty(config.password()))) {
+                throw new IOException("FTP 登录被拒");
+            }
+            client.enterLocalPassiveMode();
+            // 二进制模式:ASCII 模式会在跨平台时改写换行符,把 CRLF 变成 LF ——
+            // 对 CSV 无害,对任何带校验的文件都是破坏
+            client.setFileType(FTPClient.BINARY_FILE_TYPE);
+
+            java.io.InputStream stream = client.retrieveFileStream(target);
+            if (stream == null) {
+                throw new IOException("打不开 FTP 文件 %s(%s)"
+                        .formatted(target, client.getReplyString().trim()));
+            }
+            return new java.io.FilterInputStream(stream) {
+                @Override
+                public void close() throws IOException {
+                    super.close();
+                    // completePendingCommand 必须调:不调的话控制连接会停在
+                    // 一个未完成的传输上,下一次操作直接失败
+                    try {
+                        client.completePendingCommand();
+                    } finally {
+                        quietlyDisconnect(client);
+                    }
+                }
+            };
+        } catch (IOException e) {
+            quietlyDisconnect(client);
+            throw e;
+        }
+    }
+
     private FTPClient newClient(ConnectionConfig config) {
         FTPClient client = new FTPClient();
         client.setConnectTimeout(config.connectTimeoutMillis());

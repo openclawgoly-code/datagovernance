@@ -115,6 +115,49 @@ public class SftpConnector implements FileCatalogReader {
         }
     }
 
+    /**
+     * 打开文件读取(功能 12)。
+     *
+     * <p>返回的流持有 session 与 channel:关流时才一并断开。提前断开会让读到
+     * 一半的流突然失效。
+     */
+    @Override
+    public java.io.InputStream openFile(DataSourceType type, ConnectionConfig config, String path)
+            throws java.io.IOException {
+        String target = FtpConnector.resolvePath(config, path);
+        Session session = null;
+        ChannelSftp channel = null;
+        try {
+            session = openSession(config);
+            channel = (ChannelSftp) session.openChannel("sftp");
+            channel.connect(config.connectTimeoutMillis());
+
+            java.io.InputStream stream = channel.get(target);
+            Session finalSession = session;
+            ChannelSftp finalChannel = channel;
+            return new java.io.FilterInputStream(stream) {
+                @Override
+                public void close() throws java.io.IOException {
+                    super.close();
+                    if (finalChannel.isConnected()) {
+                        finalChannel.disconnect();
+                    }
+                    if (finalSession.isConnected()) {
+                        finalSession.disconnect();
+                    }
+                }
+            };
+        } catch (JSchException | SftpException e) {
+            if (channel != null && channel.isConnected()) {
+                channel.disconnect();
+            }
+            if (session != null && session.isConnected()) {
+                session.disconnect();
+            }
+            throw new java.io.IOException("打不开 SFTP 文件 " + target, e);
+        }
+    }
+
     private Session openSession(ConnectionConfig config) throws JSchException {
         JSch jsch = new JSch();
         int port = config.port() != null && config.port() > 0
