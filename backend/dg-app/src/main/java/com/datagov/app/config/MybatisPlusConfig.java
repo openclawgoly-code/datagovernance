@@ -16,7 +16,8 @@ import org.springframework.context.annotation.Configuration;
  * 这类"错得很安静"的配置遗漏值得单独写一个类并留下注释。
  */
 @Configuration
-@MapperScan({"com.datagov.platform.mapper", "com.datagov.metadata.mapper"})
+@MapperScan({"com.datagov.platform.mapper", "com.datagov.metadata.mapper",
+        "com.datagov.runtime.mapper", "com.datagov.control.mapper"})
 public class MybatisPlusConfig {
 
     @Bean

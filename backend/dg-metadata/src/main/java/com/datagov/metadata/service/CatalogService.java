@@ -8,6 +8,7 @@ import com.datagov.common.tenant.WorkspaceContext;
 import com.datagov.data.spi.ConnectionConfig;
 import com.datagov.data.spi.ConnectorCapabilities;
 import com.datagov.data.spi.DataAccessGateway;
+import com.datagov.data.spi.catalog.CatalogModel;
 import com.datagov.data.spi.catalog.CatalogModel.CatalogPage;
 import com.datagov.data.spi.catalog.CatalogPath;
 import com.datagov.metadata.config.CatalogProperties;
@@ -23,6 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 库表结构浏览(功能 5)。
@@ -80,6 +83,47 @@ public class CatalogService {
         CatalogPage page = gateway.browse(entity.getType(), config, effectivePath);
         saveSnapshot(entity, effectivePath, page);
         return page;
+    }
+
+    /**
+     * 从<b>快照</b>读一张表的字段,不触碰目标端。
+     *
+     * <p>给 Control 的编译器用(功能 9/11 的字段映射校验)。刻意与 {@link #browse}
+     * 分开而不是加一个 {@code snapshotOnly} 参数,理由是两者的失败语义相反:
+     * browse 拿不到快照就去探测,这里拿不到快照就<b>返回空</b>,由调用方判成
+     * 一条"请先浏览该表结构"的编译诊断。
+     *
+     * <p>编译一次不该连上生产库 —— 一个二十节点的工作流编译会变成二十次连库,
+     * 而用户可能只是在编辑器里点了个保存。
+     *
+     * <p>不走 TTL 判定:过期的快照对编译仍然有用(总比没有强),而强制刷新
+     * 恰恰是这里要避免的事。快照太旧导致的误判,由 UI 上的"结构采集于 X 时间"
+     * 提示交给用户判断。
+     *
+     * @param workspaceId 显式传入而非取 ThreadLocal —— 调度器线程上没有它
+     * @return 字段名 → CanonicalType 的 name();无快照时空 Map
+     */
+    public Map<String, String> snapshotColumns(String workspaceId, String dataSourceId,
+                                               String database, String schema, String table) {
+        CatalogPath path = CatalogPath.ofTable(database, schema, table);
+        CatalogSnapshotEntity snapshot = snapshotMapper.selectOne(
+                pathQuery(dataSourceId, path).eq(CatalogSnapshotEntity::getWorkspaceId, workspaceId));
+        if (snapshot == null || snapshot.getPayloadJson() == null) {
+            return Map.of();
+        }
+        try {
+            CatalogPage page = objectMapper.readValue(snapshot.getPayloadJson(), CatalogPage.class);
+            Map<String, String> columns = new LinkedHashMap<>();
+            for (CatalogModel.ColumnInfo column : page.columns()) {
+                columns.put(column.name(),
+                        column.canonicalType() == null ? null : column.canonicalType().name());
+            }
+            return columns;
+        } catch (Exception e) {
+            log.warn("表结构快照反序列化失败 datasource={} {}.{}.{}",
+                    dataSourceId, database, schema, table, e);
+            return Map.of();
+        }
     }
 
     /** 该数据源类型的能力声明 —— 前端据此决定画几级树。 */

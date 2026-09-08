@@ -16,6 +16,12 @@
 
   <dependencies>
     <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-control</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-runtime</artifactId>
+    </dependency>
+    <dependency>
       <groupId>com.datagov</groupId><artifactId>dg-metadata</artifactId>
     </dependency>
     <dependency>

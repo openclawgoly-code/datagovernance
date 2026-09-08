@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.datagov</groupId>
+    <artifactId>dg-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>dg-control</artifactId>
+  <name>dg-control</name>
+  <description>Control/Workflow Compiler Space: 任务定义、编译、依赖解析、Cron 调度与下发 (功能 9、11-14、16、18、20、22)。</description>
+
+  <!--
+    ┌─ 架构约束的编译期证明 ────────────────────────────────────────┐
+    │ 这里没有 dg-data-connectors 依赖,而且永远不该有。             │
+    │                                                              │
+    │ Control 的 must_not_do 第一条是「不得直接读写业务数据」。      │
+    │ 编译期它需要知道源表有哪些字段 —— 那份信息向 Metadata 要       │
+    │ (它有目录快照),而不是自己开一条 JDBC 连接去查。若这里能看见  │
+    │ connectors,「编译器不碰目标库」就只剩下口头约定。             │
+    │                                                              │
+    │ 依赖 dg-runtime 是单向的:control → runtime。runtime 的 pom   │
+    │ 里没有 dg-control,同步子图因此无环(H.2.1)。                 │
+    └──────────────────────────────────────────────────────────────┘
+  -->
+  <dependencies>
+    <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-metadata</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-runtime</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>com.baomidou</groupId><artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId><artifactId>jackson-datatype-jsr310</artifactId>
+    </dependency>
+  </dependencies>
+</project>

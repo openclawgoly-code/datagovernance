@@ -8,9 +8,15 @@ package com.datagov.common.error;
  *   <li>{@code PLT_} Platform/Tenancy</li>
  *   <li>{@code MTD_} Metadata</li>
  *   <li>{@code DAT_} Data(连接器)</li>
+ *   <li>{@code RTM_} Runtime(执行)</li>
+ *   <li>{@code CTL_} Control(编译与调度)</li>
  *   <li>{@code SYS_} 平台通用</li>
  * </ul>
- * P2 之后新增 {@code CTL_}(Control)、{@code RUN_}(Runtime)、{@code GOV_}(Governance)。
+ * P4 再加 {@code GOV_}(Governance)。
+ *
+ * <p>Runtime 用 {@code RTM_} 而不是本文档早先写的 {@code RUN_}:其余前缀都是
+ * Space 名的三字母缩写(PLT/MTD/DAT/CTL/GOV),RUN 是唯一的例外,而一个只有
+ * 一处例外的命名规则比没有规则更容易记错。
  *
  * <p>httpStatus 以 int 保存而非 Spring 的 HttpStatus,是为了让 dg-common
  * 不产生对 spring-web 的依赖 —— 共享内核越瘦,越不容易变成杂物袋(风险 R2)。
@@ -40,6 +46,27 @@ public enum ErrorCode {
     PLT_ROLE_IN_USE("PLT_ROLE_IN_USE", 409, "角色已被用户引用,无法删除"),
     PLT_CREDENTIAL_NOT_FOUND("PLT_CREDENTIAL_NOT_FOUND", 404, "凭据不存在"),
     PLT_MISSING_WORKSPACE("PLT_MISSING_WORKSPACE", 400, "请求未指定空间"),
+
+    // ── Runtime / Execution ─────────────────────────────────────────────
+    RTM_EXECUTION_NOT_FOUND("RTM_EXECUTION_NOT_FOUND", 404, "执行记录不存在"),
+    // 502 而不是 500:下发失败的成因在执行器一侧(没有健康执行器、配额满),
+    // 不是平台自身出错。区分开来,值班时才知道该去看哪一边。
+    RTM_DISPATCH_REJECTED("RTM_DISPATCH_REJECTED", 502, "没有可用的执行器,下发被拒"),
+    RTM_EXECUTION_NOT_CANCELABLE("RTM_EXECUTION_NOT_CANCELABLE", 409, "该执行已结束,无法取消"),
+    RTM_EXECUTION_TIMEOUT("RTM_EXECUTION_TIMEOUT", 504, "执行超时"),
+    RTM_EXECUTOR_UNAVAILABLE("RTM_EXECUTOR_UNAVAILABLE", 503, "执行器不可用"),
+
+    // ── Control / 编译与调度 ────────────────────────────────────────────
+    CTL_JOB_NOT_FOUND("CTL_JOB_NOT_FOUND", 404, "任务定义不存在"),
+    CTL_JOB_NAME_DUPLICATED("CTL_JOB_NAME_DUPLICATED", 409, "同空间下任务名称已存在"),
+    CTL_INVALID_CRON("CTL_INVALID_CRON", 400, "调度表达式无效"),
+    // 400 而非 422:编译失败是用户提交的定义有问题,和参数校验失败同一性质。
+    // 响应体里带完整诊断列表,UI 据此定位到具体字段。
+    CTL_COMPILE_FAILED("CTL_COMPILE_FAILED", 400, "任务定义编译失败"),
+    CTL_JOB_NOT_RUNNABLE("CTL_JOB_NOT_RUNNABLE", 409, "任务当前状态不允许执行"),
+    CTL_JOB_NOT_SCHEDULABLE("CTL_JOB_NOT_SCHEDULABLE", 409, "该任务类型不支持周期调度"),
+    CTL_PLAN_STALE("CTL_PLAN_STALE", 409, "物理计划已过期,请重新编译"),
+    CTL_DAG_INVALID("CTL_DAG_INVALID", 400, "工作流 DAG 非法"),
 
     // ── Metadata ───────────────────────────────────────────────
     MTD_DATASOURCE_NOT_FOUND("MTD_DATASOURCE_NOT_FOUND", 404, "数据源不存在"),

@@ -18,10 +18,15 @@
       dg-data-spi        Data Space 对外契约(纯接口,无驱动)
       dg-data-connectors Data Space 实现(JDBC / 文件 / HTTP 连接器)
       dg-metadata        Metadata Space —— 只依赖 dg-data-spi,看不见 connectors
+      dg-runtime         Runtime Space —— 统一 Execution 事实,看不见 metadata/control
+      dg-control         Control Space —— 编译、调度、下发,依赖 metadata + runtime
       dg-app             装配层(REST / 安全 / Flyway / OpenAPI)
 
-    关键约束: dg-metadata 的 pom 中不存在 dg-data-connectors 依赖。
-    这使得「Metadata 不得执行」从文档约定变成编译器强制的事实。
+    关键约束(每一条都是 pom 里"某个依赖不存在"这个事实):
+      · dg-metadata 看不见 dg-data-connectors → 「Metadata 不得执行」
+      · dg-runtime  看不见 dg-metadata        → 「Runtime 不得解释业务语义」
+      · dg-runtime  看不见 dg-control         → 同步依赖子图无环(H.2.1)
+    文档约定会被遗忘,编译错误不会。
   -->
   <modules>
     <module>backend/dg-common</module>
@@ -29,6 +34,8 @@
     <module>backend/dg-data-spi</module>
     <module>backend/dg-data-connectors</module>
     <module>backend/dg-metadata</module>
+    <module>backend/dg-runtime</module>
+    <module>backend/dg-control</module>
     <module>backend/dg-app</module>
   </modules>
 
@@ -82,6 +89,12 @@
       </dependency>
       <dependency>
         <groupId>com.datagov</groupId><artifactId>dg-metadata</artifactId><version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.datagov</groupId><artifactId>dg-runtime</artifactId><version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.datagov</groupId><artifactId>dg-control</artifactId><version>${project.version}</version>
       </dependency>
 
       <dependency>

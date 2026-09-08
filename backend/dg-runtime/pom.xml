@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.datagov</groupId>
+    <artifactId>dg-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>dg-runtime</artifactId>
+  <name>dg-runtime</name>
+  <description>Runtime/Execution Space: 平台级统一执行事实、执行器池、制品仓库 (功能 10、15、17、19、21、23、31、32)。</description>
+
+  <!--
+    ┌─ 架构约束的编译期证明 ────────────────────────────────────────┐
+    │ 这里没有 dg-metadata 依赖,而且永远不该有。                    │
+    │                                                              │
+    │ Runtime 的 must_not_do 写着「不得解释业务级 Workflow 语义」    │
+    │ 与「不得直接修改 metadata 定义」。它拿到的是一份自足的         │
+    │ DispatchCommand —— 里面已经是编译好的物理计划,不需要回头去    │
+    │ 查任何定义。能看见 metadata 就意味着有人迟早会在执行途中去     │
+    │ 读一次定义,那一刻 Execution 就不再绑定它启动时的 defVersion,  │
+    │ 「可复现」这条保证随之失效。                                   │
+    │                                                              │
+    │ 同理没有 dg-control:依赖方向是 control → runtime,反过来加    │
+    │ 一条边会让同步子图成环(H.2.1)。回报执行事实只能走事件。       │
+    └──────────────────────────────────────────────────────────────┘
+  -->
+  <dependencies>
+    <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-data-spi</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-platform</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>com.baomidou</groupId><artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.datatype</groupId><artifactId>jackson-datatype-jsr310</artifactId>
+    </dependency>
+  </dependencies>
+</project>
