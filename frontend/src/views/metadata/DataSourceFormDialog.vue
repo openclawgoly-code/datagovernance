@@ -4,6 +4,7 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { dataSourceApi } from '@/api/datasource'
 import { CREDENTIAL_AUTH_TYPE_LABELS, type CredentialAuthType } from '@/types/credential'
 import type {
+  ConnectionNode,
   ConnectivityResult,
   DataSource,
   DataSourceCatalogNode,
@@ -26,6 +27,9 @@ const testResult = ref<ConnectivityResult | null>(null)
 
 /** 扩展参数用键值对数组编辑,提交时再转成对象 —— 对象在表单里没法增删行 */
 const propertyRows = ref<{ key: string; value: string }[]>([])
+
+/** 附加 FE 节点(功能2)。主节点走上面的 host/port,这里只放额外的。 */
+const nodeRows = ref<ConnectionNode[]>([])
 
 const form = reactive<DataSourceForm & { authType: CredentialAuthType; secret: string }>({
   name: '',
@@ -55,6 +59,14 @@ const showJdbcFields = computed(() => family.value === 'RELATIONAL' || family.va
 const showFileFields = computed(() => family.value === 'FILE')
 const showHttpFields = computed(() => family.value === 'HTTP')
 
+/**
+ * 多节点只对 MPP 开放(功能2)。
+ *
+ * 判断读 family 而不是 `type === 'DORIS' || type === 'STARROCKS'` —— 后者会让
+ * 每接入一种新的 MPP 都要回来改这一行,正是风险 R7 的传导路径。
+ */
+const showNodeFields = computed(() => family.value === 'MPP')
+
 const rules = computed<FormRules>(() => ({
   name: [{ required: true, message: '请输入数据源名称', trigger: 'blur' }],
   type: [{ required: true, message: '请选择数据源类型', trigger: 'change' }],
@@ -72,6 +84,7 @@ function open(row: DataSource | null) {
   propertyRows.value = row?.properties
     ? Object.entries(row.properties).map(([key, value]) => ({ key, value }))
     : []
+  nodeRows.value = (row?.nodes ?? []).map((n) => ({ ...n }))
 
   Object.assign(form, {
     name: row?.name ?? '',
@@ -100,7 +113,17 @@ function onTypeChange(type: string) {
     form.port = info.defaultPort
     form.authType = info.family === 'HTTP' ? 'TOKEN' : 'PASSWORD'
   }
+  // 从 MPP 切到别的类型后,残留的节点会让后端直接报"该类型不支持多节点"。
+  // 那条报错本身是对的(见 ConnectionRequirements),但让用户对着一个已经
+  // 看不见的字段排查错误是没道理的,所以在这里清掉。
+  if (info && info.family !== 'MPP') {
+    nodeRows.value = []
+  }
   testResult.value = null
+}
+
+function addNode() {
+  nodeRows.value.push({ host: '', port: selectedType.value?.defaultPort ?? 9030 })
 }
 
 function buildPayload(): DataSourceForm {
@@ -123,6 +146,11 @@ function buildPayload(): DataSourceForm {
     baseUrl: form.baseUrl || undefined,
     jdbcUrlOverride: form.jdbcUrlOverride || undefined,
     properties: Object.keys(properties).length > 0 ? properties : undefined,
+    // 主机没填完的行直接丢掉,不发给后端:一行空白多半是用户点了"添加"又改主意,
+    // 为它换来一条校验报错纯属添乱。
+    nodes: showNodeFields.value
+      ? nodeRows.value.filter((n) => n.host.trim()).map((n) => ({ host: n.host.trim(), port: n.port }))
+      : undefined,
     connectTimeoutMs: form.connectTimeoutMs,
     readTimeoutMs: form.readTimeoutMs,
   }
@@ -244,6 +272,29 @@ defineExpose({ open })
             默认 {{ selectedType?.defaultPort }}
           </span>
         </el-form-item>
+        <!-- 多节点(功能2)。只对 MPP 出现,判断读 family 不读具体类型名。 -->
+        <el-form-item v-if="showNodeFields" label="其它 FE 节点">
+          <div class="props">
+            <div v-for="(node, index) in nodeRows" :key="index" class="props__row">
+              <el-input v-model="node.host" placeholder="主机 IP 或域名" style="width: 240px" />
+              <el-input-number
+                v-model="node.port"
+                :min="1"
+                :max="65535"
+                controls-position="right"
+                style="width: 130px"
+              />
+              <el-button link type="danger" @click="nodeRows.splice(index, 1)">删除</el-button>
+            </div>
+            <el-button link type="primary" @click="addNode">+ 添加节点</el-button>
+            <div class="text-muted">
+              Doris / StarRocks 的 FE 本来就是多副本部署。把其余 FE 填在这里,驱动会在
+              首选节点不可用时自动转移;只配一个节点等于把集群已经做好的高可用丢掉。
+              不含上面的主节点,重复填会被拒绝。
+            </div>
+          </div>
+        </el-form-item>
+
         <el-form-item label="库名">
           <el-input v-model="form.databaseName" placeholder="Oracle / 达梦填服务名或 SID" />
         </el-form-item>

@@ -52,6 +52,17 @@ export interface DataSourceTypeInfo {
   capabilities: ConnectorCapabilities
 }
 
+/**
+ * 附加节点(功能2:Doris / StarRocks 多 FE)。
+ *
+ * 只对 family === 'MPP' 有意义,后端对其它 family 会直接报错而不是静默忽略。
+ * 主节点仍走 host/port —— 节点列表里放的是<b>额外</b>的 FE,不含主节点本身。
+ */
+export interface ConnectionNode {
+  host: string
+  port: number
+}
+
 /** 与 ConnectivityResult.java 逐字段对应。errorCode 是 ErrorCode 枚举的 name(),成功时为 null。 */
 export interface ConnectivityResult {
   success: boolean
@@ -93,6 +104,8 @@ export interface DataSource {
   username: string | null
   /** 驱动扩展参数,后端把 properties_json 解析为对象再下发。 */
   properties: Record<string, string> | null
+  /** 附加节点(功能2);非 MPP 类型恒为空数组 */
+  nodes: ConnectionNode[] | null
   jdbcUrlOverride: string | null
   baseUrl: string | null
   /** 指向 pf_credential.id,唯一的凭据通路 */
@@ -138,6 +151,8 @@ export interface DataSourceForm {
   databaseName?: string
   username?: string
   properties?: Record<string, string>
+  /** 附加节点(功能2);仅 MPP 类型可填 */
+  nodes?: ConnectionNode[]
   jdbcUrlOverride?: string
   baseUrl?: string
   /** 复用已有凭据 */

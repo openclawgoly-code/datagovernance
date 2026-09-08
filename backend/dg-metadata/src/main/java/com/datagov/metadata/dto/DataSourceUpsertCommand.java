@@ -5,6 +5,9 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import com.datagov.data.spi.ConnectionConfig;
+
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -36,6 +39,8 @@ public record DataSourceUpsertCommand(
         String databaseName,
         String username,
         Map<String, String> properties,
+        /** 附加节点(功能2)。仅 MPP 类型有意义,其余类型忽略。 */
+        List<ConnectionConfig.Node> nodes,
         String jdbcUrlOverride,
         String baseUrl,
 
@@ -48,5 +53,6 @@ public record DataSourceUpsertCommand(
 
     public DataSourceUpsertCommand {
         properties = properties == null ? Map.of() : Map.copyOf(properties);
+        nodes = nodes == null ? List.of() : List.copyOf(nodes);
     }
 }

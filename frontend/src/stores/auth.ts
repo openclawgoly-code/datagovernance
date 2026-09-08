@@ -57,21 +57,24 @@ export const useAuthStore = defineStore('auth', () => {
         ? payload.currentWorkspaceId
         : (payload as SessionView).workspace?.id ?? null
 
-    const stillAccessible =
-      workspaceId.value && workspaces.value.some((w) => w.id === workspaceId.value)
+    const stillAccessible = workspaces.value.some(
+      (w) => w.id === workspaceId.value && w.status === 'ACTIVE',
+    )
 
     if (nextWorkspace) {
       setWorkspace(nextWorkspace)
     } else if (stillAccessible) {
       // 后端在多空间时不自动选中,但用户上次选过 —— 保留它,避免刷新后被清空
-    } else if (workspaces.value.length > 0) {
-      // 有多个可访问空间且用户还没选过。后端不替用户做这个决定是对的
-      // (它无从判断哪个更合适),但前端<b>必须</b>选一个:
-      // 不带 X-Workspace-Id 的请求会被后端拒绝,表现是页面一片空白而没有任何提示,
-      // 用户根本意识不到自己少做了一步。默认选第一个,顶栏随时可切。
-      setWorkspace(workspaces.value[0].id)
     } else {
-      setWorkspace('')
+      // 有多个可访问空间且用户还没选过(或上次选的那个已被停用)。
+      // 后端不替用户做这个决定是对的(它无从判断哪个更合适),但前端<b>必须</b>选一个:
+      // 不带 X-Workspace-Id 的请求会被后端拒绝,表现是页面一片空白而没有任何提示,
+      // 用户根本意识不到自己少做了一步。
+      //
+      // 只在已启用的空间里挑:停用的空间任何业务请求都会 403,自动选中它等于
+      // 把用户直接送进一个处处报错的界面。全都停用时留空,让顶栏显式提示。
+      const active = workspaces.value.find((w) => w.status === 'ACTIVE')
+      setWorkspace(active ? active.id : '')
     }
     hydrated.value = true
   }

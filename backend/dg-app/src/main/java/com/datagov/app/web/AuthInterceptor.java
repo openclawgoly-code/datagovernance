@@ -23,13 +23,14 @@ import java.util.Set;
  * <ol>
  *   <li><b>认证</b>:解析 Bearer 令牌,拿到用户身份</li>
  *   <li><b>确定空间</b>:请求头 {@code X-Workspace-Id} 优先于令牌里的空间,
- *       但<b>必须校验成员资格</b> —— 校验才是真正的防线,签名只是纵深防御</li>
+ *       但<b>必须校验成员资格与空间状态</b> —— 校验才是真正的防线,签名只是纵深防御</li>
  *   <li><b>权限</b>:按处理方法上的 {@link RequirePermission} 判定</li>
  * </ol>
  *
  * <p>为什么允许请求头覆盖令牌里的空间:用户可能同时开几个标签页看不同空间。
  * 若强制以令牌为准,切换空间就得刷新所有标签页。安全性不受影响 ——
- * 每次都会走一遍 {@link WorkspaceService#requireAccess}。
+ * 每个请求都会走一遍 {@link WorkspaceService#requireAccess},包括请求头与
+ * 令牌一致的那些。
  */
 public class AuthInterceptor implements HandlerInterceptor {
 
@@ -93,20 +94,35 @@ public class AuthInterceptor implements HandlerInterceptor {
     }
 
     /**
-     * 请求头指定的空间覆盖令牌里的空间,覆盖前校验成员资格。
+     * 确定本次请求的空间,并校验访问权。
      *
-     * <p>覆盖后权限必须<b>重新解析</b> —— 同一个用户在不同空间下的权限是不同的,
-     * 沿用令牌解析时的权限集会让用户带着 A 空间的权限去操作 B 空间。
+     * <p>请求头指定的空间覆盖令牌里的空间;两者一致时也照样校验,<b>不做短路</b>。
+     * 早先这里在"头与令牌相同"时直接返回,省下一次查询,但那让令牌成了实际上的
+     * 授权凭证:成员资格被撤销、或空间被停用之后,持有旧令牌的人还能继续访问,
+     * 直到令牌 8 小时后过期。租户边界必须是<b>实时</b>的,一次带索引的查询换这个
+     * 是划算的。
+     *
+     * <p>覆盖空间时权限必须<b>重新解析</b> —— 同一个用户在不同空间下的权限不同,
+     * 沿用令牌里的权限集会让用户带着 A 空间的权限去操作 B 空间。
      */
     private Caller applyWorkspaceHeader(Caller caller, String headerWorkspaceId) {
-        if (headerWorkspaceId == null || headerWorkspaceId.isBlank()
-                || headerWorkspaceId.equals(caller.workspaceId())) {
+        boolean overriding = headerWorkspaceId != null && !headerWorkspaceId.isBlank()
+                && !headerWorkspaceId.equals(caller.workspaceId());
+        String effectiveWorkspaceId = overriding ? headerWorkspaceId : caller.workspaceId();
+
+        // 令牌里也可能没有空间(用户有多个可访问空间时后端不替他选)。
+        // 那种请求由各接口自己的 requireWorkspaceId() 拒绝,这里没有可校验的对象。
+        if (effectiveWorkspaceId == null || effectiveWorkspaceId.isBlank()) {
             return caller;
         }
-        workspaceService.requireAccess(caller.userId(), headerWorkspaceId);
+
+        workspaceService.requireAccess(caller.userId(), effectiveWorkspaceId);
+        if (!overriding) {
+            return caller;
+        }
         Set<String> permissions = permissionService.resolvePermissions(
-                caller.userId(), headerWorkspaceId);
-        return caller.withWorkspace(headerWorkspaceId, permissions);
+                caller.userId(), effectiveWorkspaceId);
+        return caller.withWorkspace(effectiveWorkspaceId, permissions);
     }
 
     private void checkPermission(Object handler, Caller caller) {

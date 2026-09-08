@@ -42,6 +42,9 @@ public class WorkspaceController {
     public record MembersRequest(List<String> userIds) {
     }
 
+    public record StatusRequest(boolean enabled) {
+    }
+
     @GetMapping
     @Operation(summary = "我可访问的空间",
             description = "平台管理员看全部;普通用户只看被授权的。不需要额外权限码 —— "
@@ -66,6 +69,50 @@ public class WorkspaceController {
                                              @Valid @RequestBody WorkspaceRequest request) {
         return ApiResponse.ok(workspaceService.update(id, request.name(),
                 request.description(), WorkspaceContext.require().userId()));
+    }
+
+    /**
+     * 启用 / 停用空间(功能 28)。
+     *
+     * <p>要的是 {@code platform:workspace:create} 而不是 {@code :update} ——
+     * 停用一个空间会让里面所有人立刻失去访问,影响面与创建/销毁同级,
+     * 不该和"改个空间名"共用一个权限码。而内置的空间管理员角色恰好被排除在
+     * {@code workspace:create} 之外(见 V2 迁移),因此空间管理员停不掉自己的空间,
+     * 这正是想要的:否则一个空间管理员可以把整个空间连同其他管理员一起锁死。
+     */
+    @PostMapping("/{id}/status")
+    @RequirePermission("platform:workspace:create")
+    @Operation(summary = "启用/停用空间",
+            description = "停用不删除任何数据,仅拒绝非平台管理员的访问;幂等")
+    public ApiResponse<WorkspaceView> setStatus(@PathVariable String id,
+                                                @RequestBody StatusRequest request) {
+        return ApiResponse.ok(workspaceService.setStatus(id, request.enabled(),
+                WorkspaceContext.require().userId()));
+    }
+
+    @GetMapping("/{id}/admins")
+    @RequirePermission("platform:workspace:member")
+    @Operation(summary = "空间管理员列表",
+            description = "空间管理员即在该空间下被授予内置 WORKSPACE_ADMIN 角色的用户")
+    public ApiResponse<List<String>> admins(@PathVariable String id) {
+        return ApiResponse.ok(workspaceService.listAdminIds(id));
+    }
+
+    @PostMapping("/{id}/admins/{userId}")
+    @RequirePermission("platform:user:assign-role")
+    @Operation(summary = "指定空间管理员",
+            description = "同时把该用户加入空间成员;幂等")
+    public ApiResponse<Void> grantAdmin(@PathVariable String id, @PathVariable String userId) {
+        workspaceService.grantAdmin(id, userId, WorkspaceContext.require().userId());
+        return ApiResponse.ok();
+    }
+
+    @DeleteMapping("/{id}/admins/{userId}")
+    @RequirePermission("platform:user:assign-role")
+    @Operation(summary = "取消空间管理员", description = "保留其空间成员身份;幂等")
+    public ApiResponse<Void> revokeAdmin(@PathVariable String id, @PathVariable String userId) {
+        workspaceService.revokeAdmin(id, userId, WorkspaceContext.require().userId());
+        return ApiResponse.ok();
     }
 
     @GetMapping("/{id}/members")

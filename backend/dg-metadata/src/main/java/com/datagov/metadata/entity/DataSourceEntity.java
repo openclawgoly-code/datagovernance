@@ -49,6 +49,13 @@ public class DataSourceEntity {
     private String username;
     /** 驱动扩展参数,JSON 对象字符串 */
     private String propertiesJson;
+    /**
+     * 附加节点(功能2:Doris/StarRocks 多节点),JSON 数组。
+     *
+     * 独立于 propertiesJson:节点列表是连接身份的一部分(改了就是连到别的集群),
+     * 而 properties 是驱动调优参数 —— 前者变更应触发重新验证,后者不必。
+     */
+    private String nodesJson;
     private String jdbcUrlOverride;
     private String baseUrl;
     /** → pf_credential.id,唯一的凭据通路 */

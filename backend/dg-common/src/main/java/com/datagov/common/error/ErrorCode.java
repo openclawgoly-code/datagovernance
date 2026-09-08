@@ -32,6 +32,9 @@ public enum ErrorCode {
     PLT_WORKSPACE_NOT_FOUND("PLT_WORKSPACE_NOT_FOUND", 404, "空间不存在"),
     PLT_WORKSPACE_FORBIDDEN("PLT_WORKSPACE_FORBIDDEN", 403, "当前用户未被授权访问该空间"),
     PLT_WORKSPACE_CODE_DUPLICATED("PLT_WORKSPACE_CODE_DUPLICATED", 409, "空间标识已存在"),
+    // 403 而非 423(Locked):对调用方来说"这个空间现在不让你用"与其它 403 是同一类处置,
+    // 而 423 会诱导前端写出一条只为这一种情况存在的分支。
+    PLT_WORKSPACE_SUSPENDED("PLT_WORKSPACE_SUSPENDED", 403, "空间已停用"),
     PLT_USERNAME_DUPLICATED("PLT_USERNAME_DUPLICATED", 409, "用户名已存在"),
     PLT_ROLE_CODE_DUPLICATED("PLT_ROLE_CODE_DUPLICATED", 409, "角色标识已存在"),
     PLT_ROLE_IN_USE("PLT_ROLE_IN_USE", 409, "角色已被用户引用,无法删除"),

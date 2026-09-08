@@ -5,12 +5,18 @@ import com.datagov.common.crypto.SecretCipher;
 import com.datagov.common.error.BizException;
 import com.datagov.common.error.ErrorCode;
 import com.datagov.common.id.Ids;
+import com.datagov.platform.domain.WorkspaceLifecycle;
 import com.datagov.platform.dto.WorkspaceView;
+import com.datagov.platform.entity.PlatformEntities.Role;
 import com.datagov.platform.entity.PlatformEntities.User;
+import com.datagov.platform.entity.PlatformEntities.UserRole;
 import com.datagov.platform.entity.PlatformEntities.Workspace;
 import com.datagov.platform.entity.PlatformEntities.WorkspaceMember;
 import com.datagov.platform.entity.PlatformEntities.WorkspaceSecret;
+import com.datagov.platform.entity.WorkspaceStatus;
+import com.datagov.platform.mapper.RoleMapper;
 import com.datagov.platform.mapper.UserMapper;
+import com.datagov.platform.mapper.UserRoleMapper;
 import com.datagov.platform.mapper.WorkspaceMapper;
 import com.datagov.platform.mapper.WorkspaceMemberMapper;
 import com.datagov.platform.mapper.WorkspaceSecretMapper;
@@ -38,21 +44,35 @@ public class WorkspaceService {
     private static final Logger log = LoggerFactory.getLogger(WorkspaceService.class);
     private static final SecureRandom RANDOM = new SecureRandom();
 
+    /**
+     * 内置空间管理员角色的 code(功能 28「空间管理员」)。
+     *
+     * <p>按 code 而不是按种子里的主键查:主键是种子脚本的实现细节,code 才是
+     * 这个角色的身份。一次数据迁移换掉主键不该让"谁是空间管理员"失效。
+     */
+    private static final String ROLE_CODE_WORKSPACE_ADMIN = "WORKSPACE_ADMIN";
+
     private final WorkspaceMapper workspaceMapper;
     private final WorkspaceSecretMapper secretMapper;
     private final WorkspaceMemberMapper memberMapper;
     private final UserMapper userMapper;
+    private final RoleMapper roleMapper;
+    private final UserRoleMapper userRoleMapper;
     private final SecretCipher cipher;
 
     public WorkspaceService(WorkspaceMapper workspaceMapper,
                             WorkspaceSecretMapper secretMapper,
                             WorkspaceMemberMapper memberMapper,
                             UserMapper userMapper,
+                            RoleMapper roleMapper,
+                            UserRoleMapper userRoleMapper,
                             SecretCipher cipher) {
         this.workspaceMapper = workspaceMapper;
         this.secretMapper = secretMapper;
         this.memberMapper = memberMapper;
         this.userMapper = userMapper;
+        this.roleMapper = roleMapper;
+        this.userRoleMapper = userRoleMapper;
         this.cipher = cipher;
     }
 
@@ -106,16 +126,39 @@ public class WorkspaceService {
         if (user == null || !"ACTIVE".equals(user.getStatus())) {
             throw new BizException(ErrorCode.PLT_USER_DISABLED);
         }
+
+        // 平台管理员对停用空间仍可进入 —— 停用之后总得有人能进去把它启用回来,
+        // 否则「停用」等于「不可逆销毁」,而这不是功能 28 的语义。
         if (Boolean.TRUE.equals(user.getPlatformAdmin())) {
             require(workspaceId);
             return;
         }
+
+        Workspace workspace = require(workspaceId);
         Long count = memberMapper.selectCount(new LambdaQueryWrapper<WorkspaceMember>()
                 .eq(WorkspaceMember::getWorkspaceId, workspaceId)
                 .eq(WorkspaceMember::getUserId, userId));
         if (count == null || count == 0) {
             throw new BizException(ErrorCode.PLT_WORKSPACE_FORBIDDEN,
                     "当前用户未被授权访问该空间");
+        }
+
+        // 停用检查放在授权检查之后:先回答"你有没有权限",再回答"这个空间开着没有"。
+        // 反过来会让一个无权访问的人通过错误信息的差异探知某个空间存在且被停用了。
+        requireActive(workspace);
+    }
+
+    /**
+     * 空间停用后,普通成员的一切读写都应被拒绝。
+     *
+     * <p>停用是功能 28 的一个<b>运行时闸门</b>,不只是列表上的一个标记 ——
+     * 如果停用之后成员照样能查数据、跑任务,那这个开关什么也没关掉。
+     */
+    private static void requireActive(Workspace workspace) {
+        if (WorkspaceStatus.SUSPENDED.name().equals(workspace.getStatus())) {
+            throw new BizException(ErrorCode.PLT_WORKSPACE_SUSPENDED,
+                    "空间「%s」已停用".formatted(workspace.getName()),
+                    "请联系平台管理员启用该空间");
         }
     }
 
@@ -160,6 +203,132 @@ public class WorkspaceService {
         workspace.setUpdatedBy(operator);
         workspaceMapper.updateById(workspace);
         return toView(workspace);
+    }
+
+    /**
+     * EnableWorkspace / SuspendWorkspace —— 功能 28「空间启用/停用」。
+     *
+     * <p>停用不删任何数据:空间里的数据源、凭据、成员关系原样保留,只是所有
+     * 非平台管理员的访问被 {@link #requireAccess} 挡在门外。这是「停用」而不是
+     * 「删除」应有的语义 —— 启用回来之后一切照旧。
+     *
+     * <p>幂等:把已停用的空间再停用一次不报错。这个接口的调用方多半是管理界面
+     * 上的一个开关,为一次重复点击抛 409 只会制造噪音。
+     */
+    @Transactional
+    public WorkspaceView setStatus(String workspaceId, boolean enabled, String operator) {
+        Workspace workspace = require(workspaceId);
+        WorkspaceStatus target = enabled ? WorkspaceStatus.ACTIVE : WorkspaceStatus.SUSPENDED;
+        WorkspaceStatus current = parseStatus(workspace.getStatus());
+
+        if (current == target) {
+            return toView(workspace);
+        }
+        WorkspaceLifecycle.MACHINE.checkTransition(current, target);
+
+        workspace.setStatus(target.name());
+        workspace.setUpdatedAt(Instant.now());
+        workspace.setUpdatedBy(operator);
+        workspaceMapper.updateById(workspace);
+
+        log.info("空间{} id={} code={} 操作人={}",
+                enabled ? "已启用" : "已停用", workspaceId, workspace.getCode(), operator);
+        return toView(workspace);
+    }
+
+    // ── 空间管理员(功能 28)────────────────────────────────────────────
+    // 没有新增「管理员」字段,空间管理员就是在该空间下被授予内置 WORKSPACE_ADMIN
+    // 角色的用户。理由是避免两套并行的授权事实:如果既有 is_admin 标记又有角色授权,
+    // 鉴权时到底以哪个为准会变成一个反复出现的问题,而两者迟早会不一致。
+
+    public List<String> listAdminIds(String workspaceId) {
+        String roleId = workspaceAdminRoleId();
+        return userRoleMapper.selectList(new LambdaQueryWrapper<UserRole>()
+                        .eq(UserRole::getWorkspaceId, workspaceId)
+                        .eq(UserRole::getRoleId, roleId)).stream()
+                .map(UserRole::getUserId).toList();
+    }
+
+    /**
+     * 授予空间管理员。
+     *
+     * <p>顺带把人加进空间成员 —— 一个不是成员的"管理员"连空间都进不去,
+     * 那个授权只是数据库里的一行无效记录。
+     */
+    @Transactional
+    public void grantAdmin(String workspaceId, String userId, String operator) {
+        require(workspaceId);
+        if (userMapper.selectById(userId) == null) {
+            throw BizException.notFound(ErrorCode.SYS_NOT_FOUND, "用户 " + userId);
+        }
+        addMembers(workspaceId, List.of(userId), operator);
+
+        String roleId = workspaceAdminRoleId();
+        Long exists = userRoleMapper.selectCount(new LambdaQueryWrapper<UserRole>()
+                .eq(UserRole::getWorkspaceId, workspaceId)
+                .eq(UserRole::getUserId, userId)
+                .eq(UserRole::getRoleId, roleId));
+        if (exists != null && exists > 0) {
+            return;     // 幂等
+        }
+
+        UserRole grant = new UserRole();
+        grant.setWorkspaceId(workspaceId);
+        grant.setUserId(userId);
+        grant.setRoleId(roleId);
+        grant.setCreatedAt(Instant.now());
+        grant.setCreatedBy(operator);
+        userRoleMapper.insert(grant);
+
+        log.info("已授予空间管理员 workspace={} user={} 操作人={}", workspaceId, userId, operator);
+    }
+
+    /**
+     * 撤销空间管理员。
+     *
+     * <p>撤到一个不剩也允许 —— 与"删除最后一个平台管理员"不同,那种情况没人
+     * 能再登录修复,而一个没有管理员的空间随时可以由任意平台管理员重新指派。
+     * 为一个可恢复的状态设置硬性阻拦,只会让"移除离职人员的权限"这种正当操作
+     * 卡住。降级为一条 WARN 日志。
+     */
+    @Transactional
+    public void revokeAdmin(String workspaceId, String userId, String operator) {
+        String roleId = workspaceAdminRoleId();
+        int removed = userRoleMapper.delete(new LambdaQueryWrapper<UserRole>()
+                .eq(UserRole::getWorkspaceId, workspaceId)
+                .eq(UserRole::getUserId, userId)
+                .eq(UserRole::getRoleId, roleId));
+        if (removed == 0) {
+            return;
+        }
+        log.info("已撤销空间管理员 workspace={} user={} 操作人={}", workspaceId, userId, operator);
+        if (listAdminIds(workspaceId).isEmpty()) {
+            log.warn("空间 {} 现在没有任何空间管理员,只有平台管理员能进入", workspaceId);
+        }
+    }
+
+    private String workspaceAdminRoleId() {
+        Role role = roleMapper.selectOne(new LambdaQueryWrapper<Role>()
+                .eq(Role::getCode, ROLE_CODE_WORKSPACE_ADMIN)
+                .isNull(Role::getWorkspaceId)
+                .last("LIMIT 1"));
+        if (role == null) {
+            // 内置角色由 V2 迁移种下。查不到说明库没迁移到位,这不是用户输入问题。
+            throw new BizException(ErrorCode.SYS_INTERNAL_ERROR,
+                    "内置角色 %s 缺失,数据库未初始化完整".formatted(ROLE_CODE_WORKSPACE_ADMIN));
+        }
+        return role.getId();
+    }
+
+    private static WorkspaceStatus parseStatus(String raw) {
+        try {
+            return WorkspaceStatus.valueOf(raw);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            // 库里出现了枚举之外的取值。当成 ACTIVE 会让一个本该被拦住的空间放行,
+            // 所以宁可报错:这是数据问题,不该被一个默认值掩盖。
+            throw new BizException(ErrorCode.SYS_INTERNAL_ERROR,
+                    "空间状态取值非法: " + raw);
+        }
     }
 
     @Transactional

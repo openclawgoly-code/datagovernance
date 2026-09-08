@@ -1,5 +1,6 @@
 package com.datagov.data.spi;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -31,14 +32,26 @@ public record ConnectionConfig(
         String jdbcUrlOverride,
         String baseUrl,
         int connectTimeoutMillis,
-        int readTimeoutMillis
+        int readTimeoutMillis,
+        List<Node> nodes
 ) {
+
+    /**
+     * 附加节点(功能 2:Doris / StarRocks 多节点)。
+     *
+     * <p>MPP 的 FE 是多副本部署,任一节点都能接受查询。只配一个节点意味着
+     * 那台机器挂了整个数据源就不可用 —— 而 MySQL 协议驱动原生支持多主机
+     * 故障转移,不用它等于白白放弃对方已经做好的高可用。
+     */
+    public record Node(String host, int port) {
+    }
 
     public static final int DEFAULT_CONNECT_TIMEOUT_MILLIS = 10_000;
     public static final int DEFAULT_READ_TIMEOUT_MILLIS = 30_000;
 
     public ConnectionConfig {
         properties = properties == null ? Map.of() : Map.copyOf(properties);
+        nodes = nodes == null ? List.of() : List.copyOf(nodes);
         if (connectTimeoutMillis <= 0) {
             connectTimeoutMillis = DEFAULT_CONNECT_TIMEOUT_MILLIS;
         }
@@ -58,9 +71,10 @@ public record ConnectionConfig(
      * 塞进日志,密码也不会泄露 —— 依赖"记得脱敏"是不可靠的。
      */
     public String masked() {
-        return "ConnectionConfig[host=%s, port=%s, database=%s, username=%s, password=%s, baseUrl=%s]"
+        return "ConnectionConfig[host=%s, port=%s, database=%s, username=%s, password=%s, baseUrl=%s, extraNodes=%d]"
                 .formatted(host, port, database, username,
-                        password == null || password.isEmpty() ? "<none>" : "******", baseUrl);
+                        password == null || password.isEmpty() ? "<none>" : "******", baseUrl,
+                        nodes == null ? 0 : nodes.size());
     }
 
     @Override
@@ -83,6 +97,7 @@ public record ConnectionConfig(
         private String baseUrl;
         private int connectTimeoutMillis = DEFAULT_CONNECT_TIMEOUT_MILLIS;
         private int readTimeoutMillis = DEFAULT_READ_TIMEOUT_MILLIS;
+        private List<Node> nodes = List.of();
 
         public Builder host(String v) { this.host = v; return this; }
         public Builder port(Integer v) { this.port = v; return this; }
@@ -94,10 +109,11 @@ public record ConnectionConfig(
         public Builder baseUrl(String v) { this.baseUrl = v; return this; }
         public Builder connectTimeoutMillis(int v) { this.connectTimeoutMillis = v; return this; }
         public Builder readTimeoutMillis(int v) { this.readTimeoutMillis = v; return this; }
+        public Builder nodes(List<Node> v) { this.nodes = v; return this; }
 
         public ConnectionConfig build() {
             return new ConnectionConfig(host, port, database, username, password, properties,
-                    jdbcUrlOverride, baseUrl, connectTimeoutMillis, readTimeoutMillis);
+                    jdbcUrlOverride, baseUrl, connectTimeoutMillis, readTimeoutMillis, nodes);
         }
     }
 }

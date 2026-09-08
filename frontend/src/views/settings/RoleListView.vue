@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox, type ElTree } from 'element-plus'
+import { ElMessage, type ElTree } from 'element-plus'
 import { roleApi } from '@/api/role'
 import type { Role } from '@/types/role'
 import type { PermissionNode } from '@/types/permission'
+import { confirmDanger } from '@/utils/confirm'
 
 const loading = ref(false)
 const rows = ref<Role[]>([])
@@ -67,11 +68,14 @@ async function onSubmit() {
 }
 
 async function onDelete(row: Role) {
-  await ElMessageBox.confirm(
-    `确定删除角色「${row.name}」吗?已授予该角色的用户会立即失去对应权限。`,
-    '删除角色',
-    { type: 'warning' },
-  )
+  if (
+    !(await confirmDanger(
+      `确定删除角色「${row.name}」吗?已授予该角色的用户会立即失去对应权限。`,
+      '删除角色',
+    ))
+  ) {
+    return
+  }
   await roleApi.remove(row.id)
   ElMessage.success('已删除')
   await load()

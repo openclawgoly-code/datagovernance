@@ -4,6 +4,7 @@ import com.datagov.app.web.RequirePermission;
 import com.datagov.common.api.ApiResponse;
 import com.datagov.common.api.PageResult;
 import com.datagov.common.tenant.WorkspaceContext;
+import com.datagov.data.spi.ConnectionConfig;
 import com.datagov.data.spi.ConnectivityResult;
 import com.datagov.data.spi.DataSourceType;
 import com.datagov.metadata.dto.DataSourceUpsertCommand;
@@ -71,6 +72,8 @@ public class DataSourceController {
             String databaseName,
             String username,
             Map<String, String> properties,
+            /** 附加节点(功能2:Doris/StarRocks 多 FE);仅 MPP 类型有效 */
+            List<ConnectionConfig.Node> nodes,
             String jdbcUrlOverride,
             String baseUrl,
             /** 复用已有凭据 */
@@ -222,7 +225,7 @@ public class DataSourceController {
         return new DataSourceUpsertCommand(
                 request.name(), request.type(), request.description(), request.catalogId(),
                 request.host(), request.port(), request.databaseName(), request.username(),
-                request.properties(), request.jdbcUrlOverride(), request.baseUrl(),
+                request.properties(), request.nodes(), request.jdbcUrlOverride(), request.baseUrl(),
                 credentialId, request.connectTimeoutMs(), request.readTimeoutMs());
     }
 }

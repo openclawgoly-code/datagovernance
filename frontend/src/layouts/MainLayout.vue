@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { switchWorkspace, logout as logoutApi } from '@/api/auth'
 import MenuTree from './MenuTree.vue'
+import { confirmAction } from '@/utils/confirm'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -47,13 +48,11 @@ async function onSwitchWorkspace(workspaceId: string) {
 }
 
 async function onLogout() {
-  try {
-    await ElMessageBox.confirm('确定要退出登录吗?', '退出登录', {
-      type: 'warning',
-      confirmButtonText: '退出',
-      cancelButtonText: '取消',
-    })
-  } catch {
+  const confirmed = await confirmAction('确定要退出登录吗?', '退出登录', {
+    confirmButtonText: '退出',
+    cancelButtonText: '取消',
+  })
+  if (!confirmed) {
     return
   }
   try {
@@ -95,11 +94,16 @@ async function onLogout() {
             style="width: 180px"
             @change="onSwitchWorkspace"
           >
+            <!--
+              停用的空间照样列出来但不可选:隐藏它会让用户以为空间被删了,
+              而选中它只会换来满屏 403。禁用项加上后缀说明原因。
+            -->
             <el-option
               v-for="ws in auth.workspaces"
               :key="ws.id"
-              :label="ws.name"
+              :label="ws.status === 'ACTIVE' ? ws.name : `${ws.name}(已停用)`"
               :value="ws.id"
+              :disabled="ws.status !== 'ACTIVE'"
             />
           </el-select>
 

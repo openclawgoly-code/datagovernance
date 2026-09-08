@@ -20,9 +20,14 @@ interface StatusMeta {
  * 因此这里不再重复定义。
  */
 
+/**
+ * 空间用「已停用」而用户用「已禁用」,不是措辞随意 —— 空间停用是可逆的运维动作
+ * (随时启用回来,数据一点不少),用户禁用则通常意味着这个账号不该再被使用。
+ * 两者用同一个词会让人以为停用空间也会牵连里面的数据。
+ */
 export const WORKSPACE_STATUS_META: Record<WorkspaceStatus, StatusMeta> = {
   ACTIVE: { label: '正常', tagType: 'success', color: '#67c23a' },
-  DISABLED: { label: '已禁用', tagType: 'info', color: '#909399' },
+  SUSPENDED: { label: '已停用', tagType: 'info', color: '#909399' },
 }
 
 export const USER_STATUS_META: Record<UserStatus, StatusMeta> = {

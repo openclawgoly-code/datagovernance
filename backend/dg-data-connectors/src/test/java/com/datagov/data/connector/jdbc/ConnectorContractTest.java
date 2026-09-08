@@ -15,6 +15,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.List;
+import java.util.Properties;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -96,6 +97,52 @@ class ConnectorContractTest {
                 .endsWith(":5236");
         assertThat(new DorisConnector().buildJdbcUrl(DataSourceType.DORIS, noPort))
                 .contains(":9030/");
+    }
+
+    // ── 多节点(功能 2)──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("Doris/StarRocks 的多个 FE 拼进同一个 URL,交给驱动做故障转移")
+    void dorisBuildsMultiHostUrl() {
+        ConnectionConfig multi = ConnectionConfig.builder()
+                .host("fe-1").port(9030).database("warehouse")
+                .nodes(List.of(new ConnectionConfig.Node("fe-2", 9030),
+                        new ConnectionConfig.Node("fe-3", 9031)))
+                .build();
+
+        assertThat(new DorisConnector().buildJdbcUrl(DataSourceType.DORIS, multi))
+                .isEqualTo("jdbc:mysql://fe-1:9030,fe-2:9030,fe-3:9031/warehouse");
+        assertThat(new DorisConnector().buildJdbcUrl(DataSourceType.STARROCKS, multi))
+                .isEqualTo("jdbc:mysql://fe-1:9030,fe-2:9030,fe-3:9031/warehouse");
+    }
+
+    @Test
+    @DisplayName("附加节点端口留空时回落到默认端口,主机为空的条目被跳过")
+    void dorisNormalizesNodeEntries() {
+        ConnectionConfig sloppy = ConnectionConfig.builder()
+                .host("fe-1").database("warehouse")
+                .nodes(List.of(new ConnectionConfig.Node("fe-2", 0),
+                        new ConnectionConfig.Node("  ", 9030)))
+                .build();
+
+        assertThat(new DorisConnector().buildJdbcUrl(DataSourceType.DORIS, sloppy))
+                .isEqualTo("jdbc:mysql://fe-1:9030,fe-2:9030/warehouse");
+    }
+
+    @Test
+    @DisplayName("配了多节点才打开故障转移 —— 单节点时不该出现这些参数")
+    void failoverPropertiesOnlyAppearWithExtraNodes() {
+        DorisConnector connector = new DorisConnector();
+
+        Properties single = new Properties();
+        connector.applyTimeouts(single, ConnectionConfig.builder().host("fe-1").build());
+        assertThat(single).doesNotContainKey("failOverReadOnly");
+
+        Properties multi = new Properties();
+        connector.applyTimeouts(multi, ConnectionConfig.builder().host("fe-1")
+                .nodes(List.of(new ConnectionConfig.Node("fe-2", 9030))).build());
+        // failOverReadOnly=false:转移到备节点后仍可写。默认的 true 会让写入静默失败。
+        assertThat(multi).containsEntry("failOverReadOnly", "false");
     }
 
     @Test

@@ -4,7 +4,10 @@ import com.datagov.data.spi.DataSourceType;
 import com.datagov.metadata.domain.DataSourceStatus;
 import com.datagov.metadata.entity.DataSourceEntity;
 
+import com.datagov.data.spi.ConnectionConfig;
+
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -39,6 +42,8 @@ public record DataSourceView(
         String databaseName,
         String username,
         Map<String, String> properties,
+        /** 附加节点(功能2 MPP 多节点) */
+        List<ConnectionConfig.Node> nodes,
         String jdbcUrlOverride,
         String baseUrl,
         String credentialId,
@@ -57,7 +62,8 @@ public record DataSourceView(
         String updatedBy
 ) {
 
-    public static DataSourceView from(DataSourceEntity entity, Map<String, String> properties) {
+    public static DataSourceView from(DataSourceEntity entity, Map<String, String> properties,
+                                      List<ConnectionConfig.Node> nodes) {
         return new DataSourceView(
                 entity.getId(),
                 entity.getName(),
@@ -75,6 +81,7 @@ public record DataSourceView(
                 entity.getDatabaseName(),
                 entity.getUsername(),
                 properties,
+                nodes,
                 entity.getJdbcUrlOverride(),
                 entity.getBaseUrl(),
                 entity.getCredentialId(),

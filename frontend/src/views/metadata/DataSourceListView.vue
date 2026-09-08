@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { dataSourceApi, dataSourceCatalogApi } from '@/api/datasource'
 import { statusMeta } from '@/utils/datasource-status'
+import { confirmAction, confirmDanger } from '@/utils/confirm'
 import DataSourceFormDialog from './DataSourceFormDialog.vue'
 import CatalogBrowserDrawer from './CatalogBrowserDrawer.vue'
 import ProbeScheduleDialog from './ProbeScheduleDialog.vue'
@@ -123,11 +124,9 @@ async function onToggleEnabled(row: DataSource) {
     await dataSourceApi.enable(row.id)
     ElMessage.success('已启用。停用期间目标端可能已变化,请重新测试连通性')
   } else {
-    await ElMessageBox.confirm(
-      `停用「${row.name}」后,它将不能被新任务引用。确定吗?`,
-      '停用数据源',
-      { type: 'warning' },
-    )
+    if (!(await confirmAction(`停用「${row.name}」后,它将不能被新任务引用。确定吗?`, '停用数据源'))) {
+      return
+    }
     await dataSourceApi.disable(row.id)
     ElMessage.success('已停用')
   }
@@ -135,11 +134,9 @@ async function onToggleEnabled(row: DataSource) {
 }
 
 async function onDelete(row: DataSource) {
-  await ElMessageBox.confirm(
-    `确定删除「${row.name}」吗?若它已被任务引用,请改用停用。`,
-    '删除数据源',
-    { type: 'warning', confirmButtonText: '删除', confirmButtonClass: 'el-button--danger' },
-  )
+  if (!(await confirmDanger(`确定删除「${row.name}」吗?若它已被任务引用,请改用停用。`, '删除数据源'))) {
+    return
+  }
   await dataSourceApi.remove(row.id)
   ElMessage.success('已删除')
   await Promise.all([load(), loadCatalogs()])
@@ -186,11 +183,7 @@ async function onDeleteCatalog() {
     ElMessage.warning('请先选中一个目录')
     return
   }
-  try {
-    await ElMessageBox.confirm('确定删除该目录吗?非空目录无法删除。', '删除目录', {
-      type: 'warning',
-    })
-  } catch {
+  if (!(await confirmAction('确定删除该目录吗?非空目录无法删除。', '删除目录'))) {
     return
   }
   await dataSourceCatalogApi.remove(id)
@@ -307,6 +300,19 @@ async function onDeleteCatalog() {
                 <span class="text-mono">
                   {{ row.baseUrl || `${row.host ?? '-'}:${row.port ?? '-'}/${row.databaseName ?? ''}` }}
                 </span>
+                <!--
+                  多节点(功能2)只标数量不铺开:列表要的是"这是不是高可用配置"这一个信息,
+                  完整节点清单在编辑对话框里。
+                -->
+                <el-tag
+                  v-if="row.nodes && row.nodes.length > 0"
+                  size="small"
+                  type="info"
+                  effect="plain"
+                  style="margin-left: 6px"
+                >
+                  +{{ row.nodes.length }} 节点
+                </el-tag>
               </template>
             </el-table-column>
             <el-table-column label="周期检查" width="100">

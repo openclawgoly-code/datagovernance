@@ -5,6 +5,7 @@ import { userApi } from '@/api/user'
 import { roleApi } from '@/api/role'
 import type { User } from '@/types/user'
 import type { Role } from '@/types/role'
+import { confirmDanger } from '@/utils/confirm'
 
 const loading = ref(false)
 const keyword = ref('')
@@ -115,7 +116,9 @@ async function onToggleStatus(row: User) {
 }
 
 async function onDelete(row: User) {
-  await ElMessageBox.confirm(`确定删除用户「${row.username}」吗?`, '删除用户', { type: 'warning' })
+  if (!(await confirmDanger(`确定删除用户「${row.username}」吗?`, '删除用户'))) {
+    return
+  }
   await userApi.remove(row.id)
   ElMessage.success('已删除')
   await load()

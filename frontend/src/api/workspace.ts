@@ -35,6 +35,31 @@ export const workspaceApi = {
   },
 
   /**
+   * 启用 / 停用空间(功能 28)。
+   *
+   * 停用不删除任何数据,只是拒绝非平台管理员的一切访问。幂等 ——
+   * 重复点同一个开关不会报错。
+   */
+  setStatus(id: string, enabled: boolean): Promise<Workspace> {
+    return http.post<Workspace>(`/workspaces/${id}/status`, { enabled })
+  },
+
+  /** 空间管理员的 ID 列表 —— 即在该空间下被授予内置 WORKSPACE_ADMIN 角色的用户 */
+  listAdminIds(id: string): Promise<string[]> {
+    return http.get<string[]>(`/workspaces/${id}/admins`)
+  },
+
+  /** 指定空间管理员;后端会同时把该用户加入空间成员 */
+  grantAdmin(id: string, userId: string): Promise<void> {
+    return http.post<void>(`/workspaces/${id}/admins/${userId}`)
+  },
+
+  /** 取消空间管理员,保留其空间成员身份 */
+  revokeAdmin(id: string, userId: string): Promise<void> {
+    return http.delete<void>(`/workspaces/${id}/admins/${userId}`)
+  },
+
+  /**
    * 轮换鉴权密钥。
    *
    * 返回的明文 secretKey 是它<b>唯一一次</b>出现的机会,之后库里只有密文。

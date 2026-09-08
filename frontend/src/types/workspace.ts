@@ -18,14 +18,25 @@ export interface Workspace {
   updatedBy: string | null
 }
 
-export type WorkspaceStatus = 'ACTIVE' | 'DISABLED'
+/**
+ * 与后端 WorkspaceStatus 枚举一一对应。
+ *
+ * 是 SUSPENDED 而不是 DISABLED —— 用户被停用叫 DISABLED,空间被停用叫 SUSPENDED,
+ * 两个词区分开是有意的:它们的影响面和恢复方式都不同。
+ */
+export type WorkspaceStatus = 'ACTIVE' | 'SUSPENDED'
 
-/** 创建 / 编辑空间的表单载荷。 */
+/**
+ * 创建 / 编辑空间的表单载荷。
+ *
+ * 不含 status:启停走独立的 POST /workspaces/{id}/status,权限码也不同
+ * (停用一个空间会让里面所有人立刻失去访问,和"改个空间名"不是一回事)。
+ * 把它放进这个表单会让一次改名请求顺带改掉状态。
+ */
 export interface WorkspaceForm {
   code: string
   name: string
   description?: string
-  status?: WorkspaceStatus
 }
 
 /** 空间成员(授权用户)。 */

@@ -177,11 +177,13 @@ public class DataSourceService {
         ConnectionRequirements.validate(command);
         requireNameAvailable(workspaceId, command.name(), id);
 
-        String newPropertiesJson = assembler.writeProperties(command.properties());
-        boolean connectionChanged = ConnectionRequirements.connectionChanged(
-                command, entity.getHost(), entity.getPort(), entity.getDatabaseName(),
-                entity.getUsername(), entity.getPropertiesJson(), entity.getJdbcUrlOverride(),
-                entity.getBaseUrl(), entity.getCredentialId(), newPropertiesJson);
+        ConnectionRequirements.Snapshot stored = new ConnectionRequirements.Snapshot(
+                entity.getHost(), entity.getPort(), entity.getDatabaseName(), entity.getUsername(),
+                entity.getPropertiesJson(), entity.getNodesJson(), entity.getJdbcUrlOverride(),
+                entity.getBaseUrl(), entity.getCredentialId());
+        boolean connectionChanged = ConnectionRequirements.connectionChanged(command, stored,
+                assembler.writeProperties(command.properties()),
+                assembler.writeNodes(command.nodes()));
 
         applyCommand(entity, command);
         entity.setVersion(entity.getVersion() + 1);
@@ -435,6 +437,7 @@ public class DataSourceService {
         entity.setDatabaseName(command.databaseName());
         entity.setUsername(command.username());
         entity.setPropertiesJson(assembler.writeProperties(command.properties()));
+        entity.setNodesJson(assembler.writeNodes(command.nodes()));
         entity.setJdbcUrlOverride(command.jdbcUrlOverride());
         entity.setBaseUrl(command.baseUrl());
         entity.setCredentialId(command.credentialId());
@@ -512,8 +515,9 @@ public class DataSourceService {
     }
 
     private DataSourceView toView(DataSourceEntity entity) {
-        Map<String, String> properties = assembler.parseProperties(entity.getPropertiesJson());
-        return DataSourceView.from(entity, properties);
+        return DataSourceView.from(entity,
+                assembler.parseProperties(entity.getPropertiesJson()),
+                assembler.parseNodes(entity.getNodesJson()));
     }
 
     private static String truncate(String value, int max) {

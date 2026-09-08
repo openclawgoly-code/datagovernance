@@ -10,6 +10,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -26,6 +27,10 @@ import java.util.Map;
 public class ConnectionConfigAssembler {
 
     private static final TypeReference<Map<String, String>> PROPERTIES_TYPE =
+            new TypeReference<>() {
+            };
+
+    private static final TypeReference<List<ConnectionConfig.Node>> NODES_TYPE =
             new TypeReference<>() {
             };
 
@@ -58,6 +63,7 @@ public class ConnectionConfigAssembler {
                 .username(username)
                 .password(secret.secret())
                 .properties(parseProperties(entity.getPropertiesJson()))
+                .nodes(parseNodes(entity.getNodesJson()))
                 .jdbcUrlOverride(entity.getJdbcUrlOverride())
                 .baseUrl(entity.getBaseUrl())
                 .connectTimeoutMillis(orDefault(entity.getConnectTimeoutMs(),
@@ -91,6 +97,37 @@ public class ConnectionConfigAssembler {
         } catch (Exception e) {
             throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
                     "扩展参数无法序列化", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 解析附加节点(功能 2)。
+     *
+     * <p>与 properties 一样,解析失败直接报错:静默当成"没有附加节点"会让一个
+     * 本以为配了三副本的数据源悄悄退化成单点,而没有任何迹象。
+     */
+    public List<ConnectionConfig.Node> parseNodes(String nodesJson) {
+        if (nodesJson == null || nodesJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<ConnectionConfig.Node> parsed = objectMapper.readValue(nodesJson, NODES_TYPE);
+            return parsed == null ? List.of() : parsed;
+        } catch (Exception e) {
+            throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                    "数据源节点列表不是合法的 JSON 数组", e.getMessage(), e);
+        }
+    }
+
+    public String writeNodes(List<ConnectionConfig.Node> nodes) {
+        if (nodes == null || nodes.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(nodes);
+        } catch (Exception e) {
+            throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                    "节点列表无法序列化", e.getMessage(), e);
         }
     }
 

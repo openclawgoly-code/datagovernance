@@ -118,7 +118,7 @@ class DataSourceServiceTest {
     void missingRequiredFieldsRejectedBeforePersist() {
         DataSourceUpsertCommand noHost = new DataSourceUpsertCommand(
                 "坏配置", DataSourceType.MYSQL, null, null,
-                null, 3306, "db", "u", Map.of(), null, null, null, null, null);
+                null, 3306, "db", "u", Map.of(), List.of(), null, null, null, null, null);
 
         assertThatThrownBy(() -> service.create(noHost))
                 .isInstanceOf(BizException.class)
@@ -133,7 +133,7 @@ class DataSourceServiceTest {
     void restApiRequiresBaseUrl() {
         DataSourceUpsertCommand noBaseUrl = new DataSourceUpsertCommand(
                 "接口", DataSourceType.REST_API, null, null,
-                null, null, null, null, Map.of(), null, null, null, null, null);
+                null, null, null, null, Map.of(), List.of(), null, null, null, null, null);
 
         assertThatThrownBy(() -> service.create(noBaseUrl))
                 .isInstanceOf(BizException.class)
@@ -175,7 +175,7 @@ class DataSourceServiceTest {
 
         DataSourceUpsertCommand changed = new DataSourceUpsertCommand(
                 existing.getName(), DataSourceType.MYSQL, null, null,
-                "new-host", 3306, "db", "u", Map.of(), null, null, null, null, null);
+                "new-host", 3306, "db", "u", Map.of(), List.of(), null, null, null, null, null);
 
         DataSourceView view = service.update(existing.getId(), changed);
 
@@ -195,7 +195,7 @@ class DataSourceServiceTest {
         DataSourceUpsertCommand renamed = new DataSourceUpsertCommand(
                 "改个名字", DataSourceType.MYSQL, "补个描述", null,
                 existing.getHost(), existing.getPort(), existing.getDatabaseName(),
-                existing.getUsername(), Map.of(), null, null, null, null, null);
+                existing.getUsername(), Map.of(), List.of(), null, null, null, null, null);
 
         DataSourceView view = service.update(existing.getId(), renamed);
 
@@ -212,7 +212,7 @@ class DataSourceServiceTest {
 
         DataSourceUpsertCommand retyped = new DataSourceUpsertCommand(
                 existing.getName(), DataSourceType.POSTGRESQL, null, null,
-                existing.getHost(), 5432, "db", "u", Map.of(), null, null, null, null, null);
+                existing.getHost(), 5432, "db", "u", Map.of(), List.of(), null, null, null, null, null);
 
         assertThatThrownBy(() -> service.update(existing.getId(), retyped))
                 .isInstanceOf(BizException.class)
@@ -290,7 +290,7 @@ class DataSourceServiceTest {
     void neitherViewNorVersionSnapshotCarriesSecrets() throws Exception {
         DataSourceUpsertCommand withCredential = new DataSourceUpsertCommand(
                 "带凭据的库", DataSourceType.MYSQL, null, null,
-                "h", 3306, "db", "appuser", Map.of("useSSL", "false"),
+                "h", 3306, "db", "appuser", Map.of("useSSL", "false"), List.of(),
                 null, null, "cred_123", null, null);
 
         service.create(withCredential);
@@ -323,7 +323,7 @@ class DataSourceServiceTest {
 
     private static DataSourceUpsertCommand mysqlCommand(String name) {
         return new DataSourceUpsertCommand(name, DataSourceType.MYSQL, "测试用", null,
-                "10.0.0.1", 3306, "appdb", "appuser", Map.of(),
+                "10.0.0.1", 3306, "appdb", "appuser", Map.of(), List.of(),
                 null, null, null, null, null);
     }
 

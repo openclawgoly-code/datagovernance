@@ -130,8 +130,52 @@ try {
   const portValue = await page.locator('.el-dialog .el-input-number input').first().inputValue()
   record('切换类型自动填默认端口', portValue === '3306', `端口=${portValue}`)
 
+  // MySQL 是关系型,不该出现节点编辑器 —— 多节点只对 MPP 开放(功能2)
+  record('非 MPP 类型不显示节点编辑器', !dialogText2.includes('其它 FE 节点'))
+
+  // 换成 Doris —— 节点编辑器应该出现,且能加行
+  await page.locator('.el-dialog .el-select').first().click()
+  await page.waitForSelector('.el-select-dropdown__item:visible', { state: 'visible' })
+  await page.locator('.el-select-dropdown__item:visible').filter({ hasText: 'Apache Doris' }).first().click()
+  await page.waitForTimeout(600)
+  const dorisText = await page.locator('.el-dialog').innerText()
+  record('选 Doris 后出现多节点编辑器(功能2)', dorisText.includes('其它 FE 节点'))
+
+  const addNode = page.locator('.el-dialog button').filter({ hasText: '添加节点' }).first()
+  if (await addNode.count()) {
+    const before = await page.locator('.el-dialog .props__row').count()
+    await addNode.click()
+    await page.waitForTimeout(300)
+    const after = await page.locator('.el-dialog .props__row').count()
+    record('点「添加节点」能新增一行', after === before + 1, `${before} → ${after} 行`)
+  } else {
+    record('点「添加节点」能新增一行', false, '找不到按钮')
+  }
+
   await page.screenshot({ path: `${process.env.DG_UI_SHOT_DIR ?? '/tmp'}/ui-form.png` })
   await page.keyboard.press('Escape')
+
+  // ── 空间启停(功能28)────────────────────────────────────────────────
+  console.log('\n【UI】空间管理')
+  await page.goto(BASE + '/settings/workspaces', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(800)
+  const wsText = await page.locator('.el-table').innerText()
+  record('空间列表渲染状态列', wsText.includes('启用') || wsText.includes('停用'), wsText.split('\n')[0])
+
+  const toggle = page.locator('.el-table button').filter({ hasText: /^(停用|启用)$/ }).first()
+  record('每个空间有启用/停用按钮(功能28)', (await toggle.count()) > 0)
+
+  // 停用要二次确认 —— 它会让空间内所有成员立刻失去访问,不该一键生效
+  if ((await toggle.count()) > 0 && (await toggle.innerText()) === '停用') {
+    await toggle.click()
+    await page.waitForTimeout(600)
+    const confirmVisible = await page.locator('.el-message-box').isVisible().catch(() => false)
+    record('停用前弹出二次确认', confirmVisible)
+    if (confirmVisible) {
+      await page.locator('.el-message-box button').filter({ hasText: '取消' }).first().click()
+      await page.waitForTimeout(400)
+    }
+  }
 
   // ── 控制台无报错 ────────────────────────────────────────────────────
   console.log('\n【UI】运行时健康')

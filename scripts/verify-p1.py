@@ -217,6 +217,122 @@ status, res = call("GET", "/datasources", ws="ws_does_not_exist", raw=True)
 check("伪造空间 ID 被拒", status in (403, 404),
       f"HTTP {status} {res.get('code')}")
 
+# ── 功能 2:MPP 多节点 ────────────────────────────────────────────────
+print("\n【功能2】Doris / StarRocks 多节点")
+
+multi = call("POST", "/datasources", {
+    "name": "Doris-多FE-" + RUN, "type": "DORIS",
+    "host": "10.10.0.13", "port": 9030, "databaseName": "dw", "username": "analyst",
+    "nodes": [{"host": "10.10.0.14", "port": 9030}, {"host": "10.10.0.15", "port": 9030}],
+    "inlineSecret": {"authType": "PASSWORD", "username": "analyst", "secret": "doris-pass"},
+})
+multi_id = multi["data"]["id"]
+check("多节点数据源创建成功", multi.get("success"), f"{len(multi['data']['nodes'])} 个附加节点")
+
+reread = call("GET", f"/datasources/{multi_id}")["data"]
+check("节点列表能原样读回(不是写进去就丢)",
+      [(n["host"], n["port"]) for n in reread["nodes"]]
+      == [("10.10.0.14", 9030), ("10.10.0.15", 9030)],
+      str(reread["nodes"]))
+
+# 与主节点重复的"附加"节点毫无意义:驱动会把同一台机器当成两个转移目标
+status, res = call("POST", "/datasources", {
+    "name": "Doris-重复节点-" + RUN, "type": "DORIS",
+    "host": "10.10.0.13", "port": 9030, "databaseName": "dw", "username": "a",
+    "nodes": [{"host": "10.10.0.13", "port": 9030}],
+}, raw=True)
+check("与主节点重复的附加节点被拒", status == 400 and "重复" in res.get("message", ""),
+      f"HTTP {status} {res.get('message')}")
+
+# 非 MPP 类型配节点必须报错而不是静默忽略,否则用户以为自己配了高可用
+status, res = call("POST", "/datasources", {
+    "name": "MySQL-非法节点-" + RUN, "type": "MYSQL",
+    "host": "10.10.0.20", "port": 3306, "databaseName": "d", "username": "u",
+    "nodes": [{"host": "10.10.0.21", "port": 3306}],
+}, raw=True)
+check("非 MPP 类型配节点被拒(不是静默忽略)",
+      status == 400 and "不支持多节点" in res.get("message", ""),
+      f"HTTP {status} {res.get('message')}")
+
+# 改节点 = 改连接身份,已验证过的结论对新集群不再成立
+call("PUT", f"/datasources/{multi_id}", {
+    "name": reread["name"], "type": "DORIS",
+    "host": reread["host"], "port": reread["port"],
+    "databaseName": reread["databaseName"], "username": reread["username"],
+    "nodes": [{"host": "10.10.0.14", "port": 9030}],
+    "credentialId": reread["credentialId"],
+})
+after = call("GET", f"/datasources/{multi_id}")["data"]
+check("删掉一个节点后节点列表随之更新", len(after["nodes"]) == 1, str(after["nodes"]))
+check("改节点算连接变更(版本号递增)", after["version"] > reread["version"],
+      f"v{reread['version']} → v{after['version']}")
+
+# ── 功能 28:空间启停与空间管理员 ────────────────────────────────────
+print("\n【功能28】空间启用/停用 与 空间管理员")
+
+member = call("POST", "/users", {
+    "username": "ws-member-" + RUN, "password": "Member@12345",
+    "displayName": "空间成员", "platformAdmin": False,
+})
+member_id = member["data"]["id"]
+call("POST", f"/workspaces/{ws_b}/members", {"userIds": [member_id]})
+
+# 光有成员身份还不够:成员资格回答"能不能进这个空间",角色回答"进去能做什么"。
+# 不给角色的话下面拿到的会是 PLT_FORBIDDEN(缺权限码),验证不到停用这条闸门。
+viewer = next(r for r in call("GET", "/roles")["data"] if r["code"] == "WORKSPACE_VIEWER")
+call("POST", f"/users/{member_id}/roles", {"roleIds": [viewer["id"]]}, ws=ws_b)
+
+# 该成员登录后应当能进入 B 空间
+res = call("POST", "/auth/login",
+           {"username": "ws-member-" + RUN, "password": "Member@12345"})
+member_token = res["data"]["token"]
+admin_token = token
+
+token = member_token
+status, res = call("GET", "/datasources", ws=ws_b, raw=True)
+check("停用前:普通成员可访问该空间", status == 200, f"HTTP {status}")
+
+token = admin_token
+res = call("POST", f"/workspaces/{ws_b}/status", {"enabled": False})
+check("停用空间", res.get("success") and res["data"]["status"] == "SUSPENDED",
+      res["data"]["status"])
+
+token = member_token
+status, res = call("GET", "/datasources", ws=ws_b, raw=True)
+check("停用后:普通成员被拒(403 PLT_WORKSPACE_SUSPENDED)",
+      status == 403 and res.get("code") == "PLT_WORKSPACE_SUSPENDED",
+      f"HTTP {status} {res.get('code')}")
+
+token = admin_token
+status, res = call("GET", "/datasources", ws=ws_b, raw=True)
+check("停用后:平台管理员仍可进入(否则停用等于不可逆销毁)", status == 200, f"HTTP {status}")
+
+res = call("POST", f"/workspaces/{ws_b}/status", {"enabled": False})
+check("重复停用幂等,不报 409", res.get("success"), res["data"]["status"])
+
+res = call("POST", f"/workspaces/{ws_b}/status", {"enabled": True})
+check("启用回来", res["data"]["status"] == "ACTIVE", res["data"]["status"])
+
+token = member_token
+status, _ = call("GET", "/datasources", ws=ws_b, raw=True)
+check("启用后:成员恢复访问,数据一条未少", status == 200, f"HTTP {status}")
+
+token = admin_token
+call("POST", f"/workspaces/{ws_b}/admins/{member_id}")
+admins = call("GET", f"/workspaces/{ws_b}/admins")["data"]
+check("指定空间管理员", member_id in admins, f"{len(admins)} 名管理员")
+
+# 角色查询按请求头里的空间作用域,所以必须带 ws=ws_b —— 换个空间就是另一套角色
+roles = call("GET", f"/users/{member_id}/roles", ws=ws_b)["data"]
+check("空间管理员就是被授予 WORKSPACE_ADMIN 角色,而不是另一个并行字段",
+      len(roles) >= 1, str(roles))
+
+call("DELETE", f"/workspaces/{ws_b}/admins/{member_id}")
+admins = call("GET", f"/workspaces/{ws_b}/admins")["data"]
+check("取消空间管理员", member_id not in admins, f"{len(admins)} 名管理员")
+members = call("GET", f"/workspaces/{ws_b}/members")["data"]
+check("取消管理员后仍保留成员身份", member_id in members, f"{len(members)} 名成员")
+
 # ── 汇总 ──────────────────────────────────────────────────────────────
 print("\n" + "=" * 74)
 if failures:
