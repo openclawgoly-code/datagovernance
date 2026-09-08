@@ -2,8 +2,11 @@ import type { WorkspaceStatus } from '@/types/workspace'
 import type { UserStatus } from '@/types/user'
 
 /** el-tag 的 type 属性取值——Element Plus 恰好内置 5 种语义色,与数据源的 5 种状态一一对应,
- *  不需要再引入自定义配色。 */
-export type TagType = '' | 'success' | 'warning' | 'danger' | 'info'
+ *  不需要再引入自定义配色。
+ *
+ *  默认色是 'primary' 而不是空串:Element Plus 2.8 起不再接受 ''。写成联合类型
+ *  而不是 string,是为了让拼错的色值在编译期就被拦住。 */
+export type TagType = 'primary' | 'success' | 'warning' | 'danger' | 'info'
 
 interface StatusMeta {
   label: string

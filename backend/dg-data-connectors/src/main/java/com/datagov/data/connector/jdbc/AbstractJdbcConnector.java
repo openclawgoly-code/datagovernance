@@ -4,11 +4,14 @@ import com.datagov.common.error.BizException;
 import com.datagov.common.error.ErrorCode;
 import com.datagov.data.connector.ConnectorExceptions;
 import com.datagov.data.connector.mapping.TypeMapper;
+import com.datagov.data.connector.ddl.DialectDdl;
 import com.datagov.data.spi.ConnectionConfig;
 import com.datagov.data.spi.ConnectivityResult;
 import com.datagov.data.spi.DataSourceType;
 import com.datagov.data.spi.RelationalCatalogReader;
 import com.datagov.data.spi.SqlQueryExecutor;
+import com.datagov.data.spi.ddl.DdlGenerator;
+import com.datagov.data.spi.ddl.TableDdl;
 import com.datagov.data.spi.query.ReadOnlySqlGuard;
 import com.datagov.data.spi.query.SqlQuery;
 import com.datagov.data.spi.catalog.CanonicalType;
@@ -46,7 +49,8 @@ import java.util.Set;
  * <p><b>无状态</b>:本类及子类不持有任何连接或配置。每个方法自己开连接、
  * 自己关闭。{@link ConnectionConfig} 里有明文口令,缓存它等于把口令留在堆上。
  */
-public abstract class AbstractJdbcConnector implements RelationalCatalogReader, SqlQueryExecutor {
+public abstract class AbstractJdbcConnector
+        implements RelationalCatalogReader, SqlQueryExecutor, DdlGenerator {
 
     private static final Logger log = LoggerFactory.getLogger(AbstractJdbcConnector.class);
 
@@ -352,6 +356,41 @@ public abstract class AbstractJdbcConnector implements RelationalCatalogReader, 
             connection.setReadOnly(true);
         } catch (SQLException | UnsupportedOperationException e) {
             log.debug("目标驱动不支持只读连接,依赖语法护栏", e);
+        }
+    }
+
+    // ── 建表(功能 9)────────────────────────────────────────────────────
+
+    /**
+     * 生成建表语句。
+     *
+     * <p>渲染逻辑集中在 {@link DialectDdl},不在各连接器子类里 —— 那些差异
+     * ("Doris 没有 TEXT""Oracle 的 VARCHAR2 上限 4000 字节")放在一起才看得出
+     * 规律,分散到六个类之后没有人会去对照着读。
+     */
+    @Override
+    public TableDdl.GeneratedDdl generateCreateTable(DataSourceType type,
+                                                     TableDdl.CreateTableSpec spec) {
+        return DialectDdl.generate(type, spec);
+    }
+
+    /**
+     * 执行 DDL。
+     *
+     * <p>逐条执行,不开事务:多数数据库的 DDL 本来就是隐式提交的,包一层事务
+     * 只会制造"看起来能回滚"的错觉。中途失败时前面已建的表留在目标端 ——
+     * 这是 DDL 的固有性质,由调用方在执行记录里如实反映,而不是假装原子。
+     */
+    @Override
+    public void executeDdl(DataSourceType type, ConnectionConfig config,
+                           List<String> statements) throws SQLException {
+        try (Connection connection = open(type, config);
+             Statement statement = connection.createStatement()) {
+            for (String sql : statements) {
+                if (sql != null && !sql.isBlank()) {
+                    statement.execute(sql);
+                }
+            }
         }
     }
 

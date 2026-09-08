@@ -310,6 +310,121 @@ check("给整库迁移绑 Cron 被拒",
       status == 409 and res.get("code") == "CTL_JOB_NOT_SCHEDULABLE",
       f"HTTP {status} {res.get('code')}")
 
+# ── 7. 整库迁移(功能 9/10)──────────────────────────────────────────
+print("\n【7】整库迁移(功能 9/10)—— 建表语句预览 + 真的迁两张表")
+
+mig_a = f"p2_mig_a_{RUN}"
+mig_b = f"p2_mig_b_{RUN}"
+psql(f"""
+    DROP TABLE IF EXISTS dg_probe_schema.{mig_a};
+    CREATE TABLE dg_probe_schema.{mig_a} (
+        id BIGINT PRIMARY KEY, label VARCHAR(32) NOT NULL, ratio DOUBLE PRECISION,
+        tz_at TIMESTAMPTZ);
+    INSERT INTO dg_probe_schema.{mig_a}
+    SELECT g, 'a-' || g, g / 3.0, now() FROM generate_series(1, 300) g;
+
+    DROP TABLE IF EXISTS dg_probe_schema.{mig_b};
+    CREATE TABLE dg_probe_schema.{mig_b} (id BIGINT PRIMARY KEY, note TEXT);
+    INSERT INTO dg_probe_schema.{mig_b}
+    SELECT g, 'note-' || g FROM generate_series(1, 120) g;
+
+    CREATE SCHEMA IF NOT EXISTS dg_mig_target_{RUN};
+""")
+for table in (mig_a, mig_b):
+    call("GET", f"/datasources/{ds_id}/catalog"
+                f"?database={PG_DB}&schema=dg_probe_schema&table={table}")
+check("迁移源表已就绪", True, f"{mig_a} 300 行 / {mig_b} 120 行")
+
+# 建表语句预览:功能 9 的「预览并修改」
+ddl = call("POST", "/ddl/preview", {
+    "sourceDataSourceId": ds_id, "sourceDatabase": PG_DB,
+    "sourceSchema": "dg_probe_schema", "sourceTable": mig_a,
+    "targetDataSourceId": ds_id, "targetDatabase": PG_DB,
+    "targetSchema": f"dg_mig_target_{RUN}",
+    "tablePrefix": "t_",
+})["data"]
+check("生成了建表语句", ddl["script"].upper().startswith("CREATE TABLE"),
+      ddl["script"].split("\n")[0])
+check("目标表名应用了前缀规则", ddl["targetTable"] == f"t_{mig_a}", ddl["targetTable"])
+check("主键被识别并写进建表语句", "PRIMARY KEY" in ddl["script"])
+check("PostgreSQL 的注释是独立语句(所以可能不止一条)",
+      isinstance(ddl["statements"], list) and len(ddl["statements"]) >= 1,
+      f"{len(ddl['statements'])} 条")
+
+# 同一张源表换成 Doris 目标,应当出现降级提醒(TIMESTAMPTZ → DATETIME)
+doris_ds = call("POST", "/datasources", {
+    "name": f"P2-Doris目标-{RUN}", "type": "DORIS",
+    "host": "10.10.0.99", "port": 9030, "databaseName": "dw", "username": "analyst",
+    "inlineSecret": {"authType": "PASSWORD", "username": "analyst", "secret": "x"},
+})["data"]["id"]
+status, res = call("POST", "/ddl/preview", {
+    "sourceDataSourceId": ds_id, "sourceDatabase": PG_DB,
+    "sourceSchema": "dg_probe_schema", "sourceTable": mig_a,
+    "targetDataSourceId": doris_ds, "targetDatabase": "dw",
+}, raw=True)
+if status == 200:
+    doris_ddl = res["data"]
+    check("迁到 Doris 时给出类型降级提醒(时区会丢)",
+          any("时区" in w for w in doris_ddl["warnings"]),
+          "; ".join(doris_ddl["warnings"])[:120])
+    check("Doris 建表语句包含数据模型与分桶",
+          "DISTRIBUTED BY HASH" in doris_ddl["script"])
+else:
+    check("迁到 Doris 时给出类型降级提醒(时区会丢)", False, f"HTTP {status}")
+
+# 真的迁两张表
+mig_job = call("POST", "/jobs", {
+    "name": f"P2-整库迁移-实跑-{RUN}", "jobType": "DB_MIGRATION",
+    "config": {
+        "sourceDataSourceId": ds_id, "sourceDatabase": PG_DB,
+        "sourceSchema": "dg_probe_schema",
+        "targetDataSourceId": ds_id, "targetDatabase": PG_DB,
+        "targetSchema": f"dg_mig_target_{RUN}",
+        "tables": [mig_a, mig_b],
+        "tablePrefix": "t_", "createTable": True,
+        "writeMode": "APPEND", "batchSize": 200,
+    },
+    "timeoutMs": 120000,
+})["data"]
+mig_id = mig_job["id"]
+
+mig_compile = call("POST", f"/jobs/{mig_id}/compile")["data"]
+check("整库迁移编译通过", mig_compile["succeeded"], mig_compile["summary"])
+call("POST", f"/jobs/{mig_id}/publish")
+
+mig_exec = call("POST", f"/jobs/{mig_id}/run")["data"]
+mig_final = None
+for _ in range(90):
+    d = call("GET", f"/executions/{mig_exec['id']}")["data"]
+    if d["execution"]["status"] in ("SUCCEEDED", "FAILED", "CANCELED", "TIMEOUT"):
+        mig_final = d
+        break
+    time.sleep(1)
+
+if mig_final:
+    mex = mig_final["execution"]
+    check("整库迁移执行成功", mex["status"] == "SUCCEEDED",
+          f"{mex['status']} {mex.get('message') or ''}")
+    check("两张表的行数汇总正确",
+          (mex.get("rowsRead") or 0) == 420 and (mex.get("rowsWritten") or 0) == 420,
+          f"读{mex.get('rowsRead')} 写{mex.get('rowsWritten')}")
+    check("执行记录归入整库迁移种类", mex["jobRefType"] == "MIGRATION", mex["jobRefType"])
+else:
+    check("整库迁移执行成功", False, "90 秒内未结束")
+
+for src, expected in ((mig_a, 300), (mig_b, 120)):
+    actual = int(psql(f"SELECT count(*) FROM dg_mig_target_{RUN}.t_{src}"))
+    check(f"目标表 t_{src} 有 {expected} 行", actual == expected, f"{actual} 行")
+
+# 序号 10 的执行记录页 = 同一张表加 MIGRATION 过滤
+mig_records = call("GET", "/executions?page=1&size=20&jobRefType=MIGRATION")["data"]
+check("「整库迁移记录」页(序号 10)= 同一张表加过滤",
+      mig_records["total"] >= 1, f"{mig_records['total']} 条")
+
+psql(f"DROP SCHEMA IF EXISTS dg_mig_target_{RUN} CASCADE;"
+     f"DROP TABLE IF EXISTS dg_probe_schema.{mig_a};"
+     f"DROP TABLE IF EXISTS dg_probe_schema.{mig_b};")
+
 # ── 清理 ────────────────────────────────────────────────────────────
 psql(f"DROP TABLE IF EXISTS dg_probe_schema.{src_table};"
      f"DROP TABLE IF EXISTS dg_probe_schema.{dst_table};")

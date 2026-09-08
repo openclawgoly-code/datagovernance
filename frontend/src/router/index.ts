@@ -36,6 +36,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '数据源', permission: 'metadata:datasource:read' },
       },
       {
+        path: 'integration/jobs',
+        name: 'jobs',
+        component: () => import('@/views/integration/JobListView.vue'),
+        meta: { title: '任务管理', permission: 'control:job:read' },
+      },
+      {
+        path: 'ops/executions',
+        name: 'executions',
+        component: () => import('@/views/integration/ExecutionListView.vue'),
+        meta: { title: '执行记录', permission: 'runtime:execution:read' },
+      },
+      {
         path: 'settings/workspaces',
         name: 'workspaces',
         component: () => import('@/views/settings/WorkspaceListView.vue'),

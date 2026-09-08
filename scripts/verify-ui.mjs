@@ -177,6 +177,86 @@ try {
     }
   }
 
+  // ── 任务管理与执行记录(P2)──────────────────────────────────────────
+  console.log('\n【UI】任务管理(功能 9-16)')
+  await page.goto(BASE + '/integration/jobs', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(900)
+
+  const jobsText = await page.locator('.page-container').innerText()
+  record('任务管理页可访问', jobsText.includes('新建任务'), jobsText.split('\n')[0])
+
+  // 类型下拉必须来自后端 —— 前端不硬编码七种任务类型
+  await page.locator('button:has-text("新建任务")').first().click()
+  await page.waitForSelector('.el-dialog', { state: 'visible' })
+  await page.locator('.el-dialog .el-select').nth(0).click()
+  await page.waitForSelector('.el-select-dropdown__item:visible', { state: 'visible' })
+  const jobTypeOptions = await page.locator('.el-select-dropdown__item:visible').allInnerTexts()
+  record('任务类型下拉来自 /jobs/types', jobTypeOptions.length >= 7, `${jobTypeOptions.length} 项`)
+  record('下拉里标注了「可周期调度 / 常驻 / 一次性」',
+    jobTypeOptions.some((t) => t.includes('一次性') || t.includes('常驻')),
+    jobTypeOptions.slice(0, 3).join(' | '))
+
+  // 选离线同步 —— 应出现字段映射编辑器
+  const syncOption = page.locator('.el-select-dropdown__item:visible').filter({ hasText: '离线同步' }).first()
+  if (await syncOption.count()) {
+    await syncOption.click()
+    await page.waitForTimeout(600)
+    const dialogText = await page.locator('.el-dialog').innerText()
+    record('选离线同步后出现字段映射编辑器', dialogText.includes('字段映射'))
+    record('出现写入模式选择', dialogText.includes('写入模式'))
+  }
+
+  // 换成整库迁移 —— 应出现表名规则与自动建表(功能 9)
+  await page.locator('.el-dialog .el-select').nth(0).click()
+  await page.waitForSelector('.el-select-dropdown__item:visible', { state: 'visible' })
+  const migrationOption = page.locator('.el-select-dropdown__item:visible').filter({ hasText: '整库迁移' }).first()
+  if (await migrationOption.count()) {
+    await migrationOption.click()
+    await page.waitForTimeout(600)
+    const dialogText = await page.locator('.el-dialog').innerText()
+    record('选整库迁移后出现表名规则与自动建表(功能9)',
+      dialogText.includes('表名规则') && dialogText.includes('自动建表'))
+    record('整库迁移不显示字段映射 —— 目标表还不存在,没有可映射的一端',
+      !dialogText.includes('字段映射'))
+  }
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(300)
+
+  console.log('\n【UI】执行记录(序号 10/15/19/21/23 共用)')
+  await page.goto(BASE + '/ops/executions', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(900)
+
+  const execText = await page.locator('.page-container').innerText()
+  record('执行记录页说明了「五个页面查同一张表」',
+    execText.includes('同一张执行事实表'), execText.split('\n')[0])
+
+  const execRows = await page.locator('.el-table__body tr').count()
+  record('执行记录有数据', execRows > 0, `${execRows} 行`)
+
+  // 作业种类筛选器由后端下发,不硬编码五个菜单项
+  await page.locator('.page-toolbar__filters .el-select').first().click()
+  await page.waitForSelector('.el-select-dropdown__item:visible', { state: 'visible' })
+  const refTypes = await page.locator('.el-select-dropdown__item:visible').allInnerTexts()
+  record('作业种类筛选来自 /executions/job-types', refTypes.length >= 10, `${refTypes.length} 种`)
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(300)
+
+  // 详情要能看到尝试列表 —— 重试不新建执行记录,只新增尝试
+  const firstDetail = page.locator('.el-table__body tr button:has-text("详情")').first()
+  if (await firstDetail.count()) {
+    await firstDetail.click()
+    await page.waitForSelector('.el-drawer', { state: 'visible' })
+    await page.waitForTimeout(600)
+    const drawerText = await page.locator('.el-drawer').innerText()
+    record('执行详情显示尝试列表(重试不新建执行记录)', drawerText.includes('尝试'))
+    record('执行详情显示定义版本 —— 可复现性的依据', drawerText.includes('定义版本'))
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(400)
+  } else {
+    record('执行详情显示尝试列表(重试不新建执行记录)', false, '没有可点的详情按钮')
+    record('执行详情显示定义版本 —— 可复现性的依据', false, '没有可点的详情按钮')
+  }
+
   // ── 控制台无报错 ────────────────────────────────────────────────────
   console.log('\n【UI】运行时健康')
   const realErrors = consoleErrors.filter((e) => !e.includes('favicon'))
