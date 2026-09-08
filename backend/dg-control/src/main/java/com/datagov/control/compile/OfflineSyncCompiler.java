@@ -82,6 +82,7 @@ public class OfflineSyncCompiler implements JobCompiler {
 
         String writeMode = validateWriteMode(collector, config, mappings, targetColumns);
         int batchSize = validateBatchSize(collector, config);
+        validateFieldRules(collector, config, mappings);
 
         if (collector.hasErrors()) {
             return CompileResult.failure(collector.all());
@@ -135,6 +136,31 @@ public class OfflineSyncCompiler implements JobCompiler {
                     "确认目标表没有其它来源的数据,否则它们会一并被删除");
         }
         return writeMode;
+    }
+
+    /**
+     * 校验规则引用(功能 17)。
+     *
+     * <p>只校验"规则挂在一个存在的映射字段上",不校验规则本身是否存在 ——
+     * 那要向 Metadata 查询,而 MetadataLookup 刻意做得很窄(只有三个方法)。
+     * 规则不存在会在执行期被 OfflineSyncRunner 拦住并明确报错,而删除保护
+     * 本来就该让这种情况不发生。
+     */
+    @SuppressWarnings("unchecked")
+    private void validateFieldRules(CompileResult.Collector collector, Map<String, Object> config,
+                                    Map<String, String> mappings) {
+        Object raw = config.get("fieldRules");
+        if (!(raw instanceof Map<?, ?> map)) {
+            return;
+        }
+        for (Map.Entry<Object, Object> entry : ((Map<Object, Object>) map).entrySet()) {
+            String field = String.valueOf(entry.getKey());
+            if (!mappings.containsKey(field)) {
+                collector.error(CompileStage.STRUCTURAL_VALIDATION, "fieldRules." + field,
+                        "字段「%s」配了规则,但它不在字段映射里".formatted(field),
+                        "规则只对被同步的字段有意义 —— 要么把它加进映射,要么删掉规则");
+            }
+        }
     }
 
     private int validateBatchSize(CompileResult.Collector collector, Map<String, Object> config) {
@@ -191,6 +217,9 @@ public class OfflineSyncCompiler implements JobCompiler {
         plan.put("target", target);
 
         plan.put("fieldMappings", CompilerSupport.mappingPlan(mappings));
+        // 规则以 ID 引用带进计划,不内嵌规则内容(架构风险 R6)。改一条规则,
+        // 所有引用它的任务下次执行自动跟上,不必重新编译几十个任务。
+        plan.put("fieldRules", config.getOrDefault("fieldRules", Map.of()));
         return plan;
     }
 

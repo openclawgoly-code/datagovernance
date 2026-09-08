@@ -230,7 +230,9 @@ by_type = call("GET", "/executions?page=1&size=50&jobRefType=OFFLINE_SYNC")["dat
 check("按 jobRefType 过滤即得到「离线同步执行记录」页(序号 15)",
       by_type["total"] >= 1, f"{by_type['total']} 条")
 
-empty = call("GET", "/executions?page=1&size=50&jobRefType=MIGRATION")["data"]
+# 用一个本平台不会产生执行的种类:换成 MIGRATION 会让这条断言依赖
+# 「第 7 节还没跑」,而那是一种会随脚本增删而失效的耦合
+empty = call("GET", "/executions?page=1&size=50&jobRefType=PYTHON_JOB")["data"]
 check("过滤到没有记录的种类返回空,而不是串到别的种类",
       empty["total"] == 0, f"{empty['total']} 条")
 
@@ -424,6 +426,134 @@ check("「整库迁移记录」页(序号 10)= 同一张表加过滤",
 psql(f"DROP SCHEMA IF EXISTS dg_mig_target_{RUN} CASCADE;"
      f"DROP TABLE IF EXISTS dg_probe_schema.{mig_a};"
      f"DROP TABLE IF EXISTS dg_probe_schema.{mig_b};")
+
+# ── 8. 清洗/转换规则(功能 17)──────────────────────────────────────
+print("\n【8】规则管理(功能 17)—— 定义归 Metadata、执行归 Runtime 的双栖对象")
+
+kinds = call("GET", "/rules/kinds")["data"]
+check("规则种类元数据由后端下发(前端不硬编码参数表单)",
+      len(kinds) == 8, f"{len(kinds)} 种")
+check("清洗与转换两类齐备",
+      {"CLEANSE", "TRANSFORM"} == {k["category"] for k in kinds},
+      str(sorted({k["category"] for k in kinds})))
+decrypt = next(k for k in kinds if k["kind"] == "DECRYPT")
+check("解密规则的参数规格里是 credentialId 而不是密钥",
+      "credentialId" in decrypt["paramSpec"] and "key" not in decrypt["paramSpec"],
+      str(list(decrypt["paramSpec"])))
+
+# 必填参数缺失要被拦
+status, res = call("POST", "/rules", {
+    "name": f"缺参数-{RUN}", "kind": "CHANGE_CASE", "params": {},
+}, raw=True)
+check("缺必填参数的规则被拒", status == 400 and "缺少必填参数" in res.get("message", ""),
+      f"HTTP {status} {res.get('message')}")
+
+# 明文密钥不许写进规则参数
+status, res = call("POST", "/rules", {
+    "name": f"明文密钥-{RUN}", "kind": "DECRYPT",
+    "params": {"algorithm": "AES_GCM", "credentialId": "这是一个明文密钥"},
+}, raw=True)
+check("解密规则的 credentialId 必须是凭据引用,不能是明文",
+      status == 400 and "凭据引用" in res.get("message", ""),
+      f"HTTP {status} {res.get('message')}")
+
+trim_rule = call("POST", "/rules", {
+    "name": f"去空格-{RUN}", "kind": "TRIM", "params": {"mode": "BOTH"},
+})["data"]
+upper_rule = call("POST", "/rules", {
+    "name": f"转大写-{RUN}", "kind": "CHANGE_CASE", "params": {"mode": "UPPER"},
+})["data"]
+check("规则创建成功", trim_rule["id"].startswith("rule_") and upper_rule["id"].startswith("rule_"),
+      f"{trim_rule['kindDisplayName']} / {upper_rule['kindDisplayName']}")
+check("新规则的引用计数为 0", trim_rule["referenceCount"] == 0)
+
+# 规则真的作用在同步的数据上
+rule_src = f"p2_rule_src_{RUN}"
+rule_dst = f"p2_rule_dst_{RUN}"
+psql(f"""
+    DROP TABLE IF EXISTS dg_probe_schema.{rule_src};
+    CREATE TABLE dg_probe_schema.{rule_src} (id BIGINT PRIMARY KEY, code VARCHAR(64));
+    INSERT INTO dg_probe_schema.{rule_src} VALUES
+        (1, '  abc  '), (2, '  Def'), (3, 'ghi  ');
+
+    DROP TABLE IF EXISTS dg_probe_schema.{rule_dst};
+    CREATE TABLE dg_probe_schema.{rule_dst} (id BIGINT PRIMARY KEY, code VARCHAR(64));
+""")
+for table in (rule_src, rule_dst):
+    call("GET", f"/datasources/{ds_id}/catalog"
+                f"?database={PG_DB}&schema=dg_probe_schema&table={table}")
+
+rule_job = call("POST", "/jobs", {
+    "name": f"P2-带规则的同步-{RUN}", "jobType": "OFFLINE_SYNC",
+    "config": {
+        "sourceDataSourceId": ds_id, "sourceDatabase": PG_DB,
+        "sourceSchema": "dg_probe_schema", "sourceTable": rule_src,
+        "targetDataSourceId": ds_id, "targetDatabase": PG_DB,
+        "targetSchema": "dg_probe_schema", "targetTable": rule_dst,
+        "fieldMappings": {"id": "id", "code": "code"},
+        # 顺序有意义:先去空格再转大写
+        "fieldRules": {"code": [trim_rule["id"], upper_rule["id"]]},
+        "writeMode": "APPEND", "batchSize": 100,
+    },
+    "timeoutMs": 60000,
+})["data"]
+
+rule_compile = call("POST", f"/jobs/{rule_job['id']}/compile")["data"]
+check("带规则的同步编译通过", rule_compile["succeeded"], rule_compile["summary"])
+
+# 规则挂在不存在的映射字段上要被拦
+bad_rule_job = call("POST", "/jobs", {
+    "name": f"P2-规则字段错-{RUN}", "jobType": "OFFLINE_SYNC",
+    "config": {
+        "sourceDataSourceId": ds_id, "sourceDatabase": PG_DB,
+        "sourceSchema": "dg_probe_schema", "sourceTable": rule_src,
+        "targetDataSourceId": ds_id, "targetDatabase": PG_DB,
+        "targetSchema": "dg_probe_schema", "targetTable": rule_dst,
+        "fieldMappings": {"id": "id"},
+        "fieldRules": {"code": [trim_rule["id"]]},   # code 不在映射里
+    },
+})["data"]
+bad_compile = call("POST", f"/jobs/{bad_rule_job['id']}/compile")["data"]
+check("规则挂在未映射字段上被拦(编译期)",
+      not bad_compile["succeeded"]
+      and any("不在字段映射里" in d["message"] for d in bad_compile["diagnostics"]),
+      bad_compile["summary"])
+
+call("POST", f"/jobs/{rule_job['id']}/publish")
+rule_exec = call("POST", f"/jobs/{rule_job['id']}/run")["data"]
+for _ in range(60):
+    d = call("GET", f"/executions/{rule_exec['id']}")["data"]
+    if d["execution"]["status"] in ("SUCCEEDED", "FAILED", "CANCELED", "TIMEOUT"):
+        break
+    time.sleep(1)
+check("带规则的同步执行成功", d["execution"]["status"] == "SUCCEEDED",
+      f"{d['execution']['status']} {d['execution'].get('message') or ''}")
+
+actual = psql(f"SELECT code FROM dg_probe_schema.{rule_dst} ORDER BY id")
+check("规则真的作用在数据上(去空格 + 转大写)",
+      actual.split("\n") == ["ABC", "DEF", "GHI"], repr(actual))
+
+# 被引用的规则不许删 —— 引用计数由 Control 在保存任务时维护
+referenced = call("GET", f"/rules/{trim_rule['id']}")["data"]
+check("规则被任务引用后计数 > 0", (referenced.get("referenceCount") or 0) > 0,
+      f"引用数 {referenced.get('referenceCount')}")
+
+status, res = call("DELETE", f"/rules/{trim_rule['id']}", raw=True)
+check("被引用的规则不许删(否则任务会在凌晨的调度里找不到规则)",
+      status == 409 and res.get("code") == "MTD_RULE_IN_USE",
+      f"HTTP {status} {res.get('code')}")
+
+# 解除引用后就能删了
+call("DELETE", f"/jobs/{bad_rule_job['id']}")
+call("DELETE", f"/jobs/{rule_job['id']}")
+after_release = call("GET", f"/rules/{trim_rule['id']}")["data"]
+check("任务删除后引用计数归零", (after_release.get("referenceCount") or 0) == 0,
+      f"引用数 {after_release.get('referenceCount')}")
+status, _ = call("DELETE", f"/rules/{trim_rule['id']}", raw=True)
+check("解除引用后可以删除", status == 200, f"HTTP {status}")
+
+psql(f"DROP TABLE IF EXISTS dg_probe_schema.{rule_src};"
+     f"DROP TABLE IF EXISTS dg_probe_schema.{rule_dst};")
 
 # ── 清理 ────────────────────────────────────────────────────────────
 psql(f"DROP TABLE IF EXISTS dg_probe_schema.{src_table};"

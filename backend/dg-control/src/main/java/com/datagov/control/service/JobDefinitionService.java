@@ -20,6 +20,7 @@ import com.datagov.control.entity.ControlEntities.JobDefinition;
 import com.datagov.control.entity.ControlEntities.JobDefinitionVersion;
 import com.datagov.control.mapper.JobDefinitionMapper;
 import com.datagov.control.mapper.JobDefinitionVersionMapper;
+import com.datagov.metadata.service.RuleService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -48,15 +49,18 @@ public class JobDefinitionService {
     private final JobDefinitionMapper jobMapper;
     private final JobDefinitionVersionMapper versionMapper;
     private final CompilerRegistry compilers;
+    private final RuleService ruleService;
     private final ObjectMapper objectMapper;
 
     public JobDefinitionService(JobDefinitionMapper jobMapper,
                                 JobDefinitionVersionMapper versionMapper,
                                 CompilerRegistry compilers,
+                                RuleService ruleService,
                                 ObjectMapper objectMapper) {
         this.jobMapper = jobMapper;
         this.versionMapper = versionMapper;
         this.compilers = compilers;
+        this.ruleService = ruleService;
         this.objectMapper = objectMapper;
     }
 
@@ -82,6 +86,7 @@ public class JobDefinitionService {
         applyRequest(definition, request);
 
         jobMapper.insert(definition);
+        ruleService.adjustReferences(workspaceId, referencedRuleIds(request.config()), +1);
         recordVersion(definition, "CREATED", "新建任务定义", operator);
 
         log.info("任务定义已创建 workspace={} id={} type={} name={}",
@@ -114,6 +119,13 @@ public class JobDefinitionService {
         }
         requireNameAvailable(definition.getWorkspaceId(), request.name(), id);
 
+        // 引用计数按差量维护:先减旧的再加新的。少了这一步,规则的删除保护
+        // 就是个永远不触发的摆设 —— 而摆设比没有更糟,它给人虚假的安全感。
+        ruleService.adjustReferences(definition.getWorkspaceId(),
+                referencedRuleIds(readConfig(definition)), -1);
+        ruleService.adjustReferences(definition.getWorkspaceId(),
+                referencedRuleIds(request.config()), +1);
+
         applyRequest(definition, request);
         definition.setVersion(definition.getVersion() + 1);
         definition.setUpdatedAt(Instant.now());
@@ -137,6 +149,8 @@ public class JobDefinitionService {
             throw new BizException(ErrorCode.CTL_JOB_NOT_RUNNABLE,
                     "调度中的任务不可删除,请先暂停或下线");
         }
+        ruleService.adjustReferences(definition.getWorkspaceId(),
+                referencedRuleIds(readConfig(definition)), -1);
         jobMapper.deleteById(id);
         log.info("任务定义已删除 workspace={} id={}", definition.getWorkspaceId(), id);
     }
@@ -373,6 +387,30 @@ public class JobDefinitionService {
             throw BizException.notFound(ErrorCode.CTL_JOB_NOT_FOUND, id);
         }
         return definition;
+    }
+
+    /**
+     * 从配置里提取被引用的规则 ID(功能 17)。
+     *
+     * <p>形状是 {@code fieldRules: { 字段名: [ruleId...] }}。这里刻意<b>不</b>按
+     * jobType 分支:目前只有离线同步用规则,但把提取逻辑写成通用的,新增
+     * 用规则的任务类型时不必回来改引用计数 —— 而漏改引用计数的后果是
+     * 一条还在被引用的规则被删掉。
+     */
+    @SuppressWarnings("unchecked")
+    private List<String> referencedRuleIds(Map<String, Object> config) {
+        Object raw = config == null ? null : config.get("fieldRules");
+        if (!(raw instanceof Map<?, ?> map)) {
+            return List.of();
+        }
+        List<String> ids = new java.util.ArrayList<>();
+        for (Object value : ((Map<Object, Object>) map).values()) {
+            if (value instanceof List<?> list) {
+                list.stream().filter(java.util.Objects::nonNull).map(String::valueOf)
+                        .filter(s -> !s.isBlank()).forEach(ids::add);
+            }
+        }
+        return ids;
     }
 
     public Map<String, Object> readConfig(JobDefinition definition) {

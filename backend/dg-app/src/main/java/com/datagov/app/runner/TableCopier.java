@@ -5,6 +5,7 @@ import com.datagov.data.spi.DataSourceType;
 import com.datagov.metadata.entity.DataSourceEntity;
 import com.datagov.metadata.service.ConnectionConfigAssembler;
 import com.datagov.runtime.engine.JobRunner;
+import com.datagov.runtime.rule.RuleInterpreter;
 import com.datagov.runtime.spi.ExecutionEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,17 +61,38 @@ public class TableCopier {
             java.util.Map<String, String> fieldMappings,
             String whereClause,
             String writeMode,
-            int batchSize
+            int batchSize,
+            /**
+             * 每个源字段要应用的规则链(功能 17)。源字段名 → 规则列表。
+             *
+             * <p>顺序有意义:先去空格再判空,与先判空再去空格,对 {@code "  "}
+             * 的结果完全不同。所以是 List 而不是 Set。
+             */
+            java.util.Map<String, List<RuleInterpreter.Rule>> fieldRules
     ) {
 
-        /** 整库迁移用:同名全字段,无过滤。 */
+        public CopySpec {
+            fieldRules = fieldRules == null ? java.util.Map.of() : java.util.Map.copyOf(fieldRules);
+        }
+
+        /** 整库迁移用:同名全字段,无过滤,不套规则。 */
         public CopySpec(DataSourceEntity sourceDs, String sourceDatabase, String sourceSchema,
                         String sourceTable, DataSourceEntity targetDs, String targetDatabase,
                         String targetSchema, String targetTable, java.util.Map<String, String> mappings,
                         String writeMode, int batchSize) {
             this(sourceDs, sourceDatabase, sourceSchema, sourceTable,
                     targetDs, targetDatabase, targetSchema, targetTable,
-                    mappings, null, writeMode, batchSize);
+                    mappings, null, writeMode, batchSize, java.util.Map.of());
+        }
+
+        /** 离线同步用:带过滤条件与字段规则。 */
+        public CopySpec(DataSourceEntity sourceDs, String sourceDatabase, String sourceSchema,
+                        String sourceTable, DataSourceEntity targetDs, String targetDatabase,
+                        String targetSchema, String targetTable, java.util.Map<String, String> mappings,
+                        String whereClause, String writeMode, int batchSize) {
+            this(sourceDs, sourceDatabase, sourceSchema, sourceTable,
+                    targetDs, targetDatabase, targetSchema, targetTable,
+                    mappings, whereClause, writeMode, batchSize, java.util.Map.of());
         }
     }
 
@@ -120,14 +142,25 @@ public class TableCopier {
                 truncateTarget(writeConn, spec);
             }
             return copyRows(spec, context, readConn, writeConn,
-                    selectSql, insertSql, sourceColumns.size());
+                    selectSql, insertSql, sourceColumns);
         }
     }
 
     private CopyResult copyRows(CopySpec spec, JobRunner.RunContext context,
                                 Connection readConn, Connection writeConn,
-                                String selectSql, String insertSql, int columnCount)
+                                String selectSql, String insertSql, List<String> sourceColumns)
             throws SQLException, InterruptedException {
+
+        int columnCount = sourceColumns.size();
+        // 规则链按列序展开成数组:每行每列查一次 Map 是可观的开销,
+        // 而这个循环会跑几百万次
+        @SuppressWarnings("unchecked")
+        List<RuleInterpreter.Rule>[] rulesByColumn = new List[columnCount];
+        boolean anyRules = false;
+        for (int i = 0; i < columnCount; i++) {
+            rulesByColumn[i] = spec.fieldRules().get(sourceColumns.get(i));
+            anyRules |= rulesByColumn[i] != null && !rulesByColumn[i].isEmpty();
+        }
 
         long rowsRead = 0;
         long rowsWritten = 0;
@@ -152,7 +185,14 @@ public class TableCopier {
                     context.throwIfCanceled();
 
                     for (int i = 1; i <= columnCount; i++) {
-                        write.setObject(i, rs.getObject(i));
+                        Object cell = rs.getObject(i);
+                        if (anyRules) {
+                            List<RuleInterpreter.Rule> rules = rulesByColumn[i - 1];
+                            if (rules != null && !rules.isEmpty()) {
+                                cell = RuleInterpreter.applyAll(cell, rules);
+                            }
+                        }
+                        write.setObject(i, cell);
                     }
                     write.addBatch();
                     rowsRead++;

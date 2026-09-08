@@ -74,6 +74,11 @@ public enum ErrorCode {
     MTD_DATASOURCE_NOT_ACTIVE("MTD_DATASOURCE_NOT_ACTIVE", 409, "数据源未处于可用状态"),
     MTD_DATASOURCE_IN_USE("MTD_DATASOURCE_IN_USE", 409, "数据源已被引用,无法删除"),
     MTD_UNSUPPORTED_DATASOURCE_TYPE("MTD_UNSUPPORTED_DATASOURCE_TYPE", 400, "不支持的数据源类型"),
+    MTD_RULE_NOT_FOUND("MTD_RULE_NOT_FOUND", 404, "规则不存在"),
+    MTD_RULE_NAME_DUPLICATED("MTD_RULE_NAME_DUPLICATED", 409, "同空间下规则名称已存在"),
+    // 被引用的规则不许删:删了之后引用它的任务会在执行时找不到规则,
+    // 而那种失败发生在凌晨的调度里
+    MTD_RULE_IN_USE("MTD_RULE_IN_USE", 409, "规则已被任务引用,无法删除"),
     MTD_CATALOG_NOT_FOUND("MTD_CATALOG_NOT_FOUND", 404, "目录快照不存在"),
     MTD_CONFIG_INVALID("MTD_CONFIG_INVALID", 400, "数据源连接配置不合法"),
 
