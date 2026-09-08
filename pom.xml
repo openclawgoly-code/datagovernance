@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.datagov</groupId>
+  <artifactId>dg-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>datagovernance-parent</name>
+  <description>数据治理平台 — Space Model 驱动的模块边界(P1)</description>
+
+  <!--
+    模块顺序即依赖顺序,同时是 Space 边界的编译期证明:
+      dg-common          跨 Space 共享内核,不含任何业务语义
+      dg-platform        Platform/Tenancy Space  (功能 28/29/30 + 4 凭据托管)
+      dg-data-spi        Data Space 对外契约(纯接口,无驱动)
+      dg-data-connectors Data Space 实现(JDBC / 文件 / HTTP 连接器)
+      dg-metadata        Metadata Space —— 只依赖 dg-data-spi,看不见 connectors
+      dg-app             装配层(REST / 安全 / Flyway / OpenAPI)
+
+    关键约束: dg-metadata 的 pom 中不存在 dg-data-connectors 依赖。
+    这使得「Metadata 不得执行」从文档约定变成编译器强制的事实。
+  -->
+  <modules>
+    <module>backend/dg-common</module>
+    <module>backend/dg-platform</module>
+    <module>backend/dg-data-spi</module>
+    <module>backend/dg-data-connectors</module>
+    <module>backend/dg-metadata</module>
+    <module>backend/dg-app</module>
+  </modules>
+
+  <properties>
+    <java.version>21</java.version>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+    <spring-boot.version>3.3.5</spring-boot.version>
+    <!-- BOM 以 import 方式引入,只带 dependencyManagement 不带 properties,
+         因此 Lombok 版本必须在此显式声明,否则 annotationProcessorPaths 解析失败 -->
+    <lombok.version>1.18.34</lombok.version>
+    <mybatis-plus.version>3.5.9</mybatis-plus.version>
+    <springdoc.version>2.6.0</springdoc.version>
+    <jjwt.version>0.12.6</jjwt.version>
+
+    <!-- 连接器驱动: 版本集中管理,便于 R7(连接器矩阵)审计 -->
+    <ojdbc.version>23.5.0.24.07</ojdbc.version>
+    <dm8.version>8.1.3.62</dm8.version>
+    <commons-net.version>3.11.1</commons-net.version>
+    <jsch.version>0.2.20</jsch.version>
+
+    <!-- 测试: 无 Docker 也能起真实数据库进程 -->
+    <embedded-postgres.version>2.0.7</embedded-postgres.version>
+    <mariadb4j.version>3.1.0</mariadb4j.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+
+      <!-- 本项目内部模块 -->
+      <dependency>
+        <groupId>com.datagov</groupId><artifactId>dg-common</artifactId><version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.datagov</groupId><artifactId>dg-platform</artifactId><version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.datagov</groupId><artifactId>dg-data-spi</artifactId><version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.datagov</groupId><artifactId>dg-data-connectors</artifactId><version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.datagov</groupId><artifactId>dg-metadata</artifactId><version>${project.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.baomidou</groupId>
+        <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+        <version>${mybatis-plus.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.springdoc</groupId>
+        <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        <version>${springdoc.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId><artifactId>jjwt-api</artifactId><version>${jjwt.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId><artifactId>jjwt-impl</artifactId><version>${jjwt.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId><artifactId>jjwt-jackson</artifactId><version>${jjwt.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>com.oracle.database.jdbc</groupId><artifactId>ojdbc11</artifactId><version>${ojdbc.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.dameng</groupId><artifactId>DmJdbcDriver18</artifactId><version>${dm8.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>commons-net</groupId><artifactId>commons-net</artifactId><version>${commons-net.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.github.mwiede</groupId><artifactId>jsch</artifactId><version>${jsch.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>io.zonky.test</groupId><artifactId>embedded-postgres</artifactId>
+        <version>${embedded-postgres.version}</version><scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>ch.vorburger.mariaDB4j</groupId><artifactId>mariaDB4j-core</artifactId>
+        <version>${mariadb4j.version}</version><scope>test</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- 全模块统一: Lombok 编译期 + JUnit5 + AssertJ -->
+    <dependency>
+      <groupId>org.projectlombok</groupId><artifactId>lombok</artifactId><scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+          <version>${spring-boot.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <release>${maven.compiler.release}</release>
+          <parameters>true</parameters>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>org.projectlombok</groupId>
+              <artifactId>lombok</artifactId>
+              <version>${lombok.version}</version>
+            </path>
+          </annotationProcessorPaths>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!-- 真实数据库测试需要更长启动时间,且禁止并行以免端口冲突 -->
+          <forkCount>1</forkCount>
+          <reuseForks>true</reuseForks>
+          <argLine>-Xmx1g -Duser.timezone=Asia/Shanghai</argLine>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -1,0 +1,84 @@
+server:
+  port: ${DG_PORT:8080}
+  shutdown: graceful
+
+spring:
+  application:
+    name: datagovernance
+  datasource:
+    url: ${DG_DB_URL:jdbc:postgresql://localhost:5432/datagovernance}
+    username: ${DG_DB_USER:datagov}
+    password: ${DG_DB_PASSWORD:datagov}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 2
+      connection-timeout: 10000
+      pool-name: dg-metadata-pool
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+  jackson:
+    default-property-inclusion: non_null
+    time-zone: Asia/Shanghai
+    serialization:
+      write-dates-as-timestamps: false
+  threads:
+    virtual:
+      enabled: true
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: input          # 主键由 Ids.of(prefix) 生成,不用数据库自增
+      logic-delete-field: deleted
+      logic-delete-value: true
+      logic-not-delete-value: false
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+
+dg:
+  security:
+    # 凭据/密钥的 AES-GCM 主密钥。未配置时应用拒绝启动 —— 宁可起不来,
+    # 也不要用一个内置默认值加密生产凭据。
+    secret-key: ${DG_SECRET_KEY:}
+    jwt:
+      issuer: datagovernance
+      # 单位小时。P1 无刷新令牌,过期即重新登录。
+      ttl-hours: 8
+      signing-key: ${DG_JWT_SIGNING_KEY:}
+    # 无需认证即可访问的路径
+    permit-paths:
+      - /api/v1/auth/login
+      - /v3/api-docs/**
+      - /swagger-ui/**
+      - /swagger-ui.html
+      - /actuator/health
+
+  bootstrap:
+    enabled: true
+    admin-username: admin
+    # 留空则首次启动生成随机口令并打印到日志一次。
+    # 绝不要在此处写死默认口令 —— 它会随代码库一起分发。
+    admin-password: ${DG_ADMIN_PASSWORD:}
+    default-workspace-code: default
+    default-workspace-name: 默认空间
+
+  catalog:
+    # 结构浏览的快照有效期;超过则重新探测目标库(功能 5)
+    snapshot-ttl-minutes: 30
+
+logging:
+  level:
+    root: INFO
+    com.datagov: DEBUG

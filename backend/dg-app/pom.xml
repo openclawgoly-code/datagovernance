@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.datagov</groupId>
+    <artifactId>dg-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>dg-app</artifactId>
+  <name>dg-app</name>
+  <description>装配层: REST 控制器、安全过滤链、Flyway 迁移、OpenAPI。唯一同时看得见所有 Space 的模块。</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-metadata</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-platform</artifactId>
+    </dependency>
+    <!-- 装配层是唯一有权把 Data Space 的实现接到 Metadata 的 SPI 上的地方 -->
+    <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-data-connectors</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springdoc</groupId><artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>org.flywaydb</groupId><artifactId>flyway-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId><artifactId>flyway-database-postgresql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>runtime</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>io.zonky.test</groupId><artifactId>embedded-postgres</artifactId><scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <mainClass>com.datagov.app.DataGovernanceApplication</mainClass>
+        </configuration>
+        <executions>
+          <execution>
+            <goals><goal>repackage</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.datagov</groupId>
+    <artifactId>dg-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>dg-data-spi</artifactId>
+  <name>dg-data-spi</name>
+  <description>Data Space 对外契约: 连接器 SPI、探测结果模型、规范化类型系统。纯接口 + 值对象,不含任何 JDBC 驱动。</description>
+
+  <!--
+    这个模块存在的唯一理由: 让 dg-metadata 能表达「我要一份库表结构」
+    而无需依赖任何驱动实现。它是 Metadata Space 与 Data Space 之间
+    唯一合法的接触面。任何驱动依赖出现在这里都是架构违规。
+  -->
+  <dependencies>
+    <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-common</artifactId>
+    </dependency>
+  </dependencies>
+</project>

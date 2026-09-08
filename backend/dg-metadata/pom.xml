@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.datagov</groupId>
+    <artifactId>dg-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>dg-metadata</artifactId>
+  <name>dg-metadata</name>
+  <description>Metadata/Semantic Kernel Space: 数据源定义、库表列目录快照、版本与生命周期 (功能 1-5, 8)。</description>
+
+  <!--
+    ┌─ 架构约束的编译期证明 ────────────────────────────────────────┐
+    │ 这里没有 dg-data-connectors 依赖,而且永远不该有。             │
+    │                                                              │
+    │ Metadata Space 的 must_not_do 第一条是「不得执行任何东西」。   │
+    │ 它只能通过 dg-data-spi 的 CatalogProbe 接口「请求」一份结构,  │
+    │ 具体驱动由 dg-app 在运行时注入。若有人在此加入 connectors     │
+    │ 依赖,等于让元数据内核直接持有 JDBC 驱动 —— 编译能过,但       │
+    │ Space 边界已破。Review 时以本注释为准驳回。                    │
+    └──────────────────────────────────────────────────────────────┘
+  -->
+  <dependencies>
+    <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-data-spi</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.datagov</groupId><artifactId>dg-platform</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>com.baomidou</groupId><artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>
