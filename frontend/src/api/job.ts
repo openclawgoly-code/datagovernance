@@ -3,6 +3,7 @@ import type { PageResult } from '@/types/api'
 import type {
   BatchCreateRequest,
   BatchCreateResult,
+  CancelResult,
   CatalogNodeRequest,
   CatalogTree,
   CompileDiagnostic,
@@ -169,8 +170,14 @@ export const executionApi = {
     return http.get<Execution[]>(`/executions/${id}/children`)
   },
 
-  cancel(id: string): Promise<Execution> {
-    return http.post<Execution>(`/executions/${id}/cancel`)
+  /**
+   * 取消执行。
+   *
+   * 取消工作流会级联取消所有还在跑的节点(序号 23),所以返回值里带
+   * canceledChildren —— 用户需要知道"我这一下停掉了几个正在跑的东西"。
+   */
+  cancel(id: string): Promise<CancelResult> {
+    return http.post<CancelResult>(`/executions/${id}/cancel`)
   },
 }
 

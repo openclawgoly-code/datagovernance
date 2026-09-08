@@ -6,6 +6,7 @@ import com.datagov.common.error.ErrorCode;
 import com.datagov.common.id.Ids;
 import com.datagov.common.tenant.WorkspaceContext;
 import com.datagov.control.domain.JobDefinitionStatus;
+import com.datagov.control.domain.JobType;
 import com.datagov.control.entity.ControlEntities.JobDefinition;
 import com.datagov.control.entity.ControlEntities.ScheduleFire;
 import com.datagov.control.mapper.ScheduleFireMapper;
@@ -112,7 +113,12 @@ public class JobExecutionService {
                 triggerType,
                 operator);
 
-        ExecutionView execution = executionService.dispatch(command);
+        // 工作流父执行不交给引擎:它自己不跑任何东西,只是那几个节点的容器。
+        // 交给引擎会立刻"成功"(没有活可干),而它应该一直 RUNNING 到最后
+        // 一个节点结束 —— 由 WorkflowOrchestrator 判定终态
+        ExecutionView execution = definition.getJobType() == JobType.WORKFLOW
+                ? executionService.dispatchExternallyDriven(command)
+                : executionService.dispatch(command);
         log.info("已下发执行 job={} type={} execution={} 触发={}",
                 definition.getId(), definition.getJobType(), execution.id(), triggerType);
         return execution;

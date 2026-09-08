@@ -61,6 +61,14 @@ public final class RuntimeEntities {
         /** 工作流节点的父执行(序号 22/23);顶层执行为 null */
         private String parentExecutionId;
 
+        /**
+         * 这条子执行对应工作流里的哪个节点(序号 22/23)。
+         *
+         * <p>存成一列而不是从计划快照里翻:推进逻辑每轮都要按节点归类子执行,
+         * 而"从 JSON 里翻出节点 ID"没法建索引。
+         */
+        private String workflowNodeId;
+
         /** 触发来源:MANUAL / SCHEDULE / API / WORKFLOW / RETRY */
         private String triggerType;
         private String triggeredBy;

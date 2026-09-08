@@ -120,6 +120,12 @@ export interface JobUpsertRequest {
   retryBackoffSeconds?: number
 }
 
+/** 取消执行的结果。工作流会级联取消子节点(序号 23) */
+export interface CancelResult {
+  execution: Execution
+  canceledChildren: number
+}
+
 // ── 任务目录(功能 16)────────────────────────────────────────────────
 
 export interface TaskCatalogNode {

@@ -6,6 +6,7 @@ import com.datagov.common.api.PageResult;
 import com.datagov.runtime.domain.ExecutionStatus;
 import com.datagov.runtime.domain.JobRefType;
 import com.datagov.runtime.dto.ExecutionView;
+import com.datagov.control.service.WorkflowOrchestrator;
 import com.datagov.runtime.service.ExecutionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,9 +34,12 @@ import java.util.List;
 public class ExecutionController {
 
     private final ExecutionService executionService;
+    private final WorkflowOrchestrator workflowOrchestrator;
 
-    public ExecutionController(ExecutionService executionService) {
+    public ExecutionController(ExecutionService executionService,
+                               WorkflowOrchestrator workflowOrchestrator) {
         this.executionService = executionService;
+        this.workflowOrchestrator = workflowOrchestrator;
     }
 
     /** 作业种类元数据。前端的过滤下拉读它,不硬编码五个菜单项。 */
@@ -81,8 +85,23 @@ public class ExecutionController {
     @PostMapping("/{id}/cancel")
     @RequirePermission("runtime:execution:cancel")
     @Operation(summary = "取消执行",
-            description = "取消是两段式的:先进「取消中」,执行器实际停下来后才是「已取消」")
-    public ApiResponse<ExecutionView> cancel(@PathVariable String id) {
-        return ApiResponse.ok(executionService.cancel(id));
+            description = "取消是两段式的:先进「取消中」,执行器实际停下来后才是「已取消」。"
+                    + "取消工作流会级联取消所有还在跑的节点(序号 23)")
+    public ApiResponse<CancelResult> cancel(@PathVariable String id) {
+        // 先级联再取消父执行:反过来的话,父执行落终态之后,子执行的失败回调
+        // 会被当成"工作流失败"再写一次终态 —— 而它已经是"已取消"了
+        int cascaded = workflowOrchestrator.isWorkflow(id)
+                ? workflowOrchestrator.cancelCascade(id)
+                : 0;
+        return ApiResponse.ok(new CancelResult(executionService.cancel(id), cascaded));
+    }
+
+    /**
+     * 取消的结果。
+     *
+     * <p>带上级联数是因为用户需要知道"我这一下停掉了几个正在跑的东西"——
+     * 只回一个父执行的状态,他不会知道底下三个节点也被停了。
+     */
+    public record CancelResult(ExecutionView execution, int canceledChildren) {
     }
 }

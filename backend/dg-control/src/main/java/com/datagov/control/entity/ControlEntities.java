@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.datagov.control.domain.JobDefinitionStatus;
 import com.datagov.control.domain.JobType;
+import com.datagov.runtime.domain.StreamingStatus;
 import lombok.Data;
 
 import java.time.Instant;
@@ -86,6 +87,21 @@ public final class ControlEntities {
         private Long timeoutMs;
         private Integer retryMaxAttempts;
         private Integer retryBackoffSeconds;
+
+        // ── 流任务运行态(序号 18,SPACE-MODEL.md E.3)────────────────────
+        // 它<b>不是</b> Execution 状态的别名:批执行围绕"触发与完成",流任务
+        // 围绕"保活"。一台状态机套两者是架构风险 R5。
+        // 只有 jobType = STREAMING 时这几列才有值。
+
+        /** @see com.datagov.runtime.domain.StreamingStatus */
+        private StreamingStatus streamingStatus;
+        /** 连续重启次数。超过阈值落 FAILED 并告警,而不是无限重启 */
+        private Integer streamingRestartCount;
+        private Instant streamingStartedAt;
+        private Instant streamingStoppedAt;
+        /** 当前那次运行对应的执行记录。流任务的"一次运行"可能持续几个月 */
+        private String streamingExecutionId;
+        private String streamingMessage;
 
         private Instant createdAt;
         private String createdBy;

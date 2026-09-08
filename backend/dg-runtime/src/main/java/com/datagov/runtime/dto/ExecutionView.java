@@ -24,6 +24,8 @@ public record ExecutionView(
         ExecutionStatus status,
         String statusDisplayName,
         String parentExecutionId,
+        /** 工作流节点 ID(序号 22/23);非工作流子执行为 null */
+        String workflowNodeId,
         String triggerType,
         String triggeredBy,
         Integer attemptCount,
@@ -44,7 +46,8 @@ public record ExecutionView(
                 e.getJobRefType() == null ? null : e.getJobRefType().displayName(),
                 e.getJobRefId(), e.getJobName(), e.getDefVersion(),
                 e.getStatus(), e.getStatus() == null ? null : e.getStatus().displayName(),
-                e.getParentExecutionId(), e.getTriggerType(), e.getTriggeredBy(),
+                e.getParentExecutionId(), e.getWorkflowNodeId(),
+                e.getTriggerType(), e.getTriggeredBy(),
                 e.getAttemptCount(), e.getSubmittedAt(), e.getStartedAt(), e.getFinishedAt(),
                 e.getDurationMs(), e.getMessage(), e.getErrorCode(),
                 e.getRowsRead(), e.getRowsWritten(), e.getBytesProcessed());

@@ -122,9 +122,15 @@ async function onCancel(row: Execution) {
   if (!confirmed) {
     return
   }
-  await executionApi.cancel(row.id)
-  // 取消是两段式的:这里只是受理,状态会先变成「取消中」
-  ElMessage.success('取消已受理,等待执行器停止')
+  const result = await executionApi.cancel(row.id)
+  // 取消是两段式的:这里只是受理,状态会先变成「取消中」。
+  // 工作流会级联取消子节点(序号 23)—— 那个数字要说出来,否则用户
+  // 不会知道自己刚刚还停掉了底下三个正在跑的任务
+  ElMessage.success(
+    result.canceledChildren > 0
+      ? `取消已受理,同时停止了 ${result.canceledChildren} 个正在运行的子节点`
+      : '取消已受理,等待执行器停止',
+  )
   await load()
 }
 

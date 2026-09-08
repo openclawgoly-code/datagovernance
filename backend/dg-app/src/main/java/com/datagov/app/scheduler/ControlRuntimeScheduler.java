@@ -1,6 +1,8 @@
 package com.datagov.app.scheduler;
 
 import com.datagov.control.service.ScheduleTrigger;
+import com.datagov.control.service.StreamingJobService;
+import com.datagov.control.service.WorkflowOrchestrator;
 import com.datagov.runtime.config.RuntimeProperties;
 import com.datagov.runtime.service.ExecutionService;
 import org.slf4j.Logger;
@@ -32,6 +34,8 @@ public class ControlRuntimeScheduler {
     private final ScheduleTrigger scheduleTrigger;
     private final ExecutionService executionService;
     private final RuntimeProperties runtimeProperties;
+    private final WorkflowOrchestrator workflowOrchestrator;
+    private final StreamingJobService streamingJobService;
 
     /**
      * 总开关。
@@ -43,10 +47,14 @@ public class ControlRuntimeScheduler {
 
     public ControlRuntimeScheduler(ScheduleTrigger scheduleTrigger,
                                    ExecutionService executionService,
-                                   RuntimeProperties runtimeProperties) {
+                                   RuntimeProperties runtimeProperties,
+                                   WorkflowOrchestrator workflowOrchestrator,
+                                   StreamingJobService streamingJobService) {
         this.scheduleTrigger = scheduleTrigger;
         this.executionService = executionService;
         this.runtimeProperties = runtimeProperties;
+        this.workflowOrchestrator = workflowOrchestrator;
+        this.streamingJobService = streamingJobService;
     }
 
     /**
@@ -88,6 +96,52 @@ public class ControlRuntimeScheduler {
             }
         } catch (RuntimeException e) {
             log.error("超时巡检失败,本轮跳过", e);
+        }
+    }
+
+    /**
+     * 工作流推进(序号 22)。
+     *
+     * <p><b>拉模式,不是回调。</b> 回调看起来更实时,但它要求 Runtime 知道
+     * "我是某个工作流的第三个节点" —— 那就把编排语义泄露进了执行引擎,而
+     * Runtime 的 must_not_do 第一条正是「不得解释业务语义」。轮询的代价是
+     * 几秒延迟,换来的是执行引擎完全不知道工作流的存在。
+     */
+    @Scheduled(fixedDelayString = "${dg.scheduler.workflow-tick-interval-ms:5000}")
+    public void tickWorkflows() {
+        if (!enabled) {
+            return;
+        }
+        try {
+            for (String[] row : executionService.activeWorkflowExecutions(50)) {
+                try {
+                    workflowOrchestrator.advanceAs(row[1], row[0]);
+                } catch (RuntimeException e) {
+                    // 一个工作流推进失败不该拖垮同一轮里的其他工作流
+                    log.error("工作流推进失败 execution={},本轮跳过", row[0], e);
+                }
+            }
+        } catch (RuntimeException e) {
+            log.error("工作流轮询失败,本轮跳过", e);
+        }
+    }
+
+    /**
+     * 流任务运行态对账(序号 18)。
+     *
+     * <p>必须有:进程重启、回调丢失都会让运行态与执行记录脱节。没有对账,
+     * 界面会永远显示一个"运行中"但其实早就死了的任务 —— 那比显示"失败"
+     * 更糟,因为没人会去查一个看起来正常的任务。
+     */
+    @Scheduled(fixedDelayString = "${dg.scheduler.streaming-reconcile-interval-ms:30000}")
+    public void reconcileStreaming() {
+        if (!enabled) {
+            return;
+        }
+        try {
+            streamingJobService.reconcile();
+        } catch (RuntimeException e) {
+            log.error("流任务对账失败,本轮跳过", e);
         }
     }
 
