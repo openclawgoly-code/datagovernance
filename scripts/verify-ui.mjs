@@ -376,6 +376,86 @@ try {
   }
 
   // ── 控制台无报错 ────────────────────────────────────────────────────
+  // ── 治理(P4,序号 24-27、33)────────────────────────────────────────
+  console.log('\n【UI】任务监控(功能 24)')
+  await page.goto(BASE + '/ops/monitor', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(1200)
+  const monText = await page.locator('.page-container').innerText()
+  for (const metric of ['执行总数', '失败数', '今日新增抽取', '总计抽取', '任务时延']) {
+    record(`监控面板有需求口径「${metric}」`, monText.includes(metric))
+  }
+  record('页面说明了这五个数字跨数据集成与数据开发一起算',
+    monText.includes('跨数据集成与数据开发'), '')
+  record('按作业种类拆分,同时含集成类与开发类',
+    monText.includes('离线同步') && (monText.includes('批处理') || monText.includes('实时任务')),
+    monText.replace(/\s+/g, ' ').match(/按作业种类.{0,60}/)?.[0] ?? '')
+
+  console.log('\n【UI】告警渠道(功能 33)')
+  await page.goto(BASE + '/settings/channels', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(900)
+  const chText = await page.locator('.page-container').innerText()
+  record('告警渠道页可访问', chText.includes('连通性测试'), chText.split('\n')[0])
+  record('说明了测试会真的发一条消息出去,而不是检查配置格式',
+    chText.includes('真的发一条消息'), '')
+
+  await page.locator('button:has-text("新建渠道")').first().click()
+  await page.waitForSelector('.el-dialog:visible', { state: 'visible' })
+  await page.waitForTimeout(500)
+  const chDialog = await page.locator('.el-dialog:visible').innerText()
+  record('渠道表单按类型切换(邮件填收件人,Webhook 填地址)',
+    chDialog.includes('收件人'), '')
+  await page.locator('.el-dialog:visible label:has-text("Webhook")').first().click()
+  await page.waitForTimeout(400)
+  const chWebhook = await page.locator('.el-dialog:visible').innerText()
+  record('切到 Webhook 后表单换成地址与请求头',
+    chWebhook.includes('地址') && chWebhook.includes('请求头')
+    && !chWebhook.includes('收件人'), '')
+  await closeDialog(page)
+
+  console.log('\n【UI】告警规则(功能 25)')
+  await page.goto(BASE + '/ops/alert-rules', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(900)
+  const ruleText = await page.locator('.page-container').innerText()
+  record('告警规则页可访问', ruleText.includes('告警频率'), ruleText.split('\n')[0])
+  record('说明了「告警频率」= 抑制窗口,被抑制的仍然被记录',
+    ruleText.includes('仍然被记录'), '')
+
+  await page.locator('button:has-text("新建规则")').first().click()
+  await page.waitForSelector('.el-dialog:visible', { state: 'visible' })
+  await page.waitForTimeout(600)
+  const ruleDialog = await page.locator('.el-dialog:visible').innerText()
+  record('规则表单含需求的四个维度:触发方式 / 范围 / 渠道 / 告警频率',
+    ruleDialog.includes('什么时候告警') && ruleDialog.includes('盯哪些任务')
+    && ruleDialog.includes('通知渠道') && ruleDialog.includes('告警频率'), '')
+  record('抑制窗口有人话解释,而不是只给一个秒数输入框',
+    ruleDialog.includes('只推送第一条') || ruleDialog.includes('不抑制'), '')
+  await closeDialog(page)
+
+  console.log('\n【UI】告警信息(功能 26)')
+  await page.goto(BASE + '/ops/alerts', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(900)
+  const alertText = await page.locator('.page-container').innerText()
+  record('告警信息页有「今日 / 历史」两个视图', alertText.includes('今日')
+    && alertText.includes('历史'), '')
+  record('概览把「今日被抑制」单独给出来',
+    alertText.includes('今日被抑制'), '')
+  record('说明了实际发生次数远不止收到的',
+    alertText.includes('远不止'), '')
+
+  console.log('\n【UI】审计日志(功能 27)')
+  await page.goto(BASE + '/ops/audit', { waitUntil: 'networkidle' })
+  await page.waitForTimeout(900)
+  const auditText = await page.locator('.page-container').innerText()
+  record('审计日志页可访问', auditText.includes('审计'), auditText.split('\n')[0])
+  record('说明了审计记录不可变、只追加', auditText.includes('不可变'), '')
+  // 这个页面上不该出现任何写操作按钮 —— 一条能被修改的审计记录不是审计记录
+  const auditButtons = await page.locator('.page-container button').allInnerTexts()
+  record('页面上没有新建 / 编辑 / 删除按钮',
+    !auditButtons.some((b) => /新建|编辑|删除/.test(b)),
+    auditButtons.join(' ').slice(0, 60))
+  const auditRows = await page.locator('.el-table__row').count()
+  record('审计日志有记录(它是拦截器自动记的)', auditRows > 0, `${auditRows} 行`)
+
   console.log('\n【UI】运行时健康')
   const realErrors = consoleErrors.filter((e) => !e.includes('favicon'))
   record('浏览器控制台无 JS 报错', realErrors.length === 0, realErrors.slice(0, 2).join(' | '))

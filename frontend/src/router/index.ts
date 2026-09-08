@@ -69,6 +69,37 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/integration/ExecutionListView.vue'),
         meta: { title: '执行记录', permission: 'runtime:execution:read' },
       },
+      // ── 运维监控 · 治理(序号 24-27、33)──────────────────────────────
+      {
+        path: 'ops/monitor',
+        name: 'monitor',
+        component: () => import('@/views/ops/MonitorView.vue'),
+        meta: { title: '任务监控', permission: 'governance:monitor:read' },
+      },
+      {
+        path: 'ops/alert-rules',
+        name: 'alert-rules',
+        component: () => import('@/views/ops/AlertRuleListView.vue'),
+        meta: { title: '告警规则', permission: 'governance:rule:read' },
+      },
+      {
+        path: 'ops/alerts',
+        name: 'alerts',
+        component: () => import('@/views/ops/AlertListView.vue'),
+        meta: { title: '告警信息', permission: 'governance:alert:read' },
+      },
+      {
+        path: 'ops/audit',
+        name: 'audit',
+        component: () => import('@/views/ops/AuditListView.vue'),
+        meta: { title: '审计日志', permission: 'governance:audit:read' },
+      },
+      {
+        path: 'settings/channels',
+        name: 'alert-channels',
+        component: () => import('@/views/settings/AlertChannelListView.vue'),
+        meta: { title: '告警渠道', permission: 'governance:channel:read' },
+      },
       {
         path: 'settings/executors',
         name: 'executors',

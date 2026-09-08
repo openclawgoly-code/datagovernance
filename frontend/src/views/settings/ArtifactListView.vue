@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, type UploadFile } from 'element-plus'
 import { artifactApi } from '@/api/job'
 import { confirmDanger } from '@/utils/confirm'
 import { formatDateTime } from '@/utils/format'
@@ -59,7 +59,10 @@ function onUpload() {
 }
 
 /** el-upload 的手动模式:选中文件先留在本地,点确定才真正上传 */
-function onFileChange(file: { raw: File; name: string }) {
+function onFileChange(file: UploadFile) {
+  if (!file.raw) {
+    return
+  }
   selectedFile.value = file.raw
   if (!form.name) {
     // 用文件名(去扩展名)做默认制品名 —— 十有八九就是它
