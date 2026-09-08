@@ -1,4 +1,8 @@
 import axios, { type AxiosRequestConfig } from 'axios'
+// 显式导入而不依赖 unplugin-auto-import:auto-imports.d.ts 是 vite 构建期生成的,
+// 而 vue-tsc 在它之前跑,靠自动导入会让类型检查报"找不到 ElMessage"。
+// 何况这是个纯 .ts 模块,显式导入本来就更容易读。
+import { ElMessage } from 'element-plus'
 import type { ApiResponse } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
 import router from '@/router'

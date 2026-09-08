@@ -10,7 +10,21 @@
 /** 与 DataSourceType.Family 逐一对应,决定 UI 该渲染哪种表单/浏览器,而不是具体类型名。 */
 export type DataSourceFamily = 'RELATIONAL' | 'MPP' | 'FILE' | 'HTTP'
 
-export type DataSourceStatus = 'DRAFT' | 'TESTING' | 'ACTIVE' | 'UNREACHABLE' | 'DISABLED'
+/**
+ * 数据源生命周期状态,与 SPACE-MODEL.md E.1 的六态一致。
+ *
+ * DRAFT 与 UNREACHABLE 都表示"现在连不上",但成因与用户该做的事完全不同:
+ *   DRAFT       从未验证成功过,或刚改完配置 —— 配置本身可能就是错的,去检查主机端口账号
+ *   UNREACHABLE 曾经可用,被周期探测发现连不上 —— 配置多半没问题,去找网管或 DBA
+ * UI 必须把这个区别表达出来,否则等于把判断推给用户自己猜。
+ */
+export type DataSourceStatus =
+  | 'DRAFT'
+  | 'TESTING'
+  | 'AVAILABLE'
+  | 'UNREACHABLE'
+  | 'DISABLED'
+  | 'ARCHIVED'
 
 /**
  * 连接器能力声明,与 ConnectorCapabilities.java 的 8 个布尔量逐一对应。
@@ -33,6 +47,8 @@ export interface DataSourceTypeInfo {
   displayName: string
   family: DataSourceFamily
   defaultPort: number
+  /** 是否 JDBC 类型。FTP/SFTP/RestAPI 为 false。 */
+  jdbc: boolean
   capabilities: ConnectorCapabilities
 }
 
@@ -46,17 +62,30 @@ export interface ConnectivityResult {
   detail: string | null
 }
 
-/** 数据源实体。password 字段在这里永不出现——它只活在 password_enc 密文里,
- *  连成功创建后的响应都不应该回显明文或密文,前端也就没有理由声明这个字段。 */
+/**
+ * 数据源实体。
+ *
+ * 这里没有任何口令字段,而且不该有:凭据只存在于 Platform Space,
+ * 数据源持有的是 credentialId —— 一个不可解密的引用。后端的 DataSourceView
+ * 在类型上就没有 password 分量,前端照抄这个事实即可。
+ */
 export interface DataSource {
   id: string
-  workspaceId: string
   name: string
-  /** DataSourceType 枚举名,如 'MYSQL' —— 仅用于展示 displayName 与下发请求,不参与 UI 结构分支。 */
+  /** DataSourceType 枚举名,如 'MYSQL' —— 仅用于展示与下发请求,不参与 UI 结构分支。 */
   type: string
+  typeDisplayName: string
   family: DataSourceFamily
   status: DataSourceStatus
   description: string | null
+
+  /** 所属目录(功能5);null 表示未分类 */
+  catalogId: string | null
+
+  /** 周期连通性检查(功能6) */
+  probeEnabled: boolean | null
+  probeIntervalMinutes: number | null
+  lastProbeAt: string | null
 
   host: string | null
   port: number | null
@@ -66,6 +95,7 @@ export interface DataSource {
   properties: Record<string, string> | null
   jdbcUrlOverride: string | null
   baseUrl: string | null
+  /** 指向 pf_credential.id,唯一的凭据通路 */
   credentialId: string | null
   connectTimeoutMs: number
   readTimeoutMs: number
@@ -82,21 +112,38 @@ export interface DataSource {
   updatedBy: string | null
 }
 
+/** 认证方式,与 pf_credential.auth_type 一致。 */
+export type AuthType = 'NONE' | 'BASIC' | 'TOKEN' | 'PASSWORD'
+
+/**
+ * 表单里填的口令。
+ *
+ * 仅在提交时传输,任何响应都不会返回它,前端也不得缓存。
+ * 后端收到后会先在 Platform 创建或更新一条 Credential,数据源只保存其引用。
+ */
+export interface InlineSecret {
+  authType: AuthType
+  username?: string
+  secret?: string
+}
+
 /** 创建 / 编辑 / 未保存试连(POST /datasources/test)共用的表单载荷。 */
 export interface DataSourceForm {
   name: string
   type: string
   description?: string
+  catalogId?: string
   host?: string
   port?: number
   databaseName?: string
   username?: string
-  /** 仅新建或需要修改口令时携带;编辑时留空表示沿用已保存的密码。 */
-  password?: string
   properties?: Record<string, string>
   jdbcUrlOverride?: string
   baseUrl?: string
+  /** 复用已有凭据 */
   credentialId?: string
+  /** 新建凭据。编辑时留空表示沿用已保存的口令,而不是改成空口令。 */
+  inlineSecret?: InlineSecret
   connectTimeoutMs?: number
   readTimeoutMs?: number
 }
@@ -117,4 +164,26 @@ export interface DataSourceVersion {
   changeSummary: string | null
   changedAt: string
   changedBy: string | null
+}
+
+/**
+ * 数据源目录树节点(功能5)。
+ *
+ * 注意与 catalog.ts 里的库表结构区分:这个是人工维护的组织结构(文件夹),
+ * 那个是从目标库探测来的库表结构。需求文档里两者都叫"目录"。
+ */
+export interface DataSourceCatalogNode {
+  id: string
+  parentId: string | null
+  name: string
+  description: string | null
+  sortOrder: number | null
+  /** 该目录直接挂载的数据源数量,不含子目录 */
+  dataSourceCount: number
+  children: DataSourceCatalogNode[]
+}
+
+export interface DataSourceCatalogTree {
+  nodes: DataSourceCatalogNode[]
+  uncategorizedCount: number
 }

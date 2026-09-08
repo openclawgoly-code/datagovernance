@@ -1,20 +1,23 @@
 /**
- * 接口认证凭据 —— 对应 pf_credential。
+ * 凭据 —— 对应 pf_credential。
  *
- * 硬约束:绝不展示或缓存凭据内容。payload_enc 是密文,列表/详情响应里
- * 根本不应该有这个字段,所以 Credential 类型只保留名称/类型/描述这些
- * "元数据",没有、也不会有任何一个字段能还原出认证内容。
- *
- * 契约缺口:payload 在不同 authType 下具体需要哪些字段,V1 建表注释只写了
- * "该认证方式所需的全部字段"(密文内部结构),没有定义明文请求 DTO 的形状。
- * 下面的 CredentialPayload 是按 authType 常规语义给出的最小合理猜测,
- * 后端落地时若字段名不同,只需改这一处类型 + CredentialFormDialog 的表单项。
+ * 凭据只存在于 Platform Space,数据源持有的是 credentialId(不可解密的引用)。
+ * 因此这里的 Credential 类型<b>没有</b> payload 字段,连密文也没有:
+ * 后端的 CredentialView 在类型上就不存在那个分量,前端照抄这个事实。
  */
-export type CredentialAuthType = 'NONE' | 'BASIC' | 'BEARER' | 'API_KEY' | 'OAUTH2_CLIENT'
+
+/** 与 pf_credential.auth_type 一致。 */
+export type CredentialAuthType = 'NONE' | 'BASIC' | 'TOKEN' | 'PASSWORD'
+
+export const CREDENTIAL_AUTH_TYPE_LABELS: Record<CredentialAuthType, string> = {
+  NONE: '无认证',
+  BASIC: '基础认证',
+  TOKEN: 'Token 认证',
+  PASSWORD: '数据库口令',
+}
 
 export interface Credential {
   id: string
-  workspaceId: string
   name: string
   authType: CredentialAuthType
   description: string | null
@@ -22,37 +25,16 @@ export interface Credential {
   updatedAt: string
 }
 
-export interface CredentialPayloadBasic {
-  username: string
-  password: string
-}
-export interface CredentialPayloadBearer {
-  token: string
-}
-export interface CredentialPayloadApiKey {
-  headerName: string
-  apiKey: string
-}
-export interface CredentialPayloadOAuth2Client {
-  tokenUrl: string
-  clientId: string
-  clientSecret: string
-  scope?: string
-}
-
+/**
+ * 新建 / 编辑凭据的表单载荷。
+ *
+ * secret 留空在编辑场景下表示<b>保持原口令不变</b>,而不是改成空口令 ——
+ * 混同两者会让用户改个描述就意外清掉了口令。
+ */
 export interface CredentialForm {
   name: string
   authType: CredentialAuthType
+  username?: string
+  secret?: string
   description?: string
-  /**
-   * 认证载荷。编辑已有凭据时留空 = 不修改已保存的内容——因为后端从不
-   * 回显 payload,表单也就没有"原值"可供比较,只能靠"是否填写"来判断
-   * 是否要覆盖。
-   */
-  payload?:
-    | CredentialPayloadBasic
-    | CredentialPayloadBearer
-    | CredentialPayloadApiKey
-    | CredentialPayloadOAuth2Client
-    | Record<string, never>
 }

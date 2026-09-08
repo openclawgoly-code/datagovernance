@@ -1,4 +1,3 @@
-import type { DataSourceStatus } from '@/types/datasource'
 import type { WorkspaceStatus } from '@/types/workspace'
 import type { UserStatus } from '@/types/user'
 
@@ -14,19 +13,12 @@ interface StatusMeta {
   color: string
 }
 
-/**
- * 数据源 5 种状态的展示元数据。
- * DRAFT(蓝,新建未测) → TESTING(橙,进行中) → ACTIVE(绿,正常) 是主干路径;
- * UNREACHABLE(红,故障)与 DISABLED(灰,人为停用)是两个独立的旁支,
- * 颜色分配刻意让"故障"与"停用"区分开,不能让用户把"连不上"和"我关掉了"混为一谈。
+/*
+ * 数据源状态的展示元数据不在这里 —— 见 utils/datasource-status.ts。
+ * 那份实现除了颜色还带每个状态的处置建议(DRAFT 与 UNREACHABLE 都表示
+ * "连不上",但用户该做的事完全不同),两份映射并存必然会失同步,
+ * 因此这里不再重复定义。
  */
-export const DATASOURCE_STATUS_META: Record<DataSourceStatus, StatusMeta> = {
-  DRAFT: { label: '草稿', tagType: '', color: '#409eff' },
-  TESTING: { label: '测试中', tagType: 'warning', color: '#e6a23c' },
-  ACTIVE: { label: '已启用', tagType: 'success', color: '#67c23a' },
-  UNREACHABLE: { label: '不可达', tagType: 'danger', color: '#f56c6c' },
-  DISABLED: { label: '已禁用', tagType: 'info', color: '#909399' },
-}
 
 export const WORKSPACE_STATUS_META: Record<WorkspaceStatus, StatusMeta> = {
   ACTIVE: { label: '正常', tagType: 'success', color: '#67c23a' },

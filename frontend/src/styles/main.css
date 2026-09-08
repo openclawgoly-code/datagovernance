@@ -1,0 +1,50 @@
+/* 全局基础样式。刻意保持极少 —— Element Plus 已经提供了完整的视觉体系,
+   在它之上叠一层自定义样式只会让后续升级变成一场考古。 */
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial,
+    'Noto Sans CJK SC', sans-serif;
+  background-color: #f5f7fa;
+  color: #303133;
+}
+
+/* 页面内容区的统一留白,让各视图不必各自定义 */
+.page-container {
+  padding: 16px;
+}
+
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.page-toolbar__filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 表格里的次要说明文字 */
+.text-muted {
+  color: #909399;
+  font-size: 12px;
+}
+
+.text-mono {
+  font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}

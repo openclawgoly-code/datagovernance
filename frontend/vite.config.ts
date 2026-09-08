@@ -30,11 +30,21 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: Number(process.env.DG_UI_PORT ?? 5173),
     proxy: {
       // 后端 dg-app 默认监听 8080;开发期同源代理,避免 CORS 配置渗进业务代码。
+      // 端口可用 DG_API_TARGET 覆盖 —— 本地同时跑多套环境时不必改代码。
       '/api': {
-        target: 'http://localhost:8080',
+        target: process.env.DG_API_TARGET ?? 'http://localhost:8080',
+        changeOrigin: true,
+      },
+    },
+  },
+  preview: {
+    port: Number(process.env.DG_UI_PORT ?? 4173),
+    proxy: {
+      '/api': {
+        target: process.env.DG_API_TARGET ?? 'http://localhost:8080',
         changeOrigin: true,
       },
     },

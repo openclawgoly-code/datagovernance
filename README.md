@@ -137,6 +137,21 @@ DG_ADMIN_PASSWORD='换成你的口令' python3 scripts/verify-p1.py    # 4. 验�
 不存在任何口令字段、手工测试失败回到 `DRAFT` 而非 `UNREACHABLE`、未验证的数据源
 不允许浏览结构、跨空间取数据返回 404 而不泄露资源是否存在。
 
+### 前端验收
+
+另有一份用真实浏览器(Playwright)驱动的 UI 验收:
+
+```bash
+cd frontend
+DG_API_TARGET=http://127.0.0.1:8080 pnpm run preview &     # 起前端并代理到后端
+cd .. && DG_PLAYWRIGHT_ROOT=$(npm root -g) \
+  DG_ADMIN_PASSWORD='换成你的口令' node scripts/verify-ui.mjs
+```
+
+它覆盖登录跳转、后端下发的菜单渲染、数据源列表与目录树、结构浏览抽屉的逐层下钻,
+以及一条重要的架构约束在界面上的体现:**表单结构由 `capabilities` 决定而非类型判断**
+—— 选 RestAPI 出现「接口地址」、选 MySQL 出现「主机/端口/库名」并自动填 3306。
+
 ## 演进路线
 
 | 阶段 | 内容 | 完成判据 |

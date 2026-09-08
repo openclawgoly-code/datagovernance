@@ -1,40 +1,40 @@
 import { http } from './request'
-import type { PageResult } from '@/types/api'
-import type { User, UserForm, ResetPasswordRequest, AssignRolesRequest } from '@/types/user'
+import type { User, UserForm } from '@/types/user'
 
-/**
- * 契约缺口:GET /users 的返回形状未在接口清单里明确标注 PageResult<>
- * (只有 workspaces / datasources 明确写了)。用户是平台级资源、规模可能
- * 较大,这里按分页实现;若后端最终给的是普通数组,只需要改这一处签名与
- * UserListView 里消费 total 的地方。
- */
-export interface UserQuery {
-  page: number
-  size: number
-  keyword?: string
-}
+/** 用户管理 —— 功能 30。 */
+export const userApi = {
+  /** 后端返回数组而非分页:P1 的用户规模用不上分页 */
+  list(keyword?: string): Promise<User[]> {
+    return http.get<User[]>('/users', { keyword })
+  },
 
-export function listUsers(query: UserQuery): Promise<PageResult<User>> {
-  return http.get<PageResult<User>>('/users', { ...query })
-}
+  create(payload: UserForm & { platformAdmin?: boolean }): Promise<User> {
+    return http.post<User>('/users', payload)
+  },
 
-export function createUser(payload: UserForm): Promise<User> {
-  return http.post<User>('/users', payload)
-}
+  update(id: string, payload: Pick<UserForm, 'displayName' | 'email' | 'phone'>): Promise<User> {
+    return http.put<User>(`/users/${id}`, payload)
+  },
 
-export function updateUser(id: string, payload: UserForm): Promise<User> {
-  return http.put<User>(`/users/${id}`, payload)
-}
+  remove(id: string): Promise<void> {
+    return http.delete<void>(`/users/${id}`)
+  },
 
-export function deleteUser(id: string): Promise<void> {
-  return http.delete<void>(`/users/${id}`)
-}
+  resetPassword(id: string, newPassword: string): Promise<void> {
+    return http.post<void>(`/users/${id}/reset-password`, { newPassword })
+  },
 
-export function resetPassword(id: string, payload: ResetPasswordRequest): Promise<void> {
-  return http.post<void>(`/users/${id}/reset-password`, payload)
-}
+  /** 启用/停用。后端拒绝停用最后一个平台管理员 —— 那会把所有人锁在外面。 */
+  setStatus(id: string, enabled: boolean): Promise<void> {
+    return http.post<void>(`/users/${id}/status?enabled=${enabled}`)
+  },
 
-/** 在"当前空间"(X-Workspace-Id)下为该用户分配角色。 */
-export function assignUserRoles(id: string, payload: AssignRolesRequest): Promise<void> {
-  return http.post<void>(`/users/${id}/roles`, payload)
+  /** 该用户在当前空间下的角色。同一用户在不同空间可以有不同角色。 */
+  listRoleIds(id: string): Promise<string[]> {
+    return http.get<string[]>(`/users/${id}/roles`)
+  },
+
+  assignRoles(id: string, roleIds: string[]): Promise<void> {
+    return http.post<void>(`/users/${id}/roles`, { roleIds })
+  },
 }
