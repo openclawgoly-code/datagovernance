@@ -1,6 +1,8 @@
 # 数据治理平台
 
-按 **Space Model** 推导出模块边界的数据治理平台。当前处于 **P1** 阶段。
+按 **Space Model** 推导出模块边界的数据治理平台。**P1–P5 全部完成**,
+35 项功能中 34 项已落地,序号 34(高质量数据集制备)按需求确认独立立项,
+本仓库锁定它与平台之间的四条契约。
 
 > **术语警示**:本平台功能菜单中的「**空间**」是**租户**(代码里一律叫 `Workspace`),
 > 而架构文档中的「**Space**」是**边界**概念。二者同名不同物,阅读与沟通时务必区分。
@@ -35,16 +37,31 @@ backend/
   dg-platform         Platform/Tenancy Space —— 空间(租户)、用户、角色、菜单权限、凭据
   dg-data-spi         Data Space 对外契约 —— 纯接口 + 值对象,零驱动依赖
   dg-data-connectors  Data Space 实现 —— 10 种连接器、类型映射、异常翻译
-  dg-metadata         Metadata Space —— 数据源定义、生命周期、目录快照、版本
+  dg-metadata         Metadata Space —— 数据源定义、生命周期、目录快照、版本、注册中心
+  dg-runtime          Runtime Space —— 统一 Execution 事实、执行器、制品、规则解释器
+  dg-control          Control Space —— 任务定义、编译、DAG、Cron 调度、下发
+  dg-governance       Governance Space —— 监控、告警、审计、告警渠道
   dg-app              装配层 —— REST / 安全过滤链 / Flyway / OpenAPI
 frontend/             UI Space —— Vue 3 + TypeScript + Element Plus
 ```
 
-**边界是编译期强制的,不是靠自觉**:`dg-metadata` 的 `pom.xml` 里不存在
-`dg-data-connectors` 依赖,所以「Metadata 不得执行任何东西」这条约束由编译器保证。
-两个 Space 唯一的接触面是 `DataAccessGateway`,且只暴露 Query 语义 —— 网关上没有
-任何写入、建表或提交任务的方法。一旦那里出现 `writeData()`,Metadata 就获得了执行
-能力,边界即失守。
+**边界是编译期强制的,不是靠自觉。** 每一条约束都是 pom 里"某个依赖不存在"这个事实:
+
+| 缺失的依赖 | 它保证的约束 |
+|---|---|
+| `dg-metadata` 看不见 `dg-data-connectors` | Metadata 不得执行任何东西 |
+| `dg-runtime` 看不见 `dg-metadata` | Runtime 不得解释业务语义 |
+| `dg-runtime` 看不见 `dg-control` | 同步依赖子图无环(H.2.1) |
+| `dg-governance` 看不见 `dg-control` | 治理不向任何 Space 发 Command |
+
+最后一条尤其容易被侵蚀:一旦 Governance 能调 Control,「失败三次就自动暂停这个
+任务」必然会在三个月内被加进来,而那一行代码会让依赖图变成环
+(control → runtime → 事件 → governance → control)。需要干预时它只发告警,
+由人来决定。
+
+Metadata 与 Data 唯一的接触面是 `DataAccessGateway`,且只暴露 Query 语义 ——
+网关上没有任何写入、建表或提交任务的方法。一旦那里出现 `writeData()`,
+Metadata 就获得了执行能力,边界即失守。
 
 ## 技术栈
 
@@ -115,10 +132,34 @@ cd frontend && pnpm run build               # 前端类型检查与构建
 另有一套 Testcontainers 版本(`PostgreSqlConnectorContainerIT`)供 CI 使用,
 在没有 Docker 的环境下同样自动跳过。
 
-### P1 验收
+### 端到端验收(P1–P5)
 
-单元测试之外,还有一份打**真实运行中的应用**的端到端验收脚本,逐条核对 P1 的
-四个完成判据。它可反复执行:
+单元测试之外,有五份打**真实运行中的应用**的端到端验收脚本,逐条核对各阶段的
+完成判据。它们可反复执行,连接参数全部从环境变量读:
+
+| 脚本 | 断言数 | 覆盖 |
+|---|---|---|
+| `verify-p1.py` | 47 | 数据源、连通性、目录、租户隔离、多节点 MPP、空间启停 |
+| `verify-p2.py` | 102 | 编译诊断、Cron、真实搬 2500 行、整库迁移、文件/接口解析、规则 |
+| `verify-p3.py` | 77 | 实时保活状态机、离线开发跑真 SQL、工作流条件求值与级联取消 |
+| `verify-p4.py` | 60 | 五个监控口径、告警抑制窗口、Webhook 真推送、审计不可变 |
+| `verify-p5.py` | 50 | Intelligence 四条契约、脱敏在落地前生效 |
+| `verify-ui.mjs` | 82 | 真实浏览器驱动的全部页面 |
+
+它们验证的不是"接口通了",而是那些容易在重构中悄悄失效的约束。几个例子:
+
+- 数据源响应体里不存在任何口令字段;跨空间取数据返回 404 而不泄露资源是否存在
+- 取消一个正在跑的 20 万行同步,**目标库真的停止增长**
+- 条件不成立时下游节点没有执行,而工作流仍然成功 —— 「没跑」不是「失败」
+- 抑制窗口内的第二条告警**仍被记录**,但 Webhook 桩收到 0 条新消息
+- 搬两行带身份证号的记录后,**目标库里查不到任何一个完整的身份证号**,而源表仍是明文
+
+后三条各自抓到过一个真实缺陷:进度回调整行写回抹掉了取消状态、
+被取消的工作流永远停在「取消中」、拼错的配置键被静默忽略导致脱敏失效。
+
+### P1 验收(示例)
+
+其余阶段同理,把脚本名换掉即可:
 
 ```bash
 ./scripts/start-test-postgres.sh                # 1. 起测试数据库
@@ -154,13 +195,31 @@ cd .. && DG_PLAYWRIGHT_ROOT=$(npm root -g) \
 
 ## 演进路线
 
-| 阶段 | 内容 | 完成判据 |
+| 阶段 | 内容 | 状态 |
 |---|---|---|
-| **P1** | Metadata Kernel + Data 连接器 + Platform 租户身份 + UI 骨架 | 能创建 5 类数据源、通过连通性测试、浏览库表结构、按空间隔离 |
-| P2 | Control(编译+调度)+ Runtime Gateway + 离线同步 | 一条离线同步任务可发布、调度、在 Flink 上跑通并落执行记录 |
-| P3 | 实时开发 + 工作流编排 + 整库迁移 + 执行器管理 | 工作流含 Flink/Shell/Python/HTTP/条件节点可编排执行 |
-| P4 | Governance:统一监控 / 告警 / 审计 / 血缘 | 功能 24/25/26/27/33 五项跨模块可用 |
-| P5 | Intelligence:本体、标注、数据集工厂、模型生命周期 | 独立立项交付 |
+| **P1** | Metadata Kernel + Data 连接器 + Platform 租户身份 + UI 骨架 | ✅ 序号 1-8、28-30 |
+| **P2** | Control(编译+调度)+ Runtime Gateway + 集成任务 | ✅ 序号 9-17 |
+| **P3** | 实时/离线开发 + 工作流编排 + 执行器 + 制品仓库 | ✅ 序号 18-23、31、32 |
+| **P4** | Governance:监控 / 告警 / 审计 / 告警渠道 | ✅ 序号 24-27、33 |
+| **P5** | Intelligence 契约 + 敏感数据脱敏 | ✅ 序号 34(契约)、35(合规底座) |
 
 最核心的技术资产按顺序形成:**Metadata Kernel → Workflow DSL → Workflow Compiler →
 Runtime Contract**。这四项决定系统能否持续扩展。
+
+### 两处诚实的缺口
+
+平台不假装自己能做没有接入的事。以下两类作业在当前部署下**明确失败并说明缺什么**,
+而不是返回"成功、处理 0 行":
+
+- **实时开发作业**需要 Flink 集群 —— 失败码是 `RTM_EXECUTOR_UNAVAILABLE`
+  (环境缺件),不是内部错误。值班的人据此判断该找运维还是找开发。
+- **Python 训练作业**需要 K8s。
+
+假成功会让编译、下发、执行记录、状态机整条链路都"通过",而实际什么都没发生 ——
+对一个靠"跑没跑"来判断任务好坏的平台,那比缺一个功能更糟。接入时各新增一个
+`ExecutionEngine` 实现即可,上层的编译、状态机与监控都不必改。
+
+序号 34「高质量数据集制备」按需求确认**独立立项**(工程量与序号 1-33 之和相当)。
+本仓库锁定它与平台之间的四条契约并写成可执行的代码:取数不得直连业务数据源
+(编译期拦截)、算力走 Control 复用统一 Execution、产物注册进 Metadata Registry、
+字段到医学概念的映射写入关系边。
