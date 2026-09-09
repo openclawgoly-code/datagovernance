@@ -29,6 +29,10 @@
 完整推导见 [`SPACE-MODEL.md`](./SPACE-MODEL.md),35 项功能的归属见
 [`docs/function-space-matrix.md`](./docs/function-space-matrix.md)。
 
+**面向使用者的操作手册**在 [`docs/user-manual.html`](./docs/user-manual.html) ——
+从建数据源到跑任务、看告警,含三台状态机速查、错误码归因表,以及可直接下载的
+公开测试数据集清单(与 `scripts/seed-public-datasets.sh` 对应)。
+
 ## 模块结构 —— 模块边界即 Space 边界
 
 ```

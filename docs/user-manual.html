@@ -1,0 +1,737 @@
+<title>数据治理平台使用手册</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --paper:#f5f7fa;
+  --surface:#ffffff;
+  --surface-2:#eef1f6;
+  --ink:#1f2733;
+  --ink-soft:#3d4a5c;
+  --muted:#7b8494;
+  --line:#dfe4ec;
+  --line-strong:#c4ccd9;
+  --accent:#1f5b8f;
+  --accent-soft:#e8f0f8;
+  --ui-blue:#409eff;
+  --warn:#b45309;
+  --warn-soft:#fdf3e6;
+  --danger:#b42318;
+  --danger-soft:#fdeceb;
+  --ok:#1d6f42;
+  --ok-soft:#e9f4ee;
+  --serif:'Noto Serif SC',Songti SC,SimSun,Georgia,serif;
+  --sans:'Noto Sans SC','PingFang SC','Microsoft YaHei',-apple-system,Segoe UI,sans-serif;
+  --mono:'JetBrains Mono','SFMono-Regular',Consolas,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#12161d;
+    --surface:#181d26;
+    --surface-2:#212833;
+    --ink:#e2e8f2;
+    --ink-soft:#bcc6d4;
+    --muted:#8d97a7;
+    --line:#2b333f;
+    --line-strong:#3b4553;
+    --accent:#68aee0;
+    --accent-soft:#17293a;
+    --ui-blue:#5aa9ff;
+    --warn:#e0a458;
+    --warn-soft:#2c2415;
+    --danger:#e8837b;
+    --danger-soft:#2e1c1a;
+    --ok:#6bbf8e;
+    --ok-soft:#16281f;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#12161d;
+  --surface:#181d26;
+  --surface-2:#212833;
+  --ink:#e2e8f2;
+  --ink-soft:#bcc6d4;
+  --muted:#8d97a7;
+  --line:#2b333f;
+  --line-strong:#3b4553;
+  --accent:#68aee0;
+  --accent-soft:#17293a;
+  --ui-blue:#5aa9ff;
+  --warn:#e0a458;
+  --warn-soft:#2c2415;
+  --danger:#e8837b;
+  --danger-soft:#2e1c1a;
+  --ok:#6bbf8e;
+  --ok-soft:#16281f;
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--sans);
+  font-size:15px;
+  line-height:1.75;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{display:grid;grid-template-columns:248px minmax(0,1fr);gap:0;max-width:1180px;margin:0 auto;align-items:start}
+
+/* ── 目录 ─────────────────────────────────────────── */
+.toc{position:sticky;top:0;max-height:100vh;overflow-y:auto;padding:32px 22px 40px;border-right:1px solid var(--line)}
+.toc__brand{font-family:var(--serif);font-weight:700;font-size:16px;line-height:1.4;margin-bottom:4px}
+.toc__ver{font-family:var(--mono);font-size:11px;color:var(--muted);margin-bottom:22px}
+.toc__group{margin-bottom:16px}
+.toc__label{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:7px}
+.toc a{display:block;color:var(--ink-soft);text-decoration:none;font-size:13px;padding:3px 0 3px 10px;border-left:2px solid transparent;line-height:1.5}
+.toc a:hover{color:var(--accent);border-left-color:var(--line-strong)}
+.toc a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+
+/* ── 正文 ─────────────────────────────────────────── */
+main{padding:40px 44px 96px;min-width:0}
+.lede{max-width:66ch}
+h1{font-family:var(--serif);font-size:32px;line-height:1.28;font-weight:700;margin:0 0 12px;text-wrap:balance;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:14.5px;margin:0 0 28px;max-width:60ch}
+h2{font-family:var(--serif);font-size:23px;font-weight:700;line-height:1.35;margin:56px 0 14px;padding-top:22px;border-top:1px solid var(--line);text-wrap:balance;display:flex;gap:12px;align-items:baseline}
+h2 .num{font-family:var(--mono);font-size:13px;color:var(--accent);font-weight:600;flex:none}
+h3{font-family:var(--serif);font-size:17.5px;font-weight:700;margin:34px 0 10px;text-wrap:balance}
+h4{font-size:14px;font-weight:700;margin:22px 0 8px;color:var(--ink)}
+p{margin:0 0 13px;max-width:66ch}
+ul,ol{margin:0 0 14px;padding-left:22px;max-width:64ch}
+li{margin-bottom:6px}
+a{color:var(--accent)}
+strong{font-weight:700}
+code{font-family:var(--mono);font-size:.88em;background:var(--surface-2);padding:1px 5px;border-radius:3px;color:var(--ink)}
+hr{border:0;border-top:1px solid var(--line);margin:34px 0}
+
+/* ── 表格 ─────────────────────────────────────────── */
+.tw{overflow-x:auto;margin:0 0 18px;border:1px solid var(--line);border-radius:5px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{text-align:left;font-weight:700;padding:9px 13px;background:var(--surface-2);border-bottom:1px solid var(--line);white-space:nowrap;font-size:12.5px}
+td{padding:9px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td code{background:transparent;padding:0;color:var(--accent)}
+.nowrap{white-space:nowrap}
+.num-col{font-variant-numeric:tabular-nums;text-align:right}
+
+/* ── 提示块:三种角色,形不同 ────────────────────────── */
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:13px 16px;margin:0 0 18px;border-radius:0 4px 4px 0;max-width:66ch}
+.note--warn{border-left-color:var(--warn);background:var(--warn-soft)}
+.note--danger{border-left-color:var(--danger);background:var(--danger-soft)}
+.note__t{font-weight:700;font-size:13px;margin-bottom:5px;letter-spacing:.02em}
+.note p:last-child{margin-bottom:0}
+.note p{font-size:13.5px}
+
+/* ── 步骤:序号是真实顺序 ───────────────────────────── */
+.steps{list-style:none;padding:0;counter-reset:s;max-width:66ch}
+.steps>li{counter-increment:s;position:relative;padding-left:34px;margin-bottom:15px}
+.steps>li::before{
+  content:counter(s);position:absolute;left:0;top:2px;
+  width:22px;height:22px;border-radius:50%;
+  background:var(--accent);color:var(--surface);
+  font-family:var(--mono);font-size:11px;font-weight:600;
+  display:flex;align-items:center;justify-content:center;
+}
+
+/* ── 代码块 ───────────────────────────────────────── */
+pre{
+  font-family:var(--mono);font-size:12.5px;line-height:1.65;
+  background:var(--surface);border:1px solid var(--line);border-radius:5px;
+  padding:13px 15px;overflow-x:auto;margin:0 0 18px;color:var(--ink-soft);
+}
+pre .c{color:var(--muted)}
+pre .k{color:var(--accent);font-weight:600}
+
+/* ── 状态机流转 ───────────────────────────────────── */
+.fsm{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:0 0 8px;padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:5px;overflow-x:auto}
+.st{font-family:var(--mono);font-size:11.5px;padding:4px 9px;border-radius:3px;border:1px solid var(--line-strong);background:var(--surface-2);white-space:nowrap}
+.st--start{border-color:var(--accent);color:var(--accent)}
+.st--ok{border-color:var(--ok);background:var(--ok-soft);color:var(--ok)}
+.st--bad{border-color:var(--danger);background:var(--danger-soft);color:var(--danger)}
+.st--mid{border-color:var(--warn);background:var(--warn-soft);color:var(--warn)}
+.arw{color:var(--muted);font-size:12px;flex:none}
+.fsm__cap{font-size:12.5px;color:var(--muted);margin:0 0 20px;max-width:66ch}
+
+/* ── 权限标记 ─────────────────────────────────────── */
+.perm{display:inline-block;font-family:var(--mono);font-size:11px;padding:1px 6px;border-radius:3px;background:var(--surface-2);border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+
+/* ── 先决条件条 ───────────────────────────────────── */
+.pre{display:flex;gap:10px;align-items:baseline;font-size:13px;color:var(--ink-soft);background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--line-strong);padding:10px 14px;border-radius:0 4px 4px 0;margin:0 0 18px;max-width:66ch}
+.pre b{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);flex:none;font-weight:700}
+
+@media (max-width:900px){
+  .wrap{grid-template-columns:1fr}
+  .toc{position:static;max-height:none;border-right:0;border-bottom:1px solid var(--line);padding:24px 22px}
+  main{padding:28px 22px 72px}
+  h1{font-size:26px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+<nav class="toc">
+  <div class="toc__brand">数据治理平台<br>使用手册</div>
+  <div class="toc__ver">v0.1 · 35 项功能</div>
+
+  <div class="toc__group">
+    <div class="toc__label">上手</div>
+    <a href="#s1">1 · 开始之前</a>
+    <a href="#s2">2 · 数据源管理</a>
+  </div>
+  <div class="toc__group">
+    <div class="toc__label">干活</div>
+    <a href="#s3">3 · 数据集成</a>
+    <a href="#s4">4 · 数据开发</a>
+  </div>
+  <div class="toc__group">
+    <div class="toc__label">看住</div>
+    <a href="#s5">5 · 运维监控</a>
+    <a href="#s6">6 · 基础配置</a>
+  </div>
+  <div class="toc__group">
+    <div class="toc__label">附录</div>
+    <a href="#a1">A · 测试数据集</a>
+    <a href="#a2">B · 状态机速查</a>
+    <a href="#a3">C · 出错了怎么办</a>
+  </div>
+</nav>
+
+<main>
+<div class="lede">
+<h1>数据治理平台使用手册</h1>
+<p class="sub">面向数据管理员、数据开发与运维值班人员。按"上手 → 干活 → 看住"的顺序编排，也可当速查手册跳读。文中每个状态名、字段名、错误码都取自平台实际返回，不是示意。</p>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2 id="s1"><span class="num">01</span>开始之前</h2>
+
+<h3>先记住一个词有两个意思</h3>
+
+<div class="note note--danger">
+  <div class="note__t">「空间」在本平台里是租户，不是别的</div>
+  <p>菜单里的<strong>空间管理</strong>管的是<strong>租户</strong>——一个部门、一个项目组的数据与任务的隔离边界。你的数据源、任务、执行记录、告警，全都属于某一个空间，跨空间彼此不可见。</p>
+  <p>而架构文档里的「Space」是模块边界概念（Metadata Space、Runtime Space……），跟你日常操作无关。两者同名不同物，沟通时说"空间"务必确认对方指的是哪个。</p>
+</div>
+
+<h3>三种内置角色</h3>
+<p>每个用户在每个空间里各自持有角色——同一个人可以是 A 空间的管理员、B 空间的只读。</p>
+
+<div class="tw"><table>
+<thead><tr><th>角色</th><th>代码</th><th>能做什么</th></tr></thead>
+<tbody>
+<tr><td class="nowrap">空间管理员</td><td><code>WORKSPACE_ADMIN</code></td><td>本空间内全部操作，含成员管理、凭据管理、空间启停</td></tr>
+<tr><td class="nowrap">空间开发者</td><td><code>WORKSPACE_DEVELOPER</code></td><td>建数据源、写任务、跑任务、配告警规则。不能管成员与凭据</td></tr>
+<tr><td class="nowrap">空间只读</td><td><code>WORKSPACE_VIEWER</code></td><td>只能看。列表、详情、执行记录、审计日志</td></tr>
+</tbody>
+</table></div>
+
+<p>权限是<strong>细到操作</strong>的，全平台 83 个权限码，形如 <span class="perm">metadata:datasource:read</span>、<span class="perm">control:job:run</span>。菜单会按你的权限自动隐藏，但<strong>隐藏不等于拦截</strong>——直接输 URL 同样会被守卫挡回 403 页。本手册在每个操作旁标注它要的权限码。</p>
+
+<h3>登录与切换空间</h3>
+<ol class="steps">
+  <li>用管理员给你的账号登录。首次部署时平台会创建一个 <code>admin</code> 账号；<strong>口令在应用首次启动的日志里以 WARN 打印一次</strong>，之后不再显示，请立即改掉。</li>
+  <li>登录后如果你在多个空间有身份，右上角会让你<strong>选一个空间进入</strong>。平台不替你猜——选错了后面看到的全是别的部门的数据。</li>
+  <li>顶栏的空间名随时可以点开切换。切换后整个界面的数据会全部换掉，这是正常的。</li>
+</ol>
+
+<div class="note note--warn">
+  <div class="note__t">被停用的空间进不去</div>
+  <p>管理员可以停用一个空间。停用后该空间的<strong>调度任务不再触发</strong>，成员登录时也看不到它。如果你昨天还能进、今天空间不见了，先问管理员是不是停用了，而不是怀疑账号出问题。</p>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2 id="s2"><span class="num">02</span>数据源管理</h2>
+<p>一切从这里开始：不先把数据源建起来并测通，后面的任务一个也编译不过去。</p>
+
+<h3>支持的十种数据源</h3>
+<p>最后一列很重要——它决定了你在结构浏览里能看到几层树。这不是界面偏好，是平台按每种数据源的<strong>能力声明</strong>自动决定的。</p>
+
+<div class="tw"><table>
+<thead><tr><th>类型</th><th>名称</th><th>族</th><th class="num-col">默认端口</th><th>结构浏览</th></tr></thead>
+<tbody>
+<tr><td><code>MYSQL</code></td><td>MySQL</td><td>关系型</td><td class="num-col">3306</td><td>两级树（库 → 表）</td></tr>
+<tr><td><code>POSTGRESQL</code></td><td>PostgreSQL</td><td>关系型</td><td class="num-col">5432</td><td>三级树（库 → 模式 → 表）</td></tr>
+<tr><td><code>ORACLE</code></td><td>Oracle</td><td>关系型</td><td class="num-col">1521</td><td>三级树</td></tr>
+<tr><td><code>SQLSERVER</code></td><td>SQLServer</td><td>关系型</td><td class="num-col">1433</td><td>三级树</td></tr>
+<tr><td><code>DAMENG</code></td><td>达梦 DM8</td><td>关系型</td><td class="num-col">5236</td><td>三级树</td></tr>
+<tr><td><code>DORIS</code></td><td>Apache Doris</td><td>MPP</td><td class="num-col">9030</td><td>两级树</td></tr>
+<tr><td><code>STARROCKS</code></td><td>StarRocks</td><td>MPP</td><td class="num-col">9030</td><td>两级树</td></tr>
+<tr><td><code>FTP</code></td><td>FTP</td><td>文件</td><td class="num-col">21</td><td>目录树</td></tr>
+<tr><td><code>SFTP</code></td><td>SFTP</td><td>文件</td><td class="num-col">22</td><td>目录树</td></tr>
+<tr><td><code>REST_API</code></td><td>RestAPI</td><td>接口</td><td class="num-col">443</td><td>无结构浏览</td></tr>
+</tbody>
+</table></div>
+
+<div class="note">
+  <div class="note__t">RestAPI 目前只能测连通性</div>
+  <p>HTTP 接口没有"库表结构"可言，所以它不画结构树。<strong>它也还不能作为同步任务的源端取数</strong>——建了之后能验证地址通不通、认证对不对，但拿它当数据源跑同步任务是做不到的。</p>
+</div>
+
+<h3>新建一个数据源</h3>
+<div class="pre"><b>需要</b><span><span class="perm">metadata:datasource:create</span> · 空间开发者及以上</span></div>
+
+<ol class="steps">
+  <li>进 <strong>数据源管理 › 数据源</strong>，点<strong>新建</strong>。</li>
+  <li>先选类型。<strong>表单会跟着类型变</strong>——选 PostgreSQL 出现主机/端口/库名，选 RestAPI 出现接口地址，选 Doris 可以填多个节点。别在意"为什么字段不一样"，那是按类型能力渲染的。</li>
+  <li>填连接信息与账号口令。口令提交后<strong>再也读不回来</strong>：平台把它加密存进凭据托管，接口返回里只有一个不可解密的 <code>credentialId</code>。要换口令就重填一次。</li>
+  <li>保存。此时状态是 <strong>草稿</strong>，还不能用。</li>
+  <li>点<strong>测试连接</strong>。通了状态变成 <strong>可用</strong>，同时记下服务端版本与耗时；不通则退回<strong>草稿</strong>并给出错误码。</li>
+</ol>
+
+<div class="fsm">
+  <span class="st st--start">DRAFT 草稿</span><span class="arw">→</span>
+  <span class="st st--mid">TESTING 测试中</span><span class="arw">→</span>
+  <span class="st st--ok">AVAILABLE 可用</span><span class="arw">→</span>
+  <span class="st st--bad">UNREACHABLE 不可达</span>
+  <span class="arw">·</span>
+  <span class="st">DISABLED 已停用</span><span class="arw">→</span>
+  <span class="st">ARCHIVED 已归档</span>
+</div>
+<p class="fsm__cap"><strong>手工测试失败会回到草稿，不会变成"不可达"。</strong>这个区分是有意的：你自己点的测试失败，多半是配置填错了；而"不可达"留给平台在后台巡检时发现的、原本好好的数据源突然连不上——那才是要惊动运维的事。</p>
+
+<h3>浏览库表结构</h3>
+<div class="pre"><b>需要</b><span><span class="perm">metadata:datasource:browse</span></span></div>
+<p>在数据源列表点<strong>结构</strong>，抽屉里逐层下钻。每一层都是<strong>真的去目标库探的</strong>，不是缓存的猜测；再次打开会用快照加速，需要最新结构时点<strong>刷新</strong>。</p>
+
+<div class="note">
+  <div class="note__t">分区表只显示父表</div>
+  <p>PostgreSQL 的分区表，平台只列出父表（如 <code>payment</code>），不列它底下那几十个 <code>payment_p2024_01</code> 分区——那是存储细节，列出来只会把你要找的表淹掉。要看分区布局，用自定义查询查 <code>pg_class</code>。</p>
+</div>
+
+<h3>自定义 SQL 查询</h3>
+<div class="pre"><b>需要</b><span><span class="perm">metadata:datasource:query</span></span></div>
+<p>结构抽屉里有 SQL 面板，可以直接对数据源跑查询、格式化 SQL、看结果。</p>
+<ul>
+  <li><strong>只允许查询类语句</strong>：SELECT / WITH / SHOW / DESC / EXPLAIN / VALUES。写 <code>DELETE</code> 会被直接拒掉。</li>
+  <li>强制行数上限与超时。结果超过上限时会标记为<strong>已截断</strong>，别把截断的结果当成全量。</li>
+</ul>
+<div class="note note--warn">
+  <div class="note__t">语法白名单是第二道防线，不是唯一一道</div>
+  <p>正式部署时，<strong>请为数据查询单独配一个只读数据库账号</strong>。白名单挡的是手滑，挡不了一个有写权限的账号被别的途径利用。</p>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2 id="s3"><span class="num">03</span>数据集成</h2>
+
+<h3>任务的一生：编译 → 发布 → 运行</h3>
+<p>这是本平台跟很多同类产品最不一样的地方，<strong>值得先读懂再动手</strong>：任务建好之后不能直接跑，中间隔着一步<strong>编译</strong>。</p>
+
+<div class="fsm">
+  <span class="st st--start">DRAFT 草稿</span><span class="arw">— 编译 →</span>
+  <span class="st st--mid">VALIDATED 已校验</span><span class="arw">— 发布 →</span>
+  <span class="st st--ok">PUBLISHED 已发布</span><span class="arw">— 配调度 →</span>
+  <span class="st st--ok">SCHEDULING 调度中</span><span class="arw">⇄</span>
+  <span class="st">PAUSED 已暂停</span><span class="arw">→</span>
+  <span class="st">OFFLINE 已下线</span><span class="arw">→</span>
+  <span class="st">ARCHIVED 已归档</span>
+</div>
+<p class="fsm__cap">编译会去<strong>真的读源表和目标表的结构</strong>，逐条检查字段映射对不对、类型兼不兼容、数据源可不可用，然后生成一份"物理计划"。编译不过的任务发布不了，发布不了就跑不了。改过配置之后必须<strong>重新编译</strong>——界面上会提示"物理计划已过期"。</p>
+
+<div class="note">
+  <div class="note__t">编译诊断分两级，都要看</div>
+  <p><strong>错误</strong>会挡住发布，必须改。<strong>提醒</strong>不挡，但每一条都在说一件真会出事的事——比如"目标字段不是文本类型，写入依赖隐式转换"，或者"配置里有 2 个平台不认识的键"。</p>
+  <p><strong>那条"不认识的键"尤其要当回事</strong>：拼错一个键名不会报错，配置只是静默失效。曾经有人把 <code>fieldRules</code> 写成 <code>rulesByColumn</code>，编译通过、执行成功，而明文身份证号原样落进了目标库。</p>
+</div>
+
+<h3>八种任务类型</h3>
+<div class="tw"><table>
+<thead><tr><th>类型</th><th>用途</th><th>可配定时</th></tr></thead>
+<tbody>
+<tr><td class="nowrap">整库迁移</td><td>把一个库的结构和数据整体复制到另一个库，自动建表</td><td>否</td></tr>
+<tr><td class="nowrap">离线同步</td><td>把一张表的数据搬到另一张<strong>已存在</strong>的表，可带过滤与清洗规则</td><td>是</td></tr>
+<tr><td class="nowrap">文件解析入库</td><td>从 FTP/SFTP 读 CSV 或 JSON 文件入库</td><td>是</td></tr>
+<tr><td class="nowrap">接口解析入库</td><td>调 HTTP 接口取数入库，支持分页</td><td>是</td></tr>
+<tr><td class="nowrap">实时任务</td><td>常驻的流式作业</td><td>否</td></tr>
+<tr><td class="nowrap">批处理任务</td><td>跑一段 SQL，或跑一个上传的 JAR / Python 包</td><td>是</td></tr>
+<tr><td class="nowrap">工作流</td><td>把多个任务编成有向无环图，按条件流转</td><td>是</td></tr>
+<tr><td class="nowrap">Python 任务</td><td>跑注册过的 Python 制品，用于建模与训练</td><td>是</td></tr>
+</tbody>
+</table></div>
+
+<h3>做一次整库迁移</h3>
+<div class="pre"><b>需要</b><span><span class="perm">control:job:create</span> · 源与目标数据源都已<strong>可用</strong></span></div>
+
+<ol class="steps">
+  <li>进 <strong>数据集成 › 任务管理</strong>，新建，类型选<strong>整库迁移</strong>。</li>
+  <li>选源数据源与源库；<strong>表清单留空表示迁整个库</strong>。一次最多 200 张表，超过应当拆成几个任务——不然一次失败要重跑几小时。</li>
+  <li>选目标数据源与目标库。目标表<strong>不需要预先建好</strong>，平台会照着源表结构建。</li>
+  <li>命名规则按需要配：前缀、后缀、<strong>转小写</strong>。从 MySQL/Oracle 迁进 PostgreSQL 时<strong>请打开转小写</strong>——PostgreSQL 里不加引号的标识符会折成小写，不转的话你以后每次查询都得给表名列名加双引号。</li>
+  <li>想改建表语句的，用<strong>预览建表语句</strong>逐表看、逐表改。改过的会被原样执行，不会被下一次编译覆盖掉。</li>
+  <li>编译 → 发布 → 运行。</li>
+</ol>
+
+<div class="note note--warn">
+  <div class="note__t">迁移失败是"部分成功"，不是"全都没发生"</div>
+  <p>200 张表的迁移在第 137 张失败时，<strong>前 136 张已经建好并灌满了数据</strong>——建表语句是隐式提交的，没法回滚。平台会如实告诉你"迁移在第 137/200 张表「xxx」失败（已成功 136 张）"，你从那张表接着跑就行。</p>
+</div>
+
+<h3>离线同步与清洗规则</h3>
+<p>离线同步是最常用的任务类型。它与整库迁移的区别是<strong>目标表必须已经存在</strong>，好处是可以配字段映射、过滤条件和清洗规则。</p>
+
+<h4>九种清洗规则</h4>
+<p>在 <strong>数据集成 › 规则管理</strong> 里先把规则建好，再在任务的字段上挂。一个字段可以挂多条，<strong>顺序有意义</strong>——先去空格再判空，和先判空再去空格，对 <code>"  "</code> 的结果完全不同。</p>
+
+<div class="tw"><table>
+<thead><tr><th>规则</th><th>做什么</th><th>关键参数</th></tr></thead>
+<tbody>
+<tr><td class="nowrap">时间日期格式</td><td>把源端的日期串换成目标格式</td><td><code>sourcePattern</code> <code>targetPattern</code></td></tr>
+<tr><td class="nowrap">数值格式</td><td>定标度、去千分位</td><td><code>scale</code> <code>stripGrouping</code></td></tr>
+<tr><td class="nowrap">缺失值填充</td><td>空值填默认值</td><td><code>defaultValue</code> <code>treatBlankAsNull</code></td></tr>
+<tr><td class="nowrap">字符串替换</td><td>查找替换，支持正则</td><td><code>search</code> <code>replacement</code> <code>regex</code></td></tr>
+<tr><td class="nowrap">大小写转换</td><td>转大写／小写</td><td><code>mode</code></td></tr>
+<tr><td class="nowrap">增删前后缀</td><td>加或去掉固定前后缀</td><td><code>prefix</code> <code>suffix</code> <code>stripPrefix</code></td></tr>
+<tr><td class="nowrap">去空格</td><td>去首尾／全部空白</td><td><code>mode</code></td></tr>
+<tr><td class="nowrap">解密</td><td>用托管凭据解密源端密文</td><td><code>credentialId</code> <code>algorithm</code></td></tr>
+<tr><td class="nowrap">脱敏</td><td>见下</td><td><code>mode</code> <code>keepPrefix</code> <code>keepSuffix</code> <code>saltCredentialId</code></td></tr>
+</tbody>
+</table></div>
+
+<div class="note note--danger">
+  <div class="note__t">脱敏：处理身份证、手机号、病历必读</div>
+  <p>脱敏有三种模式：<strong>PARTIAL</strong> 保留前后若干位、中间打码（<code>320981********8923</code>）；<strong>HASH</strong> 加盐哈希，盐来自凭据托管而<strong>不能写在规则参数里</strong>；<strong>FIXED</strong> 整体替换，连长度都不泄露。</p>
+  <p>两条硬约定：<strong>脱敏发生在数据落地之前</strong>，源表始终是明文，目标库拿到的已经是脱敏后的值；<strong>任何算不出来的情况一律返回星号，绝不放过明文</strong>——比如 HASH 模式没配盐，它不会退化成不加盐的哈希，而是直接给 <code>********</code>。</p>
+  <p>被任务引用中的脱敏规则<strong>删不掉</strong>（返回 409）。这是有意的：删掉它，下一次同步就漏明文了。</p>
+</div>
+
+<h4>配定时</h4>
+<p>发布后在任务详情里配 Cron。填之前可以用<strong>调度预览</strong>看接下来几次的触发时间——比对着 Cron 表达式硬想可靠得多。任务可随时<strong>暂停</strong>与<strong>恢复</strong>；暂停期间手工触发仍然有效。</p>
+
+<h3>整库迁移之外：批量建任务</h3>
+<p>选中源库里的多张表，一次生成多个离线同步任务。一次最多 200 个——再多就该考虑整库迁移了。名称冲突、缺字段映射的会<strong>逐条报出来</strong>，不会闷头建一半。</p>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2 id="s4"><span class="num">04</span>数据开发</h2>
+
+<h3>离线开发</h3>
+<p><strong>数据开发 › 离线开发</strong>。写一段 SQL 直接对数据源执行，或者上传 JAR / Python 包来跑。SQL 形态要选执行数据源；JAR 形态必须指定入口类——<strong>平台不会去反编译 JAR 猜 main 方法在哪</strong>。</p>
+
+<h3>工作流编排</h3>
+<p><strong>数据开发 › 工作流编排</strong>。把已有任务拖成节点，用边连起来。</p>
+<ul>
+  <li><strong>不能有环。</strong>编译时会检出来，并且告诉你环上具体是哪几个节点，不是只说一句"存在环"。</li>
+  <li>边上可以配<strong>条件</strong>：按上游状态（成功/失败），或按上游写入行数。</li>
+  <li>条件不成立时下游<strong>不执行，而整个工作流仍然算成功</strong>——"没跑"不是"失败"。</li>
+  <li>取消父执行会<strong>级联取消</strong>正在跑的子节点。</li>
+</ul>
+
+<div class="note">
+  <div class="note__t">节点引用的是任务，不是任务的内容</div>
+  <p>工作流里的节点存的是任务 ID。你改了那个任务的 SQL，工作流下次跑就用新的——不需要回来改工作流。</p>
+</div>
+
+<h3>实时开发</h3>
+<div class="note note--warn">
+  <div class="note__t">当前版本可以配置和编译，但跑不起来</div>
+  <p>实时任务需要一个已注册的 <strong>Flink 执行器</strong>。没有的话，运行会明确失败并给出错误码 <code>RTM_EXECUTOR_UNAVAILABLE</code>——这是<strong>环境缺口，不是平台故障</strong>，别去查平台日志。平台刻意不假装"执行成功、写入 0 行"。</p>
+  <p>Python 任务同理，需要 K8s 执行器。</p>
+</div>
+<p>实时任务有自己的一套状态，和批任务不同——它<strong>没有"成功"这个终态</strong>，因为常驻作业跑得好好的时候既不是成功也不是失败。失败会按指数退避自动重启，最多 5 次。</p>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2 id="s5"><span class="num">05</span>运维监控</h2>
+
+<h3>执行记录：一张表看全平台</h3>
+<p><strong>运维监控 › 执行记录</strong>。不管是数据集成的同步、数据开发的批作业，还是工作流的某个节点，<strong>全平台所有执行都在这一张表里</strong>。这是设计如此——正因为它是一张表，"任务监控"、"告警规则"、"审计日志"才做得出跨子系统的统计。</p>
+
+<div class="fsm">
+  <span class="st st--start">PENDING 待下发</span><span class="arw">→</span>
+  <span class="st st--start">DISPATCHED 已下发</span><span class="arw">→</span>
+  <span class="st st--mid">RUNNING 执行中</span><span class="arw">→</span>
+  <span class="st st--ok">SUCCEEDED 成功</span>
+  <span class="arw">/</span><span class="st st--bad">FAILED 失败</span>
+  <span class="arw">/</span><span class="st st--bad">TIMEOUT 超时</span>
+  <span class="arw">·</span>
+  <span class="st st--mid">CANCELING 取消中</span><span class="arw">→</span>
+  <span class="st">CANCELED 已取消</span>
+</div>
+<p class="fsm__cap">点<strong>取消</strong>后状态先变成<strong>取消中</strong>，不是立刻变已取消。这是诚实的：正在写库的批次要先干净地收尾。取消是真的生效——目标库会停止增长，已经写进去的行不会回滚。</p>
+
+<h3>任务监控</h3>
+<p><strong>运维监控 › 任务监控</strong>提供五个口径：运行中、今日成功、今日失败、今日超时、平均耗时。都是跨子系统的——数据集成和数据开发的任务混在一起算。</p>
+
+<h3>告警规则</h3>
+<div class="pre"><b>需要</b><span><span class="perm">governance:rule:create</span></span></div>
+<p>五种触发方式：</p>
+<div class="tw"><table>
+<thead><tr><th>触发方式</th><th>什么时候响</th></tr></thead>
+<tbody>
+<tr><td class="nowrap">执行失败</td><td>任何一次执行落到失败终态</td></tr>
+<tr><td class="nowrap">执行超时</td><td>超过任务配置的超时时间</td></tr>
+<tr><td class="nowrap">执行耗时超过阈值</td><td>没超时但比预期慢，用来提前发现劣化</td></tr>
+<tr><td class="nowrap">执行成功但没有写入任何数据</td><td><strong>最容易被忽略的一种故障</strong>——任务绿着，数据没来</td></tr>
+<tr><td class="nowrap">下发被拒</td><td>没有可用执行器，<strong>或执行器已满</strong></td></tr>
+</tbody>
+</table></div>
+
+<div class="note">
+  <div class="note__t">「告警频率」是抑制窗口，不是检查频率</div>
+  <p>它的意思是"同一个源头的告警，在这个窗口内只通知一次"。被抑制的那些<strong>仍然被完整记录</strong>，只是不再重复打扰你——所以在告警信息页你会看到"今日被抑制 N 条"，那个数字往往比收到的通知多得多。别把它理解成"平台漏报了"。</p>
+</div>
+
+<h3>告警信息与审计日志</h3>
+<p>告警信息页分<strong>今日</strong>与<strong>历史</strong>两个视图，概览把"今日被抑制"单列出来。</p>
+<p>审计日志记录谁在什么时候动了什么，<strong>失败的操作同样留痕</strong>——那往往才是要查的。审计记录<strong>只追加，不可修改也不可删除</strong>；界面上没有新建/编辑/删除按钮，接口上也没有（返回 404）。</p>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2 id="s6"><span class="num">06</span>基础配置</h2>
+<p>这个菜单下的七项其实分属三类，放在一起只是为了操作方便。</p>
+
+<div class="tw"><table>
+<thead><tr><th>菜单项</th><th>管什么</th><th>谁该管</th></tr></thead>
+<tbody>
+<tr><td class="nowrap">执行器管理</td><td>Flink / K8s 执行器的注册与健康状态</td><td>运维</td></tr>
+<tr><td class="nowrap">文件管理</td><td>平台级 JAR、Python 包等制品，含版本</td><td>数据开发</td></tr>
+<tr><td class="nowrap">告警渠道</td><td>邮件、Webhook 的收件配置</td><td>运维</td></tr>
+<tr><td class="nowrap">空间管理</td><td>租户的建立、启停、成员</td><td>平台管理员</td></tr>
+<tr><td class="nowrap">角色管理</td><td>角色与权限码</td><td>平台管理员</td></tr>
+<tr><td class="nowrap">用户管理</td><td>账号</td><td>平台管理员</td></tr>
+<tr><td class="nowrap">凭据管理</td><td>口令、密钥、令牌的托管</td><td>空间管理员</td></tr>
+</tbody>
+</table></div>
+
+<h3>凭据管理</h3>
+<div class="note note--danger">
+  <div class="note__t">凭据存进去就取不出来</div>
+  <p>平台用主密钥做 AES-GCM 加密存储，<strong>接口从不返回明文，也不返回密文</strong>。列表里只能看到名称、类型和引用它的对象。要换就重设一个。</p>
+  <p>对运维尤其重要的一条：<strong>主密钥（<code>DG_SECRET_KEY</code>）一旦用于加密过数据就不能更换</strong>，换了以后所有已存凭据都解不开。它没有内置默认值——没配置的话应用直接拒绝启动，而不是退化成一个随代码库分发的默认密钥。</p>
+</div>
+
+<h3>告警渠道</h3>
+<p>建好渠道后点<strong>测试</strong>——注意它会<strong>真的发出去一条消息</strong>，不是检查配置格式。测邮件渠道就去收件箱看，测 Webhook 就去下游看有没有收到。</p>
+
+<h3>执行器与并发</h3>
+<p>平台默认与 Web 服务同进程运行，<strong>执行并发保持克制</strong>：默认同时只跑 2 个任务，队列排 64 个。这不是保守，是给 Web 请求留余量——不然界面会跟着卡。</p>
+<p>提交了十几个任务却只看到两三个在跑，<strong>是正常的</strong>，其余在排队。真的打满了，多出来的会以<strong>下发被拒</strong>失败并给出错误码 <code>RTM_DISPATCH_REJECTED</code>，消息会明说"执行器已满"——这时候该做的是调大池子或加机器，不是去查平台 bug。</p>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2 id="a1"><span class="num">附录 A</span>测试数据集</h2>
+<p>刚部署完的平台是空的，光看手册学不会。这里列的都是<strong>公开可下载、可以直接灌进测试库</strong>的数据集，按"能练到哪个功能"排。</p>
+
+<h3>一条命令备齐前三样</h3>
+<p>仓库里带了一个脚本，会把下面标 ★ 的数据集下载、灌库、并把文件素材摆到一个本地只读 FTP 上：</p>
+<pre><span class="c"># 下载 + 灌进本地 PostgreSQL + 准备文件素材</span>
+./scripts/seed-public-datasets.sh
+
+<span class="c"># 起本地只读 FTP(文件解析入库要用)</span>
+./scripts/seed-public-datasets.sh ftp start
+
+<span class="c"># 可选:起 MySQL,用来练跨方言整库迁移</span>
+./scripts/start-test-mysql.sh</pre>
+
+<h3>关系型数据源与整库迁移</h3>
+<div class="tw"><table>
+<thead><tr><th>数据集</th><th>练什么</th><th>怎么拿</th></tr></thead>
+<tbody>
+<tr>
+  <td class="nowrap">★ <strong>Chinook</strong></td>
+  <td>数字音乐商店，11 张表。官方<strong>同时提供 PG / MySQL / Oracle / SQLServer 四套脚本</strong>——把 MySQL 版迁进 PostgreSQL，再拿官方 PG 版逐表对答案。这是练<strong>跨方言整库迁移</strong>唯一有标准答案的形态</td>
+  <td><a href="https://github.com/lerocha/chinook-database">lerocha/chinook-database</a></td>
+</tr>
+<tr>
+  <td class="nowrap">★ <strong>Pagila</strong></td>
+  <td>DVD 租赁模型。15 张表藏在 <strong>55 个分区</strong>里，还有自定义 ENUM、DOMAIN、<code>text[]</code> 数组、<code>tsvector</code>、生成列。练<strong>结构浏览</strong>与<strong>类型映射</strong>的最佳靶子</td>
+  <td><a href="https://github.com/devrimgunduz/pagila">devrimgunduz/pagila</a></td>
+</tr>
+<tr>
+  <td class="nowrap">★ <strong>Northwind</strong></td>
+  <td>小而经典，14 张表。第一次上手做冒烟练习用</td>
+  <td><a href="https://github.com/pthom/northwind_psql">pthom/northwind_psql</a></td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="note note--warn">
+  <div class="note__t">Pagila 需要较新的 PostgreSQL</div>
+  <p>它现在的主干用了 <code>uuidv7()</code> 与虚拟生成列（PostgreSQL 18 才有）和 pgvector 扩展。seed 脚本会在低版本上自动补齐或剥掉，并把补了什么打印出来。手工导入的话请留意。</p>
+</div>
+
+<h3>文件解析入库与脱敏</h3>
+<div class="tw"><table>
+<thead><tr><th>数据集</th><th>练什么</th><th>怎么拿</th></tr></thead>
+<tbody>
+<tr>
+  <td class="nowrap">★ <strong>健康样本</strong></td>
+  <td>中文表头、<strong>GBK 编码</strong>、校验位合法的合成身份证号与手机号。练 CSV 解析、字符集、以及<strong>脱敏规则</strong>的三种模式</td>
+  <td>seed 脚本本地生成</td>
+</tr>
+<tr>
+  <td class="nowrap"><strong>Synthea</strong></td>
+  <td>MITRE 的合成病人，含完整病史与 SSN／驾照／护照。官方声明<strong>不受隐私与法律限制</strong>。输出 CSV 与 FHIR JSON 两种，正好覆盖平台支持的两种解析格式</td>
+  <td><a href="https://github.com/synthetichealth/synthea">synthetichealth/synthea</a></td>
+</tr>
+<tr>
+  <td class="nowrap"><strong>脏数据集</strong></td>
+  <td>缺失值、重复行、格式不一致、编码错误。练<strong>九种清洗规则</strong></td>
+  <td><a href="https://github.com/eyowhite/Messy-dataset">eyowhite/Messy-dataset</a></td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="note note--danger">
+  <div class="note__t">不要用来路不明的"测试身份证数据集"</div>
+  <p>网上流传的所谓身份证测试数据，绝大多数是<strong>泄露数据</strong>。那种东西不该出现在任何环境里，包括测试环境。seed 脚本生成的身份证号校验位算得对，但号段与生日是随机组合的，不对应任何真人；哪一份是官方样本、哪一份是本地生成的替身，写在生成出来的 <code>PROVENANCE.txt</code> 里。</p>
+</div>
+
+<h3>文件数据源与接口数据源</h3>
+<div class="tw"><table>
+<thead><tr><th>目标</th><th>怎么拿</th><th>注意</th></tr></thead>
+<tbody>
+<tr>
+  <td class="nowrap">FTP / SFTP 连通性</td>
+  <td><a href="https://test.rebex.net/">test.rebex.net</a>，账号 <code>demo</code> / <code>password</code></td>
+  <td><strong>只读</strong>，测不了写入；里面文件很少，真练解析还是用 seed 脚本起的本地 FTP</td>
+</tr>
+<tr>
+  <td class="nowrap">RestAPI 连通性</td>
+  <td><a href="https://jsonplaceholder.typicode.com/">JSONPlaceholder</a>、<a href="https://dummyjson.com/">DummyJSON</a></td>
+  <td>只能验证 200／401／404／超时怎么被翻译成错误码，<strong>不能当同步任务的源端</strong></td>
+</tr>
+</tbody>
+</table></div>
+
+<h3>大数据量与真实政务数据</h3>
+<div class="tw"><table>
+<thead><tr><th>数据集</th><th>练什么</th><th>怎么拿</th></tr></thead>
+<tbody>
+<tr>
+  <td class="nowrap"><strong>NYC 出租车行程</strong></td>
+  <td>千万行级。练<strong>大数据量同步的进度回报与取消</strong>——小数据量下取消一点也不像真的</td>
+  <td><a href="https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page">NYC TLC</a>。2022 起只发 Parquet，<strong>平台目前只读 CSV 与 JSON</strong>，需先转换</td>
+</tr>
+<tr>
+  <td class="nowrap"><strong>地方政务开放数据</strong></td>
+  <td>真实的中文列名、常见 GBK 编码、不规范空值（"—"、"无"、全角空格）。这些是自己造的干净数据里<strong>永远遇不到</strong>的</td>
+  <td><a href="https://www.yancheng.gov.cn/opendata/index">盐城市数据开放平台</a>、<a href="https://data.jszwfw.gov.cn:8118/extranet/openportal/pages/resource/resourceDeplist.html">江苏省公共数据开放平台</a></td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="note">
+  <div class="note__t">实时任务没有对应的公开数据集</div>
+  <p>找不到"可以直接指过去的公开 Kafka"，这跟平台现状是吻合的——实时任务本来就需要先注册 Flink 执行器。要练的话得自己起一套 Kafka，参考 <a href="https://developer.confluent.io/courses/data-pipelines/intro/">Confluent 的流水线教程</a>。</p>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2 id="a2"><span class="num">附录 B</span>状态机速查</h2>
+<p>三台状态机，分别管数据源、任务定义、执行。看到一个状态不认识时回来查。</p>
+
+<h4>数据源</h4>
+<div class="tw"><table>
+<thead><tr><th>状态</th><th>含义</th><th>能不能被任务引用</th></tr></thead>
+<tbody>
+<tr><td><code>DRAFT</code> 草稿</td><td>刚建，或手工测试失败退回</td><td>不能</td></tr>
+<tr><td><code>TESTING</code> 测试中</td><td>连通性测试进行中</td><td>不能</td></tr>
+<tr><td><code>AVAILABLE</code> 可用</td><td>测通了</td><td><strong>能，只有这一个状态能</strong></td></tr>
+<tr><td><code>UNREACHABLE</code> 不可达</td><td>后台巡检发现连不上了</td><td>不能</td></tr>
+<tr><td><code>DISABLED</code> 已停用</td><td>人为停用</td><td>不能</td></tr>
+<tr><td><code>ARCHIVED</code> 已归档</td><td>不再使用但保留记录</td><td>不能</td></tr>
+</tbody>
+</table></div>
+
+<h4>任务定义</h4>
+<div class="tw"><table>
+<thead><tr><th>状态</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>DRAFT</code> 草稿</td><td>刚建或改过配置，未编译</td></tr>
+<tr><td><code>VALIDATED</code> 已校验</td><td>编译通过，物理计划已生成</td></tr>
+<tr><td><code>PUBLISHED</code> 已发布</td><td>可手工触发</td></tr>
+<tr><td><code>SCHEDULING</code> 调度中</td><td>已配 Cron，会自动触发</td></tr>
+<tr><td><code>PAUSED</code> 已暂停</td><td>不自动触发，但仍可手工触发</td></tr>
+<tr><td><code>OFFLINE</code> 已下线 / <code>ARCHIVED</code> 已归档</td><td>不再执行</td></tr>
+</tbody>
+</table></div>
+
+<h4>执行</h4>
+<div class="tw"><table>
+<thead><tr><th>状态</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><code>PENDING</code> 待下发</td><td>记录已建，还没交给执行器</td></tr>
+<tr><td><code>DISPATCHED</code> 已下发</td><td>已交给执行器，<strong>可能在排队</strong></td></tr>
+<tr><td><code>RUNNING</code> 执行中</td><td>真的在跑</td></tr>
+<tr><td><code>CANCELING</code> 取消中</td><td>收到取消，正在收尾</td></tr>
+<tr><td><code>SUCCEEDED</code> / <code>FAILED</code> / <code>CANCELED</code> / <code>TIMEOUT</code></td><td>四个终态，不再变化</td></tr>
+</tbody>
+</table></div>
+
+<!-- ══════════════════════════════════════════════ -->
+<h2 id="a3"><span class="num">附录 C</span>出错了怎么办</h2>
+
+<h3>先看错误码归的是哪一类</h3>
+<p>平台的错误码前缀标明了<strong>该找谁</strong>，这是排查时第一件要做的判断。</p>
+
+<div class="tw"><table>
+<thead><tr><th>前缀</th><th>归因</th><th>找谁</th></tr></thead>
+<tbody>
+<tr><td><code>DAT_*</code></td><td>目标库／目标服务的问题</td><td>DBA 或对端系统的负责人</td></tr>
+<tr><td><code>MTD_*</code></td><td>元数据问题，如读不到表结构</td><td>先自查配置，再找 DBA</td></tr>
+<tr><td><code>RTM_*</code></td><td>运行时／执行器，多半是<strong>环境容量</strong></td><td>运维</td></tr>
+<tr><td><code>PLT_*</code></td><td>认证、权限、租户</td><td>空间管理员</td></tr>
+<tr><td><code>SYS_*</code></td><td><strong>平台自己的内部错误</strong></td><td>开发</td></tr>
+</tbody>
+</table></div>
+
+<h3>几个常见情形</h3>
+
+<div class="tw"><table>
+<thead><tr><th>现象</th><th>多半是</th><th>怎么办</th></tr></thead>
+<tbody>
+<tr>
+  <td>任务编译报"读不到源表的结构"</td>
+  <td>没有浏览过那张表，或数据源不是<strong>可用</strong>状态</td>
+  <td>去结构浏览里点开那张表；确认数据源测试通过</td>
+</tr>
+<tr>
+  <td>编译通过、执行成功，<strong>但目标表没数据</strong></td>
+  <td>过滤条件写得太严，或字段映射一个都没配上</td>
+  <td>看执行记录里的<strong>读取行数</strong>——是 0 就是源端没取到，不是写入的问题</td>
+</tr>
+<tr>
+  <td>脱敏"配了但没生效"</td>
+  <td><strong>配置键名拼错了</strong></td>
+  <td>重新编译，看诊断里有没有"配置里有 N 个平台不认识的键"</td>
+</tr>
+<tr>
+  <td>提交了十几个任务，只有两三个在跑</td>
+  <td>正常，其余在排队</td>
+  <td>不用管。要提高并发找运维调 <code>dg.runtime</code> 的池子容量</td>
+</tr>
+<tr>
+  <td><code>RTM_DISPATCH_REJECTED</code> 下发被拒</td>
+  <td>执行器已满，<strong>或该类型没有可用执行器</strong></td>
+  <td>看消息文字区分这两种；前者调大池子，后者去注册执行器</td>
+</tr>
+<tr>
+  <td><code>RTM_EXECUTOR_UNAVAILABLE</code></td>
+  <td>实时／Python 任务需要的执行器没接入</td>
+  <td>这是环境缺口不是 bug，先接执行器</td>
+</tr>
+<tr>
+  <td>取消后状态停在<strong>取消中</strong></td>
+  <td>正在收尾，通常几秒内落到已取消</td>
+  <td>等一下再刷新。超过一分钟不动才需要报</td>
+</tr>
+<tr>
+  <td>中文写进目标库变成乱码</td>
+  <td>文件解析任务的 <code>charset</code> 没配对</td>
+  <td>国内政务交换文件多为 GBK，改成 <code>GBK</code> 重跑</td>
+</tr>
+<tr>
+  <td>跨库迁移后查询报"列不存在"</td>
+  <td>源端是 PascalCase，目标是 PostgreSQL</td>
+  <td>迁移时打开<strong>转小写</strong>，或查询时给列名加双引号</td>
+</tr>
+<tr>
+  <td>登录后提示"登录已失效"</td>
+  <td>令牌过期，或后端重启换了签名密钥</td>
+  <td>重新登录。反复出现要请运维把 <code>DG_JWT_SIGNING_KEY</code> 固定下来</td>
+</tr>
+</tbody>
+</table></div>
+
+<div class="note">
+  <div class="note__t">报障时带上 traceId</div>
+  <p>每个失败响应里都有一个 <code>traceId</code>。带上它，运维能在日志里一次定位到那一条请求；只说"任务跑失败了"要多花很多时间。</p>
+</div>
+
+<hr>
+<p class="sub" style="margin-bottom:0">本手册对应平台 v0.1。文中所有状态名、错误码、参数名均取自平台实际返回；若与你手上的版本不符，以平台界面为准。</p>
+</main>
+</div>
