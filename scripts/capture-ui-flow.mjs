@@ -4,7 +4,13 @@ const { chromium } = require('playwright')
 
 const BASE = 'http://127.0.0.1:4173'
 const PW = process.env.DG_ADMIN_PASSWORD
+// 这个脚本的产出就是截图,没有 SHOT_DIR 就没有意义 —— 早点说清楚,
+// 否则它会安静地往 ./undefined/ 里丢二十张图
 const DIR = process.env.SHOT_DIR
+if (!DIR) {
+  console.error('请设置 SHOT_DIR(截图输出目录)')
+  process.exit(1)
+}
 let n = 0
 const shots = []
 

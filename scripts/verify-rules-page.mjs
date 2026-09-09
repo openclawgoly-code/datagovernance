@@ -11,6 +11,16 @@ function ok(label, cond, detail = '') {
   cond ? pass++ : fail++
 }
 
+/**
+ * 存一张排障用的截图。没设 SHOT_DIR 就跳过 —— 不设时路径会拼成
+ * "undefined/xxx.png",于是仓库根目录里凭空长出一个 undefined/ 目录,
+ * 还差点被 git add -A 提交进去。
+ */
+async function shot(page, name) {
+  if (!process.env.SHOT_DIR) return
+  await page.screenshot({ path: `${process.env.SHOT_DIR}/${name}.png` })
+}
+
 const browser = await chromium.launch({ executablePath: process.env.DG_CHROMIUM_PATH })
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
 const consoleErrors = []
@@ -82,7 +92,7 @@ ok('自由文本参数没被误判成下拉(maskChar 要能填 * 或 #)',
      .filter({ has: page.locator('.el-form-item__label', { hasText: /^maskChar$/ }) })
      .locator('.el-select').count() === 0)
 ok('脱敏/解密给出「密钥不写在这里」的警示', dlg.includes('凭据 ID，不是密钥本身'))
-await page.screenshot({ path: process.env.SHOT_DIR + '/rules-form.png' })
+await shot(page, 'rules-form')
 
 // mode 的说明里枚举了取值,应该渲染成下拉而不是文本框
 // 按 label 精确定位。用 hasText:'PARTIAL' 会先命中 maskChar —— 它的说明里
@@ -118,7 +128,7 @@ ok('新规则未被引用,可以删除',
 // 而那看起来会像"页面坏了",其实只是上一步没收尾
 ok('保存成功后对话框自动关闭',
    await page.locator('.el-overlay-dialog:visible').count() === 0)
-await page.screenshot({ path: process.env.SHOT_DIR + '/rules-list.png' })
+await shot(page, 'rules-list')
 
 // ── 必填校验 ──
 await page.getByRole('button', { name: '新建规则' }).click()
