@@ -90,13 +90,27 @@ if ! running; then
 fi
 
 # root 走 TCP 时要有口令 —— seed 脚本与验证脚本都通过 TCP 连,
-# 而 unix_socket 认证只对本地 socket 生效
-mariadb --socket="$SOCKET" -u root <<SQL
+# 而 unix_socket 认证只对本地 socket 生效。
+#
+# 认证方式要试两种,原因和上面 running() 一样:数据目录是复用的,第一次跑之后
+# root 就有口令了,再用免密 socket 登录会被拒。带着口令先试,失败再退回免密
+# (那是全新数据目录的情形)。少了这一步,第二次启动会打印一行
+# 「Access denied ... (using password: NO)」—— 实例其实好好的,但那行红字
+# 会让人以为出了事。
+setup_credentials() {
+    local sql
+    sql=$(cat <<SQL
 ALTER USER 'root'@'localhost' IDENTIFIED VIA mysql_native_password USING PASSWORD('$PASSWORD');
 CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY '$PASSWORD';
 GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;
 FLUSH PRIVILEGES;
 SQL
+)
+    MYSQL_PWD="$PASSWORD" mariadb --socket="$SOCKET" -u root -e "$sql" 2>/dev/null \
+        || mariadb --socket="$SOCKET" -u root -e "$sql"
+}
+
+setup_credentials
 
 echo
 echo "就绪:"

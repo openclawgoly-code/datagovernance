@@ -145,12 +145,13 @@ cd frontend && pnpm run build               # 前端类型检查与构建
 | `verify-p4.py` | 60 | 五个监控口径、告警抑制窗口、Webhook 真推送、审计不可变 |
 | `verify-p5.py` | 50 | Intelligence 四条契约、脱敏在落地前生效 |
 | `verify-p6-datasets.py` | 41 | 公开数据集:分区表结构探测、异构类型保真、跨方言整库迁移对照、GBK 中文文件解析 |
+| `verify-p7-concurrency.py` | 21 | 并发下执行事实不串、真实数据量取消、线程池过载归因 |
 | `verify-ui.mjs` | 82 | 真实浏览器驱动的全部页面 |
 
 它们验证的不是"接口通了",而是那些容易在重构中悄悄失效的约束。几个例子:
 
 - 数据源响应体里不存在任何口令字段;跨空间取数据返回 404 而不泄露资源是否存在
-- 取消一个正在跑的 20 万行同步,**目标库真的停止增长**
+- 取消一个工作流会**级联取消正在跑的子执行**,父子都落到已取消
 - 条件不成立时下游节点没有执行,而工作流仍然成功 —— 「没跑」不是「失败」
 - 抑制窗口内的第二条告警**仍被记录**,但 Webhook 桩收到 0 条新消息
 - 搬两行带身份证号的记录后,**目标库里查不到任何一个完整的身份证号**,而源表仍是明文
@@ -228,6 +229,49 @@ DG_SEED_MYSQL_HOST=127.0.0.1 DG_SEED_MYSQL_PASSWORD=mysql \
 跨方言那一节还顺带确认了**类型映射是保真的**:`varchar(200)` 的长度、
 `decimal(10,2)` 的精度与标度、`int` → `integer`,`track` 表全部 9 列与官方
 PG 版逐列一致。这是风险 R7 至今唯一一次有标准答案的验证。
+
+### 并发与规模验收(P7)
+
+前六份脚本每个任务都是提交一个、等它跑完、再提交下一个。那样证明不了两件事:
+并发下执行事实还对不对,以及取消在真实数据量下是否真的生效。P7 补这一段。
+
+```bash
+# 默认池子:并发与取消两节
+DG_ADMIN_PASSWORD='换成你的口令' python3 scripts/verify-p7-concurrency.py
+
+# 小池子:过载那一节(它与并发那一节要的池子配置正好相反,故二选一)
+mvn -pl backend/dg-app -am spring-boot:run \
+  -Dspring-boot.run.arguments="--dg.runtime.max-pool-size=1 --dg.runtime.queue-capacity=1"
+DG_ADMIN_PASSWORD='换成你的口令' DG_VERIFY_POOL_LIMIT=2 \
+  python3 scripts/verify-p7-concurrency.py
+```
+
+两条设计上的讲究:
+
+- **"指标写串"怎么测**:12 个任务分别搬 2000、4000…24000 行。于是"第 i 条执行
+  记录的 rowsWritten 是不是 i×2000"有唯一答案 —— 串了立刻看得见。行数还不能
+  太小:几十行的任务几十毫秒就跑完,12 个串着跑也不会重叠,那验的是"跑得快"
+  而不是"并发对"。
+- **并发上限怎么算**:不靠轮询采样(任务跑得快时可能一次都采不到 RUNNING),
+  而是把每条执行记录的 `startedAt`/`finishedAt` 摊成事件点扫一遍,得到区间
+  重叠的确切上界。这是执行事实表自己的证词,跑一万次结果都一样。
+
+**抓到第六个缺陷:线程池打满被归错了因。**
+
+`TriggerType.DISPATCH_REJECTED`(「下发被拒」)是一个**用户可配的告警规则类型**,
+而 `reject()` 此前只在"没有支持该类型的执行引擎"时被调用。线程池打满抛的
+`RejectedExecutionException` 走的是另一条 catch,落成 `SYS_INTERNAL_ERROR`,
+消息是 `提交执行失败: Task java.util.concurrent.FutureTask@36198d13[Not completed...]`。
+
+后果有两层。值班的人看到"系统内部错误"会去找开发查 bug,而真相是"队列满了,
+加机器或调大池子" —— 这正是本项目一贯区分的「环境缺口」与「平台故障」。
+更要紧的是**告警不会发**:用户配了"执行器满了就通知我",过载真发生时一条都
+收不到,因为 `DispatchRejected` 事件根本没有被发布。
+
+*修复*:在提交的 catch 里把 `RejectedExecutionException` 单独接住,走
+`rejectSubmission()` → `reject()`,落 `RTM_DISPATCH_REJECTED` 并发出事件;
+消息换成人话("执行器已满,下发被拒。当前并发已达上限…"),不再泄露 FutureTask
+的 toString。
 
 ### P1 验收(示例)
 

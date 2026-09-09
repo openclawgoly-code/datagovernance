@@ -33,6 +33,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.List;
 import java.util.Map;
 
@@ -183,6 +184,25 @@ public class ExecutionService {
                 if (engineJobId != null) {
                     self.recordEngineJobId(attemptId, engineJobId);
                 }
+            } catch (RejectedExecutionException e) {
+                // 执行器满了 —— 这是<b>容量问题,不是平台故障</b>,必须和"引擎坏了"
+                // 分开记。混在一起的代价有两个,都不小:
+                //
+                //   值班的人看到 SYS_INTERNAL_ERROR 会去找开发查 bug,而真相是
+                //   "队列满了,加机器或调大池子";
+                //
+                //   更要紧的是告警。TriggerType.DISPATCH_REJECTED(「下发被拒」)
+                //   是用户可配的告警规则类型 —— 而线程池打满正是它在真实环境里
+                //   最主要的成因。不走 reject() 就不发 DispatchRejected 事件,
+                //   于是用户配了"执行器满了就告警",过载真发生时一条都收不到。
+                //
+                // RejectedExecutionException 的 message 是 FutureTask 的 toString,
+                // 对人没有意义,所以这里自己给一句说得清的。
+                log.warn("执行器已满,下发被拒 execution={} engine={}",
+                        executionId, engine.engineKind());
+                self.rejectSubmission(attemptId,
+                        "执行器已满,下发被拒。当前并发已达上限,请稍后重试或调整 "
+                                + "dg.runtime 的池子与队列容量");
             } catch (RuntimeException e) {
                 // 引擎自己坏了(SPI 约定业务失败走回调,不抛异常)。对用户而言
                 // 结果一样是"没跑成",所以照样落终态,而不是留在 DISPATCHED
@@ -239,6 +259,27 @@ public class ExecutionService {
                 ErrorCode.SYS_INTERNAL_ERROR.code(), stackSummary(cause), null);
         if (!execution.getStatus().isTerminal()) {
             finishExecution(execution, ExecutionStatus.FAILED, "ExecutionFailed", attempt);
+        }
+    }
+
+    /**
+     * 下发被执行器拒绝 —— 与 {@link #failSubmission} 的区别只在于<b>归因</b>:
+     * 一个是容量不够(环境),一个是引擎坏了(平台)。两者都落 FAILED 终态,
+     * 但错误码与事件不同,而下游的告警规则正是按事件区分的。
+     *
+     * <p>和 failSubmission 一样在外层事务之后执行,需要自己的事务。
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void rejectSubmission(String attemptId, String reason) {
+        ExecutionAttempt attempt = attemptMapper.selectById(attemptId);
+        if (attempt == null || attempt.getStatus().isTerminal()) {
+            return;
+        }
+        Execution execution = requireExecutionInternal(attempt.getExecutionId());
+        finishAttempt(attempt, ExecutionStatus.FAILED, reason,
+                ErrorCode.RTM_DISPATCH_REJECTED.code(), null, null);
+        if (!execution.getStatus().isTerminal()) {
+            reject(execution, reason);
         }
     }
 
