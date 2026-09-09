@@ -32,7 +32,8 @@ import java.util.Objects;
  * tables:        [表名...] —— 空表示迁移整个库
  * tablePrefix:   目标表名前缀,可选
  * tableSuffix:   目标表名后缀,可选
- * lowercaseNames: 目标表名转小写,默认 false
+ * lowercaseNames: 目标表名与列名转小写,默认 false —— 只转一半的话,PostgreSQL 里
+ *                 一个建成 "Name" 的列每次查询都得带引号,等于没转
  * createTable:   是否自动建表,默认 true
  * writeMode:     APPEND | OVERWRITE
  * batchSize

@@ -144,7 +144,7 @@ cd frontend && pnpm run build               # 前端类型检查与构建
 | `verify-p3.py` | 77 | 实时保活状态机、离线开发跑真 SQL、工作流条件求值与级联取消 |
 | `verify-p4.py` | 60 | 五个监控口径、告警抑制窗口、Webhook 真推送、审计不可变 |
 | `verify-p5.py` | 50 | Intelligence 四条契约、脱敏在落地前生效 |
-| `verify-p6-datasets.py` | 32 | 公开数据集:分区表结构探测、异构类型保真、整库迁移对照、GBK 中文文件解析 |
+| `verify-p6-datasets.py` | 41 | 公开数据集:分区表结构探测、异构类型保真、跨方言整库迁移对照、GBK 中文文件解析 |
 | `verify-ui.mjs` | 82 | 真实浏览器驱动的全部页面 |
 
 它们验证的不是"接口通了",而是那些容易在重构中悄悄失效的约束。几个例子:
@@ -167,13 +167,17 @@ cd frontend && pnpm run build               # 前端类型检查与构建
 ```bash
 ./scripts/seed-public-datasets.sh            # 下载 + 灌库 + 备文件素材
 ./scripts/seed-public-datasets.sh ftp start  # 起本地只读 FTP(文件解析要用)
-DG_ADMIN_PASSWORD='换成你的口令' python3 scripts/verify-p6-datasets.py
+./scripts/start-test-mysql.sh                # 跨方言迁移要用;不起则该节整段跳过
+
+DG_ADMIN_PASSWORD='换成你的口令' \
+DG_SEED_MYSQL_HOST=127.0.0.1 DG_SEED_MYSQL_PASSWORD=mysql \
+  python3 scripts/verify-p6-datasets.py
 ```
 
 | 数据集 | 来源 | 验证什么 |
 |---|---|---|
 | Pagila | PostgreSQL 官方示例库的社区移植 | 15 张表藏在 55 个分区里;ENUM / DOMAIN / `text[]` / `tsvector` / `vector` / 生成列 |
-| Chinook | 官方同时提供 PG / MySQL / Oracle / SQLServer 四套脚本 | 整库迁移唯一有**参照答案**的形态 —— 迁完拿官方版逐表对行数与内容 |
+| Chinook | 官方同时提供 PG / MySQL / Oracle / SQLServer 四套脚本 | 整库迁移唯一有**参照答案**的形态 —— MySQL 版迁进 PostgreSQL,再拿官方 PG 版逐表逐列对答案 |
 | 健康样本 | Synthea 官方样本;取不到时本地生成同结构替身 | 中文表头 + GBK 编码 + 合法校验位的合成身份证号,走 FTP 做文件解析与脱敏 |
 
 素材全部落在 `.seed-cache/`(已 gitignore)。身份证号是本地合成的,校验位算对
@@ -181,7 +185,7 @@ DG_ADMIN_PASSWORD='换成你的口令' python3 scripts/verify-p6-datasets.py
 写在生成出来的 `PROVENANCE.txt` 里 —— 两者混在一起而无从分辨,会让后续
 所有基于它的结论都失去依据。
 
-**首次运行抓到四个缺陷,均已修复**,断言现已全绿:
+**运行至今抓到五个缺陷,均已修复**,断言现已全绿:
 
 1. **分区污染结构树,父表反而不见了。** `AbstractJdbcConnector` 的
    `BROWSABLE_TABLE_TYPES` 不含 `PARTITIONED TABLE`,而 pgjdbc 把分区父表报成
@@ -206,9 +210,24 @@ DG_ADMIN_PASSWORD='换成你的口令' python3 scripts/verify-p6-datasets.py
    *修复*:检查后发现十个编译器里只有离线同步接了这道防线。给其余全部补上
    `KNOWN_KEYS`;开发类作业(实时/离线/工作流)共用的键收在 `DevJobCompiler`,
    子类用 `extraKnownKeys()` 追加自己的。
+5. **`lowercaseNames` 只转了表名,没转列名。** 把官方 MySQL 版 Chinook(表名列名
+   都是 PascalCase)迁进 PostgreSQL,表建成了 `genre`,列却是 `"GenreId"`、`"Name"`
+   —— PostgreSQL 里不加引号的标识符会折成小写,于是 `SELECT name FROM genre`
+   直接报错。表名转了、列名没转是最难受的一种半套:用户连约定都猜不出来,
+   而平台自己的字段映射、清洗规则也全都要跟着写引号。
+   *修复*:命名规则收进 `TargetNaming`,由执行期的 `DbMigrationRunner` 与
+   「预览建表语句」的 `TableDdlController` **共用同一份实现** —— 两边各写一份
+   必然漂移,而漂移的表现是预览给你看的语句和实际建出来的表不一样。建表与
+   插入也必须共用这个开关:建成 `name` 却插入 `"Name"`,整张表一行都进不去。
+   顺手把 `toLowerCase()` 锁到 `Locale.ROOT`:土耳其语环境下 `"ID"` 会变成
+   `"ıd"`(无点 i),同一份任务换台机器就建出不同的列名。
 
-缺陷 1 另有一条不依赖公开数据集的回归测试(`PostgreSqlConnectorLiveIT` 的
-分区夹具)—— 把修复撤掉它就变红,验证过。
+缺陷 1 与 5 另有不依赖公开数据集的回归测试(`PostgreSqlConnectorLiveIT` 的
+分区夹具、`TargetNamingTest`)—— 把修复撤掉就变红,验证过。
+
+跨方言那一节还顺带确认了**类型映射是保真的**:`varchar(200)` 的长度、
+`decimal(10,2)` 的精度与标度、`int` → `integer`,`track` 表全部 9 列与官方
+PG 版逐列一致。这是风险 R7 至今唯一一次有标准答案的验证。
 
 ### P1 验收(示例)
 

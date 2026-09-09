@@ -1,5 +1,6 @@
 package com.datagov.app.controller;
 
+import com.datagov.app.runner.TargetNaming;
 import com.datagov.app.web.RequirePermission;
 import com.datagov.common.api.ApiResponse;
 import com.datagov.common.error.BizException;
@@ -120,11 +121,14 @@ public class TableDdlController {
         TableDdl.CreateTableSpec spec = new TableDdl.CreateTableSpec(
                 request.targetDatabase(), request.targetSchema(), targetTable,
                 page.columns().stream()
-                        .map(c -> new TableDdl.ColumnSpec(c.name(), c.canonicalType(),
+                        .map(c -> new TableDdl.ColumnSpec(
+                                TargetNaming.column(c.name(), request.lowercaseNames()),
+                                c.canonicalType(),
                                 c.precision(), c.scale(), c.nullable(), c.comment()))
                         .toList(),
                 page.columns().stream().filter(CatalogModel.ColumnInfo::primaryKey)
-                        .map(CatalogModel.ColumnInfo::name).toList(),
+                        .map(c -> TargetNaming.column(c.name(), request.lowercaseNames()))
+                        .toList(),
                 null,
                 request.options() == null ? Map.of() : request.options());
 
@@ -136,10 +140,8 @@ public class TableDdlController {
     }
 
     private static String applyNaming(PreviewRequest request) {
-        String prefix = request.tablePrefix() == null ? "" : request.tablePrefix();
-        String suffix = request.tableSuffix() == null ? "" : request.tableSuffix();
-        String name = prefix + request.sourceTable() + suffix;
-        return request.lowercaseNames() ? name.toLowerCase() : name;
+        return TargetNaming.table(request.sourceTable(), request.tablePrefix(),
+                request.tableSuffix(), request.lowercaseNames());
     }
 
     /**

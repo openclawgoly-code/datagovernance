@@ -68,7 +68,16 @@ public class TableCopier {
              * <p>顺序有意义:先去空格再判空,与先判空再去空格,对 {@code "  "}
              * 的结果完全不同。所以是 List 而不是 Set。
              */
-            java.util.Map<String, List<RuleInterpreter.Rule>> fieldRules
+            java.util.Map<String, List<RuleInterpreter.Rule>> fieldRules,
+
+            /**
+             * 没有显式字段映射时,目标列名是否转小写(整库迁移的 lowercaseNames)。
+             *
+             * <p><b>它必须和建表语句用同一个开关</b>:建表把列建成 {@code name}、
+             * 插入却写 {@code "Name"},整张表一行都进不去。两处分开配置迟早会
+             * 配歪,所以这里只接一个由调用方从同一个来源取出的布尔值。
+             */
+            boolean lowercaseTargetColumns
     ) {
 
         public CopySpec {
@@ -79,10 +88,11 @@ public class TableCopier {
         public CopySpec(DataSourceEntity sourceDs, String sourceDatabase, String sourceSchema,
                         String sourceTable, DataSourceEntity targetDs, String targetDatabase,
                         String targetSchema, String targetTable, java.util.Map<String, String> mappings,
-                        String writeMode, int batchSize) {
+                        String writeMode, int batchSize, boolean lowercaseTargetColumns) {
             this(sourceDs, sourceDatabase, sourceSchema, sourceTable,
                     targetDs, targetDatabase, targetSchema, targetTable,
-                    mappings, null, writeMode, batchSize, java.util.Map.of());
+                    mappings, null, writeMode, batchSize, java.util.Map.of(),
+                    lowercaseTargetColumns);
         }
 
         /** 离线同步用:带过滤条件与字段规则。 */
@@ -92,7 +102,7 @@ public class TableCopier {
                         String whereClause, String writeMode, int batchSize) {
             this(sourceDs, sourceDatabase, sourceSchema, sourceTable,
                     targetDs, targetDatabase, targetSchema, targetTable,
-                    mappings, whereClause, writeMode, batchSize, java.util.Map.of());
+                    mappings, whereClause, writeMode, batchSize, java.util.Map.of(), false);
         }
     }
 
@@ -118,7 +128,11 @@ public class TableCopier {
         if (spec.fieldMappings() == null || spec.fieldMappings().isEmpty()) {
             // 同名全字段:列名从源表实际查出来,不猜
             sourceColumns = readColumnNames(spec);
-            targetColumns = sourceColumns;
+            // 目标列名与建表语句走同一条规则(TargetNaming),否则建出来的是
+            // name、插入写的是 "Name",整张表一行都进不去
+            targetColumns = sourceColumns.stream()
+                    .map(c -> TargetNaming.column(c, spec.lowercaseTargetColumns()))
+                    .toList();
         } else {
             sourceColumns = List.copyOf(spec.fieldMappings().keySet());
             targetColumns = sourceColumns.stream().map(spec.fieldMappings()::get).toList();

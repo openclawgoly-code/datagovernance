@@ -71,7 +71,9 @@ public class OfflineSyncRunner implements JobRunner {
                 sourceDs, str(source, "database"), str(source, "schema"), str(source, "table"),
                 targetDs, str(target, "database"), str(target, "schema"), str(target, "table"),
                 mappings, str(source, "whereClause"), str(target, "writeMode"),
-                intValue(target.get("batchSize"), 1000), fieldRules), context);
+                // 离线同步的目标表是既有的,列名由用户在 fieldMappings 里指名道姓写出来,
+                // 没有"平台替你决定目标列名"这回事 —— 所以这个开关对它恒为 false
+                intValue(target.get("batchSize"), 1000), fieldRules, false), context);
 
         log.info("离线同步完成 execution={} 读{}行 写{}行",
                 context.executionId(), result.rowsRead(), result.rowsWritten());

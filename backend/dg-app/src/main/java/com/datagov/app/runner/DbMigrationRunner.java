@@ -86,6 +86,10 @@ public class DbMigrationRunner implements JobRunner {
 
         boolean createTable = Boolean.parseBoolean(String.valueOf(
                 target.getOrDefault("createTable", "true")));
+        // 表名与列名共用这一个开关,而且必须从同一处取:建表把列建成 name、
+        // 插入却写 "Name",整张表一行都进不去
+        boolean lowercase = Boolean.parseBoolean(
+                String.valueOf(naming.getOrDefault("lowercase", "false")));
         int batchSize = intValue(target.get("batchSize"), 1000);
         String writeMode = str(target, "writeMode");
 
@@ -100,12 +104,12 @@ public class DbMigrationRunner implements JobRunner {
             try {
                 if (createTable) {
                     createTargetTable(sourceDs, targetDs, source, target,
-                            table, targetTable, ddlOverrides.get(table));
+                            table, targetTable, ddlOverrides.get(table), lowercase);
                 }
                 TableCopier.CopyResult result = copier.copy(new TableCopier.CopySpec(
                         sourceDs, str(source, "database"), str(source, "schema"), table,
                         targetDs, str(target, "database"), str(target, "schema"), targetTable,
-                        null, writeMode, batchSize), context);
+                        null, writeMode, batchSize, lowercase), context);
 
                 totalRead += result.rowsRead();
                 totalWritten += result.rowsWritten();
@@ -141,7 +145,7 @@ public class DbMigrationRunner implements JobRunner {
     private void createTargetTable(DataSourceEntity sourceDs, DataSourceEntity targetDs,
                                    Map<String, Object> source, Map<String, Object> target,
                                    String sourceTable, String targetTable,
-                                   String ddlOverride) throws Exception {
+                                   String ddlOverride, boolean lowercase) throws Exception {
         ConnectionConfig targetConfig = assembler.assemble(targetDs, targetDs.getWorkspaceId());
 
         List<String> statements;
@@ -150,7 +154,7 @@ public class DbMigrationRunner implements JobRunner {
             log.info("表 {} 使用用户确认的建表语句({} 条)", targetTable, statements.size());
         } else {
             TableDdl.CreateTableSpec spec = buildSpec(sourceDs, source, target,
-                    sourceTable, targetTable);
+                    sourceTable, targetTable, lowercase);
             TableDdl.GeneratedDdl generated =
                     ddlGateway.generateCreateTable(targetDs.getType(), spec);
             statements = generated.statements();
@@ -165,18 +169,21 @@ public class DbMigrationRunner implements JobRunner {
     private TableDdl.CreateTableSpec buildSpec(DataSourceEntity sourceDs,
                                                Map<String, Object> source,
                                                Map<String, Object> target,
-                                               String sourceTable, String targetTable) {
+                                               String sourceTable, String targetTable,
+                                               boolean lowercase) {
         ConnectionConfig sourceConfig = assembler.assemble(sourceDs, sourceDs.getWorkspaceId());
         CatalogModel.CatalogPage page = gateway.browse(sourceDs.getType(), sourceConfig,
                 CatalogPath.ofTable(str(source, "database"), str(source, "schema"), sourceTable));
 
         List<TableDdl.ColumnSpec> columns = page.columns().stream()
-                .map(c -> new TableDdl.ColumnSpec(c.name(), c.canonicalType(),
+                .map(c -> new TableDdl.ColumnSpec(
+                        TargetNaming.column(c.name(), lowercase), c.canonicalType(),
                         c.precision(), c.scale(), c.nullable(), c.comment()))
                 .toList();
+        // 主键列名要跟着一起转,否则建表语句里的 PRIMARY KEY 引用不到刚建出的列
         List<String> primaryKeys = page.columns().stream()
                 .filter(CatalogModel.ColumnInfo::primaryKey)
-                .map(CatalogModel.ColumnInfo::name)
+                .map(c -> TargetNaming.column(c.name(), lowercase))
                 .toList();
 
         return new TableDdl.CreateTableSpec(
@@ -200,12 +207,10 @@ public class DbMigrationRunner implements JobRunner {
 
     /** 目标表命名规则。命名归 Metadata(功能 9 的备注),这里只是执行它。 */
     static String applyNaming(String sourceTable, Map<String, Object> naming) {
-        String prefix = naming.get("prefix") == null ? "" : naming.get("prefix").toString();
-        String suffix = naming.get("suffix") == null ? "" : naming.get("suffix").toString();
-        String name = prefix + sourceTable + suffix;
-        return Boolean.parseBoolean(String.valueOf(naming.getOrDefault("lowercase", "false")))
-                ? name.toLowerCase()
-                : name;
+        return TargetNaming.table(sourceTable,
+                naming.get("prefix") == null ? null : naming.get("prefix").toString(),
+                naming.get("suffix") == null ? null : naming.get("suffix").toString(),
+                Boolean.parseBoolean(String.valueOf(naming.getOrDefault("lowercase", "false"))));
     }
 
     /**

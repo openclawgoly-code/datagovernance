@@ -25,6 +25,7 @@
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -44,6 +45,14 @@ PG_PASSWORD = os.environ.get("DG_TEST_PG_PASSWORD", "postgres")
 DB_PAGILA = "dg_pagila"
 DB_CHINOOK = "dg_chinook"
 DB_TARGET = "dg_migrate_target"
+
+# MySQL 是可选的:没有它,跨方言迁移那一节整段跳过并说明原因。
+# 起法见 scripts/start-test-mysql.sh
+MYSQL_HOST = os.environ.get("DG_SEED_MYSQL_HOST")
+MYSQL_PORT = int(os.environ.get("DG_SEED_MYSQL_PORT", "33306"))
+MYSQL_USER = os.environ.get("DG_SEED_MYSQL_USER", "root")
+MYSQL_PASSWORD = os.environ.get("DG_SEED_MYSQL_PASSWORD", "")
+MYSQL_DB = os.environ.get("DG_SEED_MYSQL_DB", "dg_chinook")
 
 FTP_HOST = os.environ.get("DG_SEED_FTP_HOST", "127.0.0.1")
 FTP_PORT = int(os.environ.get("DG_SEED_FTP_PORT", "2121"))
@@ -95,6 +104,21 @@ def psql(sql, db):
                        capture_output=True, text=True, env=env, timeout=120)
     if r.returncode != 0:
         raise RuntimeError(f"psql 失败: {r.stderr.strip()}")
+    return r.stdout.strip()
+
+
+def mysql(sql):
+    """对测试 MySQL 执行一条查询,返回制表符分隔的裸结果。
+
+    口令走 MYSQL_PWD 环境变量而不是 -p 参数 —— 命令行参数在 ps 里人人可见。
+    """
+    env = dict(os.environ, MYSQL_PWD=MYSQL_PASSWORD)
+    client = "mariadb" if shutil.which("mariadb") else "mysql"
+    r = subprocess.run([client, "-h", MYSQL_HOST, "-P", str(MYSQL_PORT),
+                        "-u", MYSQL_USER, "-N", "-B", "-e", sql],
+                       capture_output=True, text=True, env=env, timeout=120)
+    if r.returncode != 0:
+        raise RuntimeError(f"mysql 失败: {r.stderr.strip()}")
     return r.stdout.strip()
 
 
@@ -353,11 +377,193 @@ if compiled["succeeded"]:
           f"{src_sample[:44]}…" if src_sample == dst_sample else
           f"源 {src_sample[:30]!r} vs 目标 {dst_sample[:30]!r}")
 
-if os.environ.get("DG_SEED_MYSQL_HOST"):
-    skip("MySQL → PostgreSQL 跨方言迁移", "本轮未实现该断言,MySQL 已就绪可手工验证")
-else:
+
+# ═══ 四之二、跨方言迁移:MySQL → PostgreSQL ═══════════════════════════
+# 上面那一段是 PG → PG,DialectDdl 与 TypeMappers 走的是恒等映射,错了也看不出来。
+# 真正要验的是这一段:Chinook 官方的 MySQL 版迁进 PostgreSQL,再拿官方的
+# PG 版当答案对。两份脚本由同一个上游生成,表结构语义一致而方言不同 ——
+# 这是本项目里唯一有"标准答案"的类型映射验证。
+print("\n【四之二】跨方言迁移(风险 R7)—— MySQL 版 Chinook 迁进 PostgreSQL,拿官方 PG 版对答案")
+
+if not MYSQL_HOST:
     skip("MySQL → PostgreSQL 跨方言迁移",
-         "未设置 DG_SEED_MYSQL_HOST;同构迁移验不到方言差异")
+         "未设置 DG_SEED_MYSQL_HOST;先跑 ./scripts/start-test-mysql.sh")
+else:
+    mysql_ok = True
+    try:
+        mysql_tables = dict(
+            line.split("\t") for line in mysql(
+                "SELECT table_name, table_rows FROM information_schema.tables "
+                f"WHERE table_schema='{MYSQL_DB}'").splitlines() if line.strip())
+    except Exception as e:
+        mysql_ok = False
+        skip("MySQL → PostgreSQL 跨方言迁移", f"连不上 MySQL: {e}")
+
+    if mysql_ok:
+        print(f"       MySQL 源库 {len(mysql_tables)} 张表(表名是 PascalCase:"
+              f"{', '.join(sorted(mysql_tables)[:3])}…)")
+
+        psql("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;", DB_TARGET)
+        mysql_ds = call("POST", "/datasources", {
+            "name": f"P6-MySQL-Chinook-{RUN}", "type": "MYSQL",
+            "host": MYSQL_HOST, "port": MYSQL_PORT, "databaseName": MYSQL_DB,
+            "username": MYSQL_USER,
+            "inlineSecret": {"authType": "PASSWORD", "username": MYSQL_USER,
+                             "secret": MYSQL_PASSWORD},
+        })["data"]["id"]
+        created_datasources.append(mysql_ds)
+        probe = call("POST", f"/datasources/{mysql_ds}/test")["data"]
+        check("MySQL 数据源连通", probe["success"] is True,
+              probe.get("serverVersion") or probe.get("message"))
+
+        call("GET", f"/datasources/{mysql_ds}/catalog?database={MYSQL_DB}&refresh=true")
+        call("GET", f"/datasources/{target_ds}/catalog?database={DB_TARGET}"
+                    "&schema=public&refresh=true")
+
+        # lowercaseNames:MySQL 版用 PascalCase(Track / InvoiceLine),PostgreSQL 里
+        # 不加引号的标识符会折成小写。不转的话平台要么建出带引号的 "Track"
+        # (从此每次查询都得带引号),要么两边对不上。
+        cross = call("POST", "/jobs", {
+            "name": f"P6-跨方言迁移-{RUN}", "jobType": "DB_MIGRATION",
+            "description": "MySQL 版 Chinook → PostgreSQL,拿官方 PG 版对答案",
+            "config": {
+                "sourceDataSourceId": mysql_ds, "sourceDatabase": MYSQL_DB,
+                "targetDataSourceId": target_ds, "targetDatabase": DB_TARGET,
+                "targetSchema": "public",
+                "tables": [], "createTable": True, "lowercaseNames": True,
+                "writeMode": "APPEND", "batchSize": 1000,
+            },
+            "timeoutMs": 600000,
+        })["data"]
+        created_jobs.append(cross["id"])
+
+        compiled = call("POST", f"/jobs/{cross['id']}/compile")["data"]
+        check("跨方言迁移编译通过", compiled["succeeded"], compiled["summary"])
+
+        if compiled["succeeded"]:
+            call("POST", f"/jobs/{cross['id']}/publish")
+            ex = run_job(cross["id"], seconds=420)["execution"]
+            check("跨方言迁移执行成功", ex["status"] == "SUCCEEDED",
+                  f"{ex['status']} {ex.get('message', '') or ''}"[:96])
+
+            target_now = {t: int(n) for t, n in (
+                line.split("|") for line in psql(
+                    "SELECT table_name||'|'||(xpath('/row/c/text()', query_to_xml("
+                    "  format('SELECT count(*) AS c FROM public.%I', table_name),"
+                    "  false, true, '')))[1]::text::int"
+                    " FROM information_schema.tables"
+                    " WHERE table_schema='public' AND table_type='BASE TABLE'",
+                    DB_TARGET).splitlines() if line.strip())}
+
+            # 名字归一化后再比:MySQL 版叫 InvoiceLine、PG 版叫 invoice_line,
+            # 这是两份上游脚本的命名习惯差异,不是平台的错。去掉下划线再小写,
+            # 两边就落到同一个键上。
+            def norm(name):
+                return name.replace("_", "").lower()
+
+            src_norm = {norm(t): int(n) for t, n in mysql_tables.items()}
+            dst_norm = {norm(t): n for t, n in target_now.items()}
+
+            missing = sorted(set(src_norm) - set(dst_norm))
+            check("每一张 MySQL 表都在 PostgreSQL 端建出来了", not missing,
+                  f"缺 {len(missing)} 张: {', '.join(missing[:4])}" if missing
+                  else f"{len(dst_norm)} 张")
+
+            # information_schema.table_rows 在 MySQL 上是估算值,不能直接当判据。
+            # 逐表回源数一次真实行数 —— 迁移对不对只有真实行数说了算。
+            row_mismatch = {}
+            for src_table in mysql_tables:
+                actual = int(mysql(f"SELECT COUNT(*) FROM `{MYSQL_DB}`.`{src_table}`"))
+                got = dst_norm.get(norm(src_table))
+                if got != actual:
+                    row_mismatch[src_table] = (actual, got if got is not None else "缺表")
+            check("逐表行数与 MySQL 源库一致", not row_mismatch,
+                  "; ".join(f"{t}: 源{a} 目标{b}" for t, (a, b) in list(row_mismatch.items())[:4])
+                  or f"{len(mysql_tables)} 张表全部对上")
+
+            # ── 这才是跨方言迁移真正要验的东西 ──────────────────────────
+            # 行数对上只说明搬运没漏。类型映射错了行数照样对得上,而错误要等到
+            # 下游某次插入超长字符串、或金额被四舍五入成整数时才暴露。
+            # 官方 PG 版 Chinook 就是标准答案,逐列比。
+            def columns_of(db, table):
+                rows = psql(
+                    "SELECT column_name||'|'||data_type"
+                    "||coalesce('('||character_maximum_length||')','')"
+                    "||coalesce('('||numeric_precision||','||numeric_scale||')','')"
+                    f" FROM information_schema.columns WHERE table_schema='public'"
+                    f" AND table_name='{table}' ORDER BY ordinal_position", db)
+                return {c.split("|")[0].replace("_", "").lower(): c.split("|")[1]
+                        for c in rows.splitlines() if c.strip()}
+
+            reference = columns_of(DB_CHINOOK, "track")     # 官方 PG 版 = 答案
+            migrated = columns_of(DB_TARGET, "track")       # 平台迁出来的
+            check("跨方言迁移建出了 track 表且列数一致",
+                  len(migrated) == len(reference) and len(reference) > 0,
+                  f"平台 {len(migrated)} 列 vs 官方 {len(reference)} 列")
+
+            if migrated:
+                # varchar 的长度必须保住。丢了长度(退化成 text)不会有任何报错,
+                # 但目标表从此接受任意长的字符串 —— 源端的约束被悄悄取消了。
+                check("varchar(200) 的长度保住了(没退化成 text)",
+                      migrated.get("name", "").startswith("character varying(200)"),
+                      f"track.name → {migrated.get('name')!r},官方 {reference.get('name')!r}")
+
+                # decimal(10,2) 的精度与标度必须保住。退化成 numeric 无精度还算好,
+                # 退化成 double precision 就是金额字段从此带浮点误差。
+                check("decimal(10,2) 的精度与标度保住了",
+                      migrated.get("unitprice", "").startswith("numeric(10,2)"),
+                      f"track.unit_price → {migrated.get('unitprice')!r},"
+                      f"官方 {reference.get('unitprice')!r}")
+
+                check("int 映射成 integer",
+                      migrated.get("trackid", "").startswith("integer"),
+                      f"track.track_id → {migrated.get('trackid')!r}")
+
+                # 整表逐列比对官方答案。上面三条是重点抽查,这条是兜底 ——
+                # 漏掉一列的类型退化,下游要到生产上才发现
+                diffs = {k: (reference[k], migrated.get(k, "缺列"))
+                         for k in reference if migrated.get(k) != reference[k]}
+                check("track 表全部 9 列的类型与官方 PG 版逐列一致",
+                      not diffs,
+                      "; ".join(f"{k}: 官方 {a} vs 平台 {b}"
+                                for k, (a, b) in list(diffs.items())[:3])
+                      or f"{len(reference)} 列全对")
+
+            # ── lowercaseNames 必须把列名也一起规范化 ─────────────────────
+            # PostgreSQL 里不加引号的标识符会折成小写,所以一个叫 "Name" 的列
+            # 从此每次都得写引号:SELECT name FROM genre 直接报错。
+            # 表名转了、列名没转,是最难受的一种半套 —— 用户连约定都猜不出来,
+            # 而且平台自己的字段映射、清洗规则也全都要跟着写引号。
+            migrated_cols = psql(
+                "SELECT string_agg(column_name, ',' ORDER BY ordinal_position)"
+                " FROM information_schema.columns"
+                " WHERE table_schema='public' AND table_name='genre'", DB_TARGET)
+            uppercased = [c for c in migrated_cols.split(",") if c != c.lower()]
+            check("lowercaseNames 也把列名转成小写(否则每次查询都得加引号)",
+                  not uppercased,
+                  f"仍是大小写混排: {', '.join(uppercased)}" if uppercased
+                  else migrated_cols)
+
+            # 内容抽样:跨方言最容易在字符集上出岔子。
+            # 列名按实际建出来的取并加引号 —— 上面那条断言是红是绿,
+            # 都不该影响"内容有没有被改坏"这个独立的结论。
+            name_col = psql(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_schema='public' AND table_name='genre'"
+                " AND lower(column_name)='name'", DB_TARGET)
+            id_col = psql(
+                "SELECT column_name FROM information_schema.columns"
+                " WHERE table_schema='public' AND table_name='genre'"
+                " AND lower(column_name)='genreid'", DB_TARGET)
+            src_genres = mysql(f"SELECT GROUP_CONCAT(Name ORDER BY GenreId SEPARATOR '|') "
+                               f"FROM `{MYSQL_DB}`.`Genre`")
+            dst_genres = psql(
+                f'SELECT string_agg("{name_col}", \'|\' ORDER BY "{id_col}") FROM genre',
+                DB_TARGET) if name_col and id_col else ""
+            check("抽样比对内容一致(跨方言的字符集没把内容改坏)",
+                  src_genres == dst_genres and bool(src_genres),
+                  f"{src_genres[:44]}…" if src_genres == dst_genres
+                  else f"源 {src_genres[:30]!r} vs 目标 {dst_genres[:30]!r}")
 
 
 # ═══ 五、文件解析入库:中文 + GBK + 脱敏 ═══════════════════════════════
