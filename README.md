@@ -261,6 +261,23 @@ cd .. && DG_PLAYWRIGHT_ROOT=$(npm root -g) \
   DG_ADMIN_PASSWORD='换成你的口令' node scripts/verify-ui.mjs
 ```
 
+**装不上 playwright 或浏览器版本对不上时**,两个环境变量各解一个问题:
+
+```bash
+# ① 别在 frontend 目录里装。npm 会连带解析整棵既有依赖树,
+#    里面任何一个 workspace: 协议的依赖都会让安装失败(报 Unsupported URL Type)。
+#    单开一个空目录装,再用 DG_PLAYWRIGHT_ROOT 指过去。
+mkdir -p /tmp/pw && cd /tmp/pw && npm init -y >/dev/null
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install playwright
+
+# ② playwright 把浏览器 build 号钉死在库版本上,镜像里预装的往往是别的号,
+#    于是报 Executable doesn't exist 并让你去 install —— 不允许联网下载时那条路是死的。
+#    DG_CHROMIUM_PATH 指到一个现成的 Chromium 上直接用。
+cd - && DG_PLAYWRIGHT_ROOT=/tmp/pw/node_modules \
+  DG_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome \
+  DG_ADMIN_PASSWORD='换成你的口令' node scripts/verify-ui.mjs
+```
+
 它覆盖登录跳转、后端下发的菜单渲染、数据源列表与目录树、结构浏览抽屉的逐层下钻,
 以及一条重要的架构约束在界面上的体现:**表单结构由 `capabilities` 决定而非类型判断**
 —— 选 RestAPI 出现「接口地址」、选 MySQL 出现「主机/端口/库名」并自动填 3306。

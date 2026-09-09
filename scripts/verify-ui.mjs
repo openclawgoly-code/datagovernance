@@ -55,7 +55,21 @@ async function closeDialog(page) {
   await page.locator('.el-overlay-dialog').first().waitFor({ state: 'hidden', timeout: 10000 })
 }
 
-const browser = await chromium.launch()
+/**
+ * 浏览器可执行文件。
+ *
+ * 默认让 playwright 自己找它下载的那一份。但 playwright 把浏览器版本<b>钉死在
+ * 库版本上</b> —— 库升一个小版本就要求另一个 build 号的 Chromium,而 CI 镜像
+ * 里预装的往往是别的号,于是报「Executable doesn't exist」并让你去 install。
+ * 在不允许联网下载浏览器的环境里那条路是死的。
+ *
+ * DG_CHROMIUM_PATH 就是为此留的口子:指到一个现成的 Chromium 上直接用。
+ * 版本对不上的风险由使用者承担 —— 但"用一个版本略有出入的浏览器跑完 82 条
+ * 断言",远好过"一条都跑不了"。
+ */
+const browser = await chromium.launch(
+  process.env.DG_CHROMIUM_PATH ? { executablePath: process.env.DG_CHROMIUM_PATH } : {},
+)
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
 
 const consoleErrors = []

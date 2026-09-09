@@ -32,8 +32,13 @@ SOCKET="/run/mysqld/mysqld.sock"
 PIDFILE="/run/mysqld/mysqld.pid"
 LOGFILE="/var/log/mysql/dgtest.log"
 
+# 两种认证都要试。首次启动前 root 走 unix_socket 免密,而本脚本末尾会给它设上
+# 口令 —— 只试免密的话,<b>第二次运行会认定实例没起来</b>,然后去启动第二个
+# mariadbd、绑同一个端口失败,最后报"启动失败",而实例其实好好地在跑。
 running() {
-    [ -S "$SOCKET" ] && mariadb --socket="$SOCKET" -u root -e 'SELECT 1' >/dev/null 2>&1
+    [ -S "$SOCKET" ] || return 1
+    MYSQL_PWD="$PASSWORD" mariadb --socket="$SOCKET" -u root -e 'SELECT 1' >/dev/null 2>&1 \
+        || mariadb --socket="$SOCKET" -u root -e 'SELECT 1' >/dev/null 2>&1
 }
 
 case "${1:-start}" in
