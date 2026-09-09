@@ -155,7 +155,18 @@ public class ExecutionService {
         attempt.setCreatedAt(now);
         attemptMapper.insert(attempt);
 
-        transitionTo(execution, ExecutionStatus.DISPATCHED, "DispatchExecution");
+        // 只有<b>首次</b>下发才迁状态。重试不改变 Execution 的状态,它只新增一次
+        // attempt —— 这是 ExecutionLifecycle.retryable 那段说明的直接推论,也是 R4
+        // 要求的:重试若另起一条 Execution,序号 24 的「执行总数」会被重试次数污染。
+        //
+        // 少了这个判断,重投时执行还停在 DISPATCHED 或 RUNNING 上,再迁一次就成了
+        // 状态机不认的自环,checkTransition 抛 409。而这个异常发生在调度线程里,
+        // 被 RetryScheduler 的 catch 吞掉 —— <b>于是重试从来没有成功过一次</b>,
+        // 表面上却什么都看不出来:执行既没落终态也没人在跑,一直挂到超时清扫工
+        // 把它扫成 TIMEOUT,真正的失败原因被那句「执行超时」盖掉。
+        if (execution.getStatus() == ExecutionStatus.PENDING) {
+            transitionTo(execution, ExecutionStatus.DISPATCHED, "DispatchExecution");
+        }
         execution.setAttemptCount(attemptNo);
         executionMapper.updateById(execution);
 
@@ -377,14 +388,39 @@ public class ExecutionService {
     }
 
     @Transactional
-    public void onFailed(String attemptId, String message, String errorCode, String detail) {
+    public void onFailed(String attemptId, String message, String errorCode, String detail,
+                         boolean unsafeToRetry) {
         ExecutionAttempt attempt = requireAttempt(attemptId);
         Execution execution = requireExecutionInternal(attempt.getExecutionId());
 
+        DispatchCommand.RetryPolicy policy = readRetryPolicy(execution);
+
+        // ────────────────────────────────────────────────────────────────
+        // 已经落下不可撤销写入的尝试<b>不再重投</b>。
+        //
+        // 写入是分批提交的,而重投的是整个任务 —— runner 从源端第一行重新读起。
+        // APPEND 模式下,第一次尝试提交过的行会在第二次尝试里再插一遍:重试 3 次
+        // 就是三份。任务最终报 FAILED,用户看到的是"任务失败了",不会想到失败的
+        // 任务还往目标表里塞了三份数据 —— 而这是数据治理平台最不该犯的错。
+        //
+        // 这不是"重试有害",是"重试对某些写入模式有害":OVERWRITE 每次开写前先
+        // 清表,重投幂等;连不上目标库、认证过期、源端超时这些失败一行都没写。
+        // 那些情形 runner 不会置这个旗标,重试照旧。判断由 runner 做 —— 只有它
+        // 看得见 writeMode,而 Runtime 不该知道什么是 writeMode(Space 边界)。
+        // ────────────────────────────────────────────────────────────────
+        if (unsafeToRetry && policy.allowsRetry(attempt.getAttemptNo())) {
+            String note = "本次尝试已向目标端提交了部分数据,重投会重复写入,"
+                    + "因此不再重试(剩余 %d 次重试机会已放弃)。"
+                    .formatted(policy.maxAttempts() - attempt.getAttemptNo())
+                    + "请先清理目标端已写入的数据再手工重跑,或把写入模式改为 OVERWRITE";
+            log.warn("已落盘的尝试不再重投 execution={} 第{}次尝试",
+                    execution.getId(), attempt.getAttemptNo());
+            message = message == null ? note : message + " / " + note;
+        }
+
         finishAttempt(attempt, ExecutionStatus.FAILED, message, errorCode, detail, null);
 
-        DispatchCommand.RetryPolicy policy = readRetryPolicy(execution);
-        if (policy.allowsRetry(attempt.getAttemptNo())) {
+        if (!unsafeToRetry && policy.allowsRetry(attempt.getAttemptNo())) {
             long backoff = policy.backoffMillisAfter(attempt.getAttemptNo());
             log.info("执行失败将重试 execution={} 第{}次尝试后等待{}ms",
                     execution.getId(), attempt.getAttemptNo(), backoff);
@@ -878,12 +914,45 @@ public class ExecutionService {
                 execution.getJobName(), execution.getDefVersion(), readPlan(execution),
                 readRetryPolicy(execution), execution.getTimeoutMs(),
                 execution.getParentExecutionId(), "RETRY", execution.getTriggeredBy());
-        // 状态此刻是 DISPATCHED 或 RUNNING(上一次尝试失败没有改动 Execution 状态),
-        // startAttempt 会重新走一遍下发
-        if (execution.getStatus() == ExecutionStatus.RUNNING) {
-            execution.setStatus(ExecutionStatus.DISPATCHED);
-        }
+        // 状态此刻是 DISPATCHED 或 RUNNING —— 上一次尝试失败没有改动 Execution。
+        // 这里<b>不要</b>把它按回 DISPATCHED:startAttempt 已经只在 PENDING 时才迁,
+        // 而按回去反倒制造出 DISPATCHED -> DISPATCHED 这个自环。新尝试真的起来时,
+        // onStarted 会把还停在 DISPATCHED 的执行迁到 RUNNING;已经是 RUNNING 的
+        // 它会跳过,不必在这里代劳。
         startAttempt(execution, command);
+    }
+
+    /**
+     * 重投没送出去 —— 把执行落到终态,而不是留给超时清扫工去捡。
+     *
+     * <p>不这么做的代价是隐蔽的:重投失败时执行还停在 DISPATCHED / RUNNING 上,
+     * 而引擎那边一个线程都没有。它会一直"在跑",直到 timeoutMs 到点被扫成 TIMEOUT
+     * —— 默认超时是小时级的,于是用户盯着一个早就死了的任务等一小时,最后拿到的
+     * 还是一句"执行超时",<b>真正的失败原因(上一次尝试的报错)被这句话盖掉了</b>。
+     *
+     * <p>要自己的事务:调用它的是调度线程,外层那个事务已经因异常回滚了。
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void failRetryDelivery(String executionId, String reason) {
+        Execution execution = executionMapper.selectById(executionId);
+        if (execution == null || execution.getStatus().isTerminal()) {
+            return;
+        }
+        ExecutionAttempt last = attemptMapper.selectOne(
+                new LambdaQueryWrapper<ExecutionAttempt>()
+                        .eq(ExecutionAttempt::getExecutionId, executionId)
+                        .orderByDesc(ExecutionAttempt::getAttemptNo)
+                        .last("limit 1"));
+        if (last == null) {
+            reject(execution, reason);
+            return;
+        }
+        // 保留上一次尝试的报错作为执行的 message —— 那才是用户要看的东西;
+        // "重投失败"只是它没能被重试的原因,补在后面。
+        last.setMessage(truncate(
+                (last.getMessage() == null ? "" : last.getMessage() + " / ") + reason,
+                MAX_MESSAGE_LENGTH));
+        finishExecution(execution, ExecutionStatus.FAILED, "ExecutionFailed", last);
     }
 
     /** 带租户校验的取用 —— 对外接口一律走这个 */

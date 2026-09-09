@@ -41,8 +41,19 @@ public class RetryScheduler {
             try {
                 executionService.retryNow(event.executionId());
             } catch (RuntimeException e) {
-                // 重投本身失败不能把调度线程带走 —— 它还要为别的执行服务
+                // 重投本身失败不能把调度线程带走 —— 它还要为别的执行服务。
+                // 但也<b>不能只记一行日志就算了</b>:此刻执行还停在 DISPATCHED /
+                // RUNNING 上,引擎那边却一个线程都没有。没人再来动它,它会一直
+                // "在跑"到 timeoutMs 到点被扫成 TIMEOUT —— 用户等的是小时级的
+                // 时间,拿到的还是一句盖掉了真实原因的"执行超时"。
                 log.error("重试投递失败 execution={}", event.executionId(), e);
+                try {
+                    executionService.failRetryDelivery(event.executionId(),
+                            "重试投递失败: " + e.getMessage());
+                } catch (RuntimeException fallback) {
+                    log.error("重试投递失败后落终态也失败了 execution={}",
+                            event.executionId(), fallback);
+                }
             }
         }, runAt);
 

@@ -75,8 +75,14 @@ public interface ExecutionEngine {
         /**
          * @param errorCode 归一化的错误分类,不是引擎原始错误码
          * @param detail    引擎原始报错,可以很长,由 Runtime 负责截断
+         * @param unsafeToRetry 本次尝试是否已经提交了<b>重投会重复</b>的写入。
+         *                      true 时 Runtime 不再重投 —— 重投会把已落盘的行
+         *                      再写一遍,而任务最终还是失败的,用户看到的是
+         *                      "任务失败了",不会想到它顺手往目标表塞了三份数据。
+         *                      引擎报不出这个事实时填 false(等于维持原来的行为)
          */
-        void onFailed(String attemptId, String message, String errorCode, String detail);
+        void onFailed(String attemptId, String message, String errorCode, String detail,
+                      boolean unsafeToRetry);
 
         /** 取消已经生效 */
         void onCanceled(String attemptId);

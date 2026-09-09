@@ -59,8 +59,9 @@ public class EngineRegistry {
             }
 
             @Override
-            public void onFailed(String attemptId, String message, String errorCode, String detail) {
-                executionService.onFailed(attemptId, message, errorCode, detail);
+            public void onFailed(String attemptId, String message, String errorCode, String detail,
+                                 boolean unsafeToRetry) {
+                executionService.onFailed(attemptId, message, errorCode, detail, unsafeToRetry);
             }
 
             @Override

@@ -686,6 +686,11 @@ defineExpose({ open })
         <span class="text-muted" style="margin: 0 8px">次(含首次),退避</span>
         <el-input-number v-model="form.retryBackoffSeconds" :min="0" :max="3600" :step="10" />
         <span class="text-muted" style="margin-left: 8px">秒起,每次翻倍</span>
+        <div class="text-muted" style="margin-top: 4px; line-height: 1.6">
+          连不上、认证失败这类"一行都没写"的失败会照常重试。
+          若已经有数据写进目标端才失败,平台<b>不会</b>重投 ——
+          重投会把已落盘的行再写一遍。要让重试在任何情况下都生效,把写入模式设为 OVERWRITE。
+        </div>
       </el-form-item>
 
       <el-form-item label="任务目录">

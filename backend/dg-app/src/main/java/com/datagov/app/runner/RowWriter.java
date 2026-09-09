@@ -3,6 +3,7 @@ package com.datagov.app.runner;
 import com.datagov.data.spi.ConnectionConfig;
 import com.datagov.metadata.entity.DataSourceEntity;
 import com.datagov.metadata.service.ConnectionConfigAssembler;
+import com.datagov.runtime.engine.JobRunner;
 import com.datagov.runtime.rule.RuleInterpreter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,7 +49,8 @@ public class RowWriter {
     public Session open(DataSourceEntity targetDs, String database, String schema, String table,
                         List<String> sourceFields, List<String> targetColumns,
                         Map<String, List<RuleInterpreter.Rule>> fieldRules,
-                        String writeMode, int batchSize) throws SQLException {
+                        String writeMode, int batchSize,
+                        JobRunner.RunContext context) throws SQLException {
         Connection connection = open(targetDs);
         try {
             connection.setAutoCommit(false);
@@ -72,7 +74,8 @@ public class RowWriter {
                     .formatted(qualified, columnList, placeholders);
 
             return new Session(connection, connection.prepareStatement(insertSql),
-                    sourceFields, fieldRules, batchSize);
+                    sourceFields, fieldRules, batchSize,
+                    TableCopier.idempotentWriteMode(writeMode) ? null : context);
         } catch (SQLException e) {
             closeQuietly(connection);
             throw e;
@@ -94,6 +97,8 @@ public class RowWriter {
         private final List<RuleInterpreter.Rule>[] rulesByColumn;
         private final boolean anyRules;
         private final int batchSize;
+        /** 非幂等写入模式下才有值 —— 每次 commit 之后要声明"重投会写重" */
+        private final JobRunner.RunContext unsafeToRetryContext;
 
         private long rowsWritten;
         private int pendingInBatch;
@@ -101,11 +106,13 @@ public class RowWriter {
         @SuppressWarnings("unchecked")
         private Session(Connection connection, PreparedStatement statement,
                         List<String> sourceFields,
-                        Map<String, List<RuleInterpreter.Rule>> fieldRules, int batchSize) {
+                        Map<String, List<RuleInterpreter.Rule>> fieldRules, int batchSize,
+                        JobRunner.RunContext unsafeToRetryContext) {
             this.connection = connection;
             this.statement = statement;
             this.sourceFields = sourceFields;
             this.batchSize = Math.max(1, batchSize);
+            this.unsafeToRetryContext = unsafeToRetryContext;
 
             // 规则链按列序展开:每行每列查一次 Map 是可观的开销,
             // 而这个循环会跑几百万次
@@ -151,6 +158,11 @@ public class RowWriter {
         private void flush() throws SQLException {
             int[] results = statement.executeBatch();
             connection.commit();
+            // 与 TableCopier.flush 同一条规矩:提交成功的那一刻就声明出去,
+            // 因为从这一刻起重投会把这一批再写一遍。标在提交点,不标在异常处。
+            if (unsafeToRetryContext != null) {
+                unsafeToRetryContext.markUnsafeToRetry();
+            }
             statement.clearBatch();
             for (int result : results) {
                 // SUCCESS_NO_INFO(-2)表示成功但驱动不报行数 —— 按 1 计

@@ -89,7 +89,8 @@ public class ApiParseRunner implements JobRunner {
         long rowsRead = 0;
         try (RowWriter.Session session = rowWriter.open(targetDs, str(target, "database"),
                 str(target, "schema"), str(target, "table"), sourceFields, targetColumns,
-                fieldRules, str(target, "writeMode"), intValue(target.get("batchSize"), 1000))) {
+                fieldRules, str(target, "writeMode"), intValue(target.get("batchSize"), 1000),
+                context)) {
 
             rowsRead = fetchAll(client, config, source, session, context);
             long written = session.finish();

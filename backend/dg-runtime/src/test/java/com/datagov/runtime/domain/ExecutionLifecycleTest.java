@@ -51,6 +51,24 @@ class ExecutionLifecycleTest {
     }
 
     @Test
+    @DisplayName("重试不迁状态:DISPATCHED / RUNNING 都回不到 DISPATCHED")
+    void retryMustNotReDispatch() {
+        // 这条断言记的是一个真出过的缺陷。重试原本会再走一遍 PENDING -> DISPATCHED
+        // 那段迁移,而重投时执行早就不在 PENDING 上了 —— 于是每一次重试都在调度
+        // 线程里抛 409,被日志吞掉。表面上什么都看不出来:执行既没落终态也没人在跑,
+        // 一直挂到超时清扫工把它扫成 TIMEOUT,真正的失败原因被"执行超时"盖掉。
+        //
+        // 状态机这一侧是对的,错的是调用方。把它钉在这里,是为了让下一个想在
+        // startAttempt 里无条件迁状态的人先看见红。
+        assertThat(ExecutionLifecycle.MACHINE.canTransition(DISPATCHED, DISPATCHED)).isFalse();
+        assertThat(ExecutionLifecycle.MACHINE.canTransition(RUNNING, DISPATCHED)).isFalse();
+        // 正确的做法见 ExecutionLifecycle.retryable 的说明:重试只新增一次 attempt,
+        // Execution 停在原处
+        assertThat(ExecutionLifecycle.retryable(FAILED)).isTrue();
+        assertThat(ExecutionLifecycle.retryable(TIMEOUT)).isTrue();
+    }
+
+    @Test
     @DisplayName("还没下发就取消,直接落终态,不必等任何人回话")
     void cancelBeforeDispatchIsImmediate() {
         assertThat(ExecutionLifecycle.MACHINE.canTransition(PENDING, CANCELED)).isTrue();

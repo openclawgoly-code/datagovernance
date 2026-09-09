@@ -61,12 +61,16 @@ public class LocalExecutionEngine implements ExecutionEngine {
             // 走到这里说明 EngineRegistry 的路由与本引擎的能力声明不一致。
             // 直接回报失败而不是抛异常:SPI 约定业务失败走回调。
             callback.onFailed(task.attemptId(),
-                    "本地引擎不支持 " + task.jobRefType(), "RTM_EXECUTOR_UNAVAILABLE", null);
+                    "本地引擎不支持 " + task.jobRefType(), "RTM_EXECUTOR_UNAVAILABLE", null,
+                    false);      // 根本没跑,更谈不上写入
             return null;
         }
 
         String engineJobId = "local-" + task.attemptId();
         AtomicBoolean canceled = new AtomicBoolean(false);
+        // runner 在第一次真正 commit 时把它置上。放在这里而不是 RunContext 里面,
+        // 是因为异常路径要在 run() 返回<b>之后</b>读它 —— context 那时已经出栈了。
+        AtomicBoolean unsafeToRetry = new AtomicBoolean(false);
 
         Future<?> future = pool.submit(() -> {
             try {
@@ -74,7 +78,8 @@ public class LocalExecutionEngine implements ExecutionEngine {
                 JobRunner.RunContext context = new JobRunner.RunContext(
                         task.executionId(), task.attemptId(), task.workspaceId(),
                         task.plan(), canceled::get,
-                        metric -> callback.onProgress(task.attemptId(), metric));
+                        metric -> callback.onProgress(task.attemptId(), metric),
+                        () -> unsafeToRetry.set(true));
 
                 JobRunner.RunResult result = runner.run(context);
 
@@ -93,7 +98,7 @@ public class LocalExecutionEngine implements ExecutionEngine {
                 log.warn("作业执行失败 execution={} type={}",
                         task.executionId(), task.jobRefType(), e);
                 callback.onFailed(task.attemptId(), rootMessage(e),
-                        runner.classify(e), summarize(e));
+                        runner.classify(e), summarize(e), unsafeToRetry.get());
             } finally {
                 running.remove(engineJobId);
             }

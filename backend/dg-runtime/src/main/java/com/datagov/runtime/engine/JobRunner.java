@@ -41,6 +41,7 @@ public interface JobRunner {
      * @param canceled 协作取消旗。<b>长循环必须定期查它</b> —— 线程中断对
      *                 阻塞在 JDBC 上的调用基本无效,主动退出是唯一可靠的路径
      * @param progress 进度回报。实现方自行节流,不要每行都调
+     * @param unsafeToRetrySink 见 {@link #markUnsafeToRetry()}
      */
     record RunContext(
             String executionId,
@@ -48,11 +49,35 @@ public interface JobRunner {
             String workspaceId,
             Map<String, Object> plan,
             BooleanSupplier canceled,
-            Consumer<ExecutionEngine.EngineMetric> progress
+            Consumer<ExecutionEngine.EngineMetric> progress,
+            Runnable unsafeToRetrySink
     ) {
 
         public boolean isCanceled() {
             return canceled.getAsBoolean();
+        }
+
+        /**
+         * 声明本次尝试已经<b>提交</b>了重投会重复的写入。
+         *
+         * <p>为什么需要它:写入是分批提交的(几百万行不可能攒在一个事务里),
+         * 而重试重投的是<b>整个任务</b> —— runner 从源端第一行重新读起,它没有
+         * 断点。于是 APPEND 模式下第一次尝试提交过的行,会在第二次尝试里再插一遍。
+         * 任务最终报 FAILED,目标表里却躺着几份重复数据。
+         *
+         * <p>调用它之后,这次失败就不再重投(Runtime 侧据此决定),失败原因里
+         * 会说明为什么。
+         *
+         * <p><b>什么时候<u>不</u>该调</b>:写入本身幂等的时候。OVERWRITE 每次开写前
+         * 先清空目标表,重投多少次结果都一样 —— 禁掉它的重试是白白的损失。连不上
+         * 目标库、认证过期、源端超时这些失败一行都没写,更不该调:重试正是为它们
+         * 准备的。
+         *
+         * <p>该在<b>第一次真正 commit 的地方</b>调,不是在抛异常的地方 ——
+         * 后者要求每个 runner 都记得包一层,总会有人漏,而漏掉的后果是静默写重。
+         */
+        public void markUnsafeToRetry() {
+            unsafeToRetrySink.run();
         }
 
         /** 取消时抛出,让调用栈直接退出。由引擎翻译成 onCanceled。 */

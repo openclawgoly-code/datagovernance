@@ -213,7 +213,7 @@ public class TableCopier {
                     pendingInBatch++;
 
                     if (pendingInBatch >= spec.batchSize()) {
-                        rowsWritten += flush(write, writeConn);
+                        rowsWritten += flush(write, writeConn, spec, context);
                         pendingInBatch = 0;
                     }
                     if (rowsRead % PROGRESS_INTERVAL == 0) {
@@ -223,20 +223,39 @@ public class TableCopier {
                 }
             }
             if (pendingInBatch > 0) {
-                rowsWritten += flush(write, writeConn);
+                rowsWritten += flush(write, writeConn, spec, context);
             }
         } catch (SQLException | RuntimeException e) {
             // 回滚未提交的那一批。已提交的批次留在目标端 —— 这是 APPEND 语义的
             // 固有代价,不假装能做到全或无。要原子性就用 OVERWRITE。
             rollbackQuietly(writeConn);
+            // 把失败<b>之前</b>已经提交的行数报上去。不报的话这次尝试的 rowsWritten
+            // 是空的,界面上"失败的任务到底写进去多少行"永远是个问号 —— 而这恰恰是
+            // 出事后第一个要问的问题:目标端现在有多少脏数据要清。
+            try {
+                context.progress().accept(
+                        new ExecutionEngine.EngineMetric(rowsRead, rowsWritten, 0));
+            } catch (RuntimeException ignored) {
+                // 报进度本身失败了也不能盖掉原来的异常 —— 那才是用户要看的原因。
+                // 少了这个 catch,一次数据库抖动会把"CHECK 约束违例"变成一句
+                // 与现场无关的报错。
+                log.warn("失败时回报已写入行数没成功 execution={}", context.executionId());
+            }
             throw e;
         }
         return new CopyResult(rowsRead, rowsWritten);
     }
 
-    private long flush(PreparedStatement write, Connection writeConn) throws SQLException {
+    private long flush(PreparedStatement write, Connection writeConn,
+                       CopySpec spec, JobRunner.RunContext context) throws SQLException {
         int[] results = write.executeBatch();
         writeConn.commit();
+        // 提交成功的这一刻起,重投就会把这一批再写一遍 —— 立刻声明出去。
+        // 标在<b>提交点</b>而不是抛异常的地方:后者要求每条失败路径都记得标,
+        // 总会漏一条,而漏掉的后果是静默写重。
+        if (!idempotentWriteMode(spec.writeMode())) {
+            context.markUnsafeToRetry();
+        }
         write.clearBatch();
         long written = 0;
         for (int result : results) {
@@ -297,6 +316,21 @@ public class TableCopier {
             sql.append(" WHERE ").append(spec.whereClause());
         }
         return sql.toString();
+    }
+
+    /**
+     * 这种写入模式重投一次,会不会把已提交的行写重。
+     *
+     * <p>只有 OVERWRITE 是幂等的 —— 它每次开写前 DELETE 整表,重投多少次目标端
+     * 都是同一份数据。
+     *
+     * <p><b>UPSERT 不在幂等之列,尽管它本该在。</b>{@link #buildInsert} 生成的是
+     * 一条普通 INSERT,没有 ON CONFLICT / ON DUPLICATE KEY / MERGE —— 也就是说
+     * 这一版的 UPSERT 跑出来其实是 APPEND(编译期会校验主键,执行期却不用它)。
+     * 等它真按主键覆盖之后,再把它挪到幂等那一侧来。
+     */
+    static boolean idempotentWriteMode(String writeMode) {
+        return "OVERWRITE".equals(writeMode);
     }
 
     private String buildInsert(CopySpec spec, List<String> columns) {
