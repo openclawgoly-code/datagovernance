@@ -73,7 +73,10 @@ public class OfflineSyncRunner implements JobRunner {
                 mappings, str(source, "whereClause"), str(target, "writeMode"),
                 // 离线同步的目标表是既有的,列名由用户在 fieldMappings 里指名道姓写出来,
                 // 没有"平台替你决定目标列名"这回事 —— 所以这个开关对它恒为 false
-                intValue(target.get("batchSize"), 1000), fieldRules, false), context);
+                intValue(target.get("batchSize"), 1000), fieldRules, false,
+                // UPSERT 用的主键。编译期已经校验过它在目标表里、且出现在映射的
+                // 目标端;这里只负责把它带到执行侧
+                stringList(target.get("primaryKeys"))), context);
 
         log.info("离线同步完成 execution={} 读{}行 写{}行",
                 context.executionId(), result.rowsRead(), result.rowsWritten());
@@ -85,6 +88,14 @@ public class OfflineSyncRunner implements JobRunner {
         // 区分"目标端的问题"与"平台的问题":值班的人第一件事就是判断
         // 该找 DBA 还是找开发
         return e instanceof SQLException ? "DAT_QUERY_FAILED" : "SYS_INTERNAL_ERROR";
+    }
+
+    /** 计划里的字符串数组。手工改过的计划可能给成别的形状,一律按空处理。 */
+    private static List<String> stringList(Object raw) {
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream().filter(java.util.Objects::nonNull).map(String::valueOf).toList();
     }
 
     private DataSourceEntity requireDataSource(String id, String label) {

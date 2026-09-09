@@ -1,6 +1,7 @@
 package com.datagov.control.compile;
 
 import com.datagov.control.domain.JobType;
+import com.datagov.data.spi.DataSourceType;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -26,7 +27,8 @@ import java.util.Map;
  * sourceDataSourceId, sourceDatabase, sourceSchema, sourceTable
  * targetDataSourceId, targetDatabase, targetSchema, targetTable
  * fieldMappings: { 源字段: 目标字段 }
- * writeMode:     APPEND | OVERWRITE(UPSERT 见 UNIMPLEMENTED_WRITE_MODES)
+ * writeMode:     APPEND | OVERWRITE | UPSERT
+ * primaryKeys:   UPSERT 判断「这行已存在」所依据的目标表列名
  * whereClause:   增量同步的过滤条件,可选
  * batchSize:     写入批次
  * </pre>
@@ -38,32 +40,14 @@ public class OfflineSyncCompiler implements JobCompiler {
     private static final java.util.Set<String> KNOWN_KEYS = java.util.Set.of(
             "sourceDataSourceId", "sourceDatabase", "sourceSchema", "sourceTable",
             "targetDataSourceId", "targetDatabase", "targetSchema", "targetTable",
-            "fieldMappings", "fieldRules", "whereClause", "writeMode", "batchSize");
+            "fieldMappings", "fieldRules", "whereClause", "writeMode", "batchSize",
+            "primaryKeys");
 
     /** 写入批次的默认值与上限。批次过大时一次失败要回滚的数据量也大。 */
     static final int DEFAULT_BATCH_SIZE = 1000;
     static final int MAX_BATCH_SIZE = 50_000;
 
-    private static final List<String> WRITE_MODES = List.of("APPEND", "OVERWRITE");
-
-    /**
-     * 界面上曾经给过、执行侧其实没实现的写入模式。
-     *
-     * <p>单独列出来而不是从 {@link #WRITE_MODES} 里一删了事,是为了能给一句说得清的
-     * 错。混在一起的话用户看到的是"写入模式无效: UPSERT",他会以为自己拼错了,
-     * 而真相是平台没实现。
-     *
-     * <p><b>UPSERT 的实情</b>:{@code TableCopier.buildInsert} 生成的是一条普通
-     * INSERT,没有 ON CONFLICT / ON DUPLICATE KEY / MERGE。编译期校验主键、执行期
-     * 不用它 —— 跑出来其实是 APPEND,插入重复行而不是按主键更新。这比报错坏得多:
-     * 用户配的是"按主键更新",拿到的是一张越跑越大的表,而且没有任何提示。
-     *
-     * <p>要实现它,除了逐方言的 SQL(PostgreSQL 的 ON CONFLICT、MySQL/Doris 的
-     * ON DUPLICATE KEY、Oracle/SQLServer/达梦的 MERGE),编译期还要把这两条校验
-     * 加回来:主键字段必须存在于目标表;主键必须出现在字段映射的目标端(否则插入
-     * 时它是 NULL,永远匹配不上)。
-     */
-    private static final List<String> UNIMPLEMENTED_WRITE_MODES = List.of("UPSERT");
+    private static final List<String> WRITE_MODES = List.of("APPEND", "OVERWRITE", "UPSERT");
 
     @Override
     public JobType jobType() {
@@ -109,7 +93,8 @@ public class OfflineSyncCompiler implements JobCompiler {
         CompilerSupport.validateFieldMappings(collector, sourceColumns, targetColumns,
                 mappings, "fieldMappings");
 
-        String writeMode = validateWriteMode(collector, config);
+        String writeMode = validateWriteMode(collector, config, mappings, targetColumns,
+                context.metadata().dataSourceType(workspaceId, targetDs));
         int batchSize = validateBatchSize(collector, config);
         validateFieldRules(collector, config, mappings);
 
@@ -126,26 +111,21 @@ public class OfflineSyncCompiler implements JobCompiler {
      * <p>把"没实现"和"填错了"分开报:两者对用户的下一步动作完全不同 —— 前者要
      * 换一种模式,后者要改拼写。
      */
-    private String validateWriteMode(CompileResult.Collector collector, Map<String, Object> config) {
+    private String validateWriteMode(CompileResult.Collector collector, Map<String, Object> config,
+                                     Map<String, String> mappings, Map<String, String> targetColumns,
+                                     DataSourceType targetType) {
         String writeMode = str(config, "writeMode");
         if (writeMode == null || writeMode.isBlank()) {
             writeMode = "APPEND";
-        }
-        if (UNIMPLEMENTED_WRITE_MODES.contains(writeMode)) {
-            // 宁可在这里报错,也不能让它默默跑成 APPEND。见
-            // UNIMPLEMENTED_WRITE_MODES 的说明:配的是"按主键更新",跑出来是
-            // "插入重复行",而且没有任何提示 —— 这比编译失败坏得多。
-            collector.error(CompileStage.STRUCTURAL_VALIDATION, "writeMode",
-                    "本版本尚未实现 UPSERT 写入模式",
-                    "执行侧生成的是普通 INSERT,跑起来其实是 APPEND,会插入重复行而不是"
-                            + "按主键更新。请改用 OVERWRITE(每次整表覆盖),或用 APPEND "
-                            + "配合目标表上的唯一约束由数据库去挡重复");
-            return writeMode;
         }
         if (!WRITE_MODES.contains(writeMode)) {
             collector.error(CompileStage.STRUCTURAL_VALIDATION, "writeMode",
                     "写入模式无效: " + writeMode, "可选值: " + String.join(" / ", WRITE_MODES));
             return writeMode;
+        }
+
+        if ("UPSERT".equals(writeMode)) {
+            validateUpsertKeys(collector, config, mappings, targetColumns, targetType);
         }
 
         if ("OVERWRITE".equals(writeMode)) {
@@ -154,6 +134,55 @@ public class OfflineSyncCompiler implements JobCompiler {
                     "确认目标表没有其它来源的数据,否则它们会一并被删除");
         }
         return writeMode;
+    }
+
+    /**
+     * UPSERT 的主键校验。
+     *
+     * <p>三条都要,少一条就会在执行期才炸,而那时候已经写进去一部分数据了:
+     * <ol>
+     *   <li><b>必须有主键</b> —— 没有主键的"按主键更新"是一句自相矛盾的话;</li>
+     *   <li><b>主键必须在目标表里</b> —— 拼错一个列名,语句连语法都过不去;</li>
+     *   <li><b>主键必须出现在字段映射的目标端</b> —— 不写它,插入时它是 NULL,
+     *       "这行是否已存在"永远判成否,UPSERT 退化成 APPEND。这一条最隐蔽:
+     *       语句合法、任务成功、数据是错的。</li>
+     * </ol>
+     */
+    private void validateUpsertKeys(CompileResult.Collector collector, Map<String, Object> config,
+                                    Map<String, String> mappings, Map<String, String> targetColumns,
+                                    DataSourceType targetType) {
+        List<String> keys = stringList(config, "primaryKeys");
+        if (keys.isEmpty()) {
+            collector.error(CompileStage.STRUCTURAL_VALIDATION, "primaryKeys",
+                    "UPSERT 模式必须指定主键字段",
+                    "改用 APPEND,或补上用于判断记录是否已存在的字段");
+            return;
+        }
+        for (String key : keys) {
+            if (!targetColumns.isEmpty() && !targetColumns.containsKey(key)) {
+                collector.error(CompileStage.SCHEMA_VALIDATION, "primaryKeys." + key,
+                        "目标表没有主键字段「%s」".formatted(key));
+            } else if (!mappings.containsValue(key)) {
+                // 主键不在映射里,插入时它会是 NULL,UPSERT 永远匹配不上
+                collector.error(CompileStage.SCHEMA_VALIDATION, "primaryKeys." + key,
+                        "主键字段「%s」没有出现在字段映射的目标端".formatted(key),
+                        "UPSERT 靠主键判断记录是否存在,它必须有值可写");
+            }
+        }
+
+        // 方言的实情在这里说出来,而不是等到执行期看日志。两条最容易翻车的:
+        //   Doris/StarRocks 没有 upsert 语法,靠的是表模型;
+        //   PostgreSQL 的 ON CONFLICT 认约束,这几列上没有唯一约束就直接报错。
+        if (targetType == DataSourceType.DORIS || targetType == DataSourceType.STARROCKS) {
+            collector.warn(CompileStage.STRUCTURAL_VALIDATION, "writeMode",
+                    "%s 没有 UPSERT 语法,按主键覆盖由表模型保证".formatted(targetType.displayName()),
+                    "目标表必须建成 UNIQUE KEY(Doris)或主键模型(StarRocks);"
+                            + "建成明细模型的话,写几遍就留几份");
+        } else if (targetType == DataSourceType.POSTGRESQL) {
+            collector.warn(CompileStage.STRUCTURAL_VALIDATION, "primaryKeys",
+                    "PostgreSQL 的 ON CONFLICT 依赖目标表上真实存在的主键或唯一约束",
+                    "这几列上没有约束时执行会直接报错(42P10),不会退化成普通插入");
+        }
     }
 
     /**
@@ -230,9 +259,11 @@ public class OfflineSyncCompiler implements JobCompiler {
         target.put("schema", str(config, "targetSchema"));
         target.put("table", str(config, "targetTable"));
         target.put("writeMode", writeMode);
-        // 不再写 primaryKeys:离线同步的计划里没有任何消费者会读它(UPSERT 一停,
-        // 它就是纯粹的死数据),而计划里躺着一个没人用的字段,会让下一个读代码的人
-        // 以为 UPSERT 是通的。实现 UPSERT 时连同 stringList 一起加回来。
+        // 只有 UPSERT 会读它。别的模式下写一个空数组进计划,等于告诉读计划的人
+        // "这里本来该有主键" —— 而其实没有这回事
+        if ("UPSERT".equals(writeMode)) {
+            target.put("primaryKeys", stringList(config, "primaryKeys"));
+        }
         target.put("batchSize", batchSize);
         plan.put("target", target);
 
@@ -258,5 +289,13 @@ public class OfflineSyncCompiler implements JobCompiler {
         ((Map<Object, Object>) map).forEach((k, v) ->
                 result.put(String.valueOf(k), v == null ? null : String.valueOf(v)));
         return result;
+    }
+
+    private static List<String> stringList(Map<String, Object> config, String key) {
+        Object raw = config.get(key);
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream().filter(java.util.Objects::nonNull).map(String::valueOf).toList();
     }
 }

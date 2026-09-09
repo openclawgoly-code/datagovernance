@@ -51,7 +51,15 @@ public class RowWriter {
                         Map<String, List<RuleInterpreter.Rule>> fieldRules,
                         String writeMode, int batchSize,
                         JobRunner.RunContext context) throws SQLException {
-        TableCopier.requireSupportedWriteMode(writeMode);
+        // 文件解析与接口解析不支持 UPSERT。不是"没实现方言语句"(DialectUpsert
+        // 就在那儿),是这两种任务的配置里没有主键这个概念 —— 编译器不收
+        // primaryKeys,也就无从判断"这行已存在"。真要支持,得先在那两个编译器
+        // 里把主键校验加起来,而不是在这里凑一个默认值。
+        if ("UPSERT".equals(writeMode)) {
+            throw new IllegalArgumentException(
+                    "文件解析与接口解析不支持 UPSERT 写入模式(它们的配置里没有主键),"
+                            + "请改用 APPEND 或 OVERWRITE");
+        }
         Connection connection = open(targetDs);
         try {
             connection.setAutoCommit(false);

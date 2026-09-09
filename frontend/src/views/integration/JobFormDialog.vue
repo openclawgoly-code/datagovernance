@@ -62,6 +62,7 @@ const syncConfig = reactive({
   writeMode: 'APPEND',
   batchSize: 1000,
   whereClause: '',
+  primaryKeys: [] as string[],
 })
 
 /** 字段映射用行数组编辑,提交时转成对象 —— 对象在表单里没法增删行 */
@@ -183,6 +184,7 @@ async function open(
       writeMode: str(config.writeMode) || 'APPEND',
       batchSize: Number(config.batchSize ?? 1000),
       whereClause: str(config.whereClause),
+      primaryKeys: Array.isArray(config.primaryKeys) ? (config.primaryKeys as string[]) : [],
     })
     const mappings = (config.fieldMappings ?? {}) as Record<string, string>
     mappingRows.value = Object.entries(mappings).map(([source, target]) => ({ source, target }))
@@ -440,28 +442,33 @@ defineExpose({ open })
           <el-radio-group v-model="syncConfig.writeMode">
             <el-radio value="APPEND">追加</el-radio>
             <el-radio value="OVERWRITE">覆盖(先清空目标表)</el-radio>
-            <el-radio value="UPSERT" disabled>按主键更新(本版本未实现)</el-radio>
+            <el-radio value="UPSERT">按主键更新</el-radio>
           </el-radio-group>
           <div v-if="syncConfig.writeMode === 'OVERWRITE'" class="text-muted">
             会在写入前清空目标表 —— 确认它没有其它来源的数据。
           </div>
+          <div v-if="syncConfig.writeMode === 'UPSERT'" class="text-muted">
+            同一主键写第二遍是覆盖而不是新增,所以这种模式下重跑是安全的。
+            目标表必须在这几列上有主键或唯一约束(Doris/StarRocks 则要建成 UNIQUE KEY /
+            主键模型),否则要么报错、要么不去重。
+          </div>
         </el-form-item>
-        <!--
-          只有从库里读出来的老任务才可能是 UPSERT —— 选项已置灰,新建选不到。
-          不把它悄悄改成 APPEND:那等于替用户做了一个会改变数据的决定。
-        -->
-        <el-alert
-          v-if="syncConfig.writeMode === 'UPSERT'"
-          type="error"
-          :closable="false"
-          show-icon
-          title="这个任务用的是尚未实现的 UPSERT 写入模式"
-          style="margin-bottom: 18px"
-        >
-          执行侧生成的是普通 INSERT,跑起来会插入重复行而不是按主键更新,所以编译会
-          直接报错。请改为「覆盖」(每次整表重写),或改为「追加」并在目标表上加唯一约束,
-          由数据库去挡重复。
-        </el-alert>
+        <el-form-item v-if="syncConfig.writeMode === 'UPSERT'" label="主键字段">
+          <el-select
+            v-model="syncConfig.primaryKeys"
+            multiple
+            filterable
+            allow-create
+            placeholder="输入目标表的主键字段名"
+            style="width: 100%"
+          >
+            <el-option v-for="k in syncConfig.primaryKeys" :key="k" :label="k" :value="k" />
+          </el-select>
+          <div class="text-muted">
+            填<b>目标表</b>的列名 —— 字段映射两端可以不同名。它必须出现在下面映射的
+            目标端,否则插入时是 NULL,永远匹配不上,UPSERT 会退化成追加。
+          </div>
+        </el-form-item>
 
         <el-divider content-position="left">字段映射</el-divider>
         <el-form-item label="映射">

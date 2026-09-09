@@ -1,6 +1,7 @@
 package com.datagov.control.service;
 
 import com.datagov.control.compile.JobCompiler;
+import com.datagov.data.spi.DataSourceType;
 import com.datagov.metadata.domain.DataSourceStatus;
 import com.datagov.metadata.entity.DataSourceEntity;
 import com.datagov.metadata.mapper.DataSourceMapper;
@@ -18,7 +19,7 @@ import java.util.Map;
  * <p>它是 Control 与 Metadata 之间<b>唯一</b>的接触点。集中在一处的价值:
  * 要回答"编译期都读了 Metadata 的什么"这个问题时,只看这一个类,而不必翻遍编译器。
  *
- * <p>注意它只读,而且只读三样东西。Control 的 must_not_do 里没有明写"不得写
+ * <p>注意它只读,而且只读四样东西。Control 的 must_not_do 里没有明写"不得写
  * Metadata",但 H.3 的禁止边里有 —— 编译一次不该改变任何定义的状态。
  */
 @Component
@@ -46,6 +47,12 @@ public class MetadataLookupAdapter implements JobCompiler.MetadataLookup {
         // 拿不到就回显 ID。报错里出现一个 ID 总好过出现 "null" ——
         // 至少运维还能拿它去查。
         return entity == null ? dataSourceId : entity.getName();
+    }
+
+    @Override
+    public DataSourceType dataSourceType(String workspaceId, String dataSourceId) {
+        DataSourceEntity entity = load(workspaceId, dataSourceId);
+        return entity == null ? null : entity.getType();
     }
 
     @Override

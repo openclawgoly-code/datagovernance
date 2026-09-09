@@ -1,5 +1,6 @@
 package com.datagov.app.runner;
 
+import com.datagov.data.connector.ddl.DialectUpsert;
 import com.datagov.data.spi.ConnectionConfig;
 import com.datagov.data.spi.DataSourceType;
 import com.datagov.metadata.entity.DataSourceEntity;
@@ -77,11 +78,20 @@ public class TableCopier {
              * 插入却写 {@code "Name"},整张表一行都进不去。两处分开配置迟早会
              * 配歪,所以这里只接一个由调用方从同一个来源取出的布尔值。
              */
-            boolean lowercaseTargetColumns
+            boolean lowercaseTargetColumns,
+
+            /**
+             * UPSERT 判断"这行已存在"所依据的<b>目标表</b>列名。
+             *
+             * <p>是目标端的列名而不是源端的:UPSERT 语句写的是目标表,而字段映射
+             * 两端可以不同名。其它写入模式下这个字段为空,不参与语句生成。
+             */
+            List<String> primaryKeys
     ) {
 
         public CopySpec {
             fieldRules = fieldRules == null ? java.util.Map.of() : java.util.Map.copyOf(fieldRules);
+            primaryKeys = primaryKeys == null ? List.of() : List.copyOf(primaryKeys);
         }
 
         /** 整库迁移用:同名全字段,无过滤,不套规则。 */
@@ -92,7 +102,7 @@ public class TableCopier {
             this(sourceDs, sourceDatabase, sourceSchema, sourceTable,
                     targetDs, targetDatabase, targetSchema, targetTable,
                     mappings, null, writeMode, batchSize, java.util.Map.of(),
-                    lowercaseTargetColumns);
+                    lowercaseTargetColumns, List.of());
         }
 
         /** 离线同步用:带过滤条件与字段规则。 */
@@ -102,7 +112,8 @@ public class TableCopier {
                         String whereClause, String writeMode, int batchSize) {
             this(sourceDs, sourceDatabase, sourceSchema, sourceTable,
                     targetDs, targetDatabase, targetSchema, targetTable,
-                    mappings, whereClause, writeMode, batchSize, java.util.Map.of(), false);
+                    mappings, whereClause, writeMode, batchSize, java.util.Map.of(), false,
+                    List.of());
         }
     }
 
@@ -141,10 +152,8 @@ public class TableCopier {
             throw new IllegalStateException("源表 %s 没有可复制的字段".formatted(spec.sourceTable()));
         }
 
-        requireSupportedWriteMode(spec.writeMode());
-
         String selectSql = buildSelect(spec, sourceColumns);
-        String insertSql = buildInsert(spec, targetColumns);
+        String insertSql = buildWrite(spec, targetColumns);
 
         try (Connection readConn = open(spec.sourceDs());
              Connection writeConn = open(spec.targetDs())) {
@@ -323,38 +332,42 @@ public class TableCopier {
     /**
      * 这种写入模式重投一次,会不会把已提交的行写重。
      *
-     * <p>只有 OVERWRITE 是幂等的 —— 它每次开写前 DELETE 整表,重投多少次目标端
-     * 都是同一份数据。
-     *
-     * <p><b>UPSERT 不在幂等之列,尽管它本该在。</b>{@link #buildInsert} 生成的是
-     * 一条普通 INSERT,没有 ON CONFLICT / ON DUPLICATE KEY / MERGE —— 也就是说
-     * 这一版的 UPSERT 跑出来其实是 APPEND(编译期会校验主键,执行期却不用它)。
-     * 等它真按主键覆盖之后,再把它挪到幂等那一侧来。
+     * <p>两种是幂等的,各有各的理由:
+     * <ul>
+     *   <li><b>OVERWRITE</b> —— 每次开写前 DELETE 整表,重投多少次目标端都是同一份;</li>
+     *   <li><b>UPSERT</b> —— 同一主键写第二遍是覆盖而不是新增,所以整批重放一遍
+     *       结果不变。这一条<b>依赖 {@link DialectUpsert} 真的生成了 upsert 语句</b>:
+     *       它曾经生成的是普通 INSERT,那时候 UPSERT 跑出来其实是 APPEND,
+     *       放在幂等这一侧就会让重试静默写重。改这里之前先看那边。</li>
+     * </ul>
      */
     static boolean idempotentWriteMode(String writeMode) {
-        return "OVERWRITE".equals(writeMode);
+        return "OVERWRITE".equals(writeMode) || "UPSERT".equals(writeMode);
     }
 
     /**
-     * 拦住执行侧没实现的写入模式。
+     * 写入语句。UPSERT 走方言生成,其余两种是同一条普通 INSERT。
      *
-     * <p>编译期已经拦过一道({@code OfflineSyncCompiler}),这里是第二道 ——
-     * 而且是不能省的一道:<b>已经发布的任务跑的是存下来的物理计划,不会再过
-     * 编译器</b>。少了它,这次改动之前建的 UPSERT 任务会照旧静默跑成 APPEND,
-     * 而那正是要修掉的东西。手工改过计划的也一样。
+     * <p>三种模式共用一条 PreparedStatement 与同一套批量提交:参数顺序恒等于
+     * {@code columns},{@link DialectUpsert} 把六种方言都安排成了这个形状。
+     * 否则这里要按方言分支绑参数,而那是必然出错的地方。
      */
-    static void requireSupportedWriteMode(String writeMode) {
-        if ("UPSERT".equals(writeMode)) {
-            throw new IllegalArgumentException(
-                    "本版本尚未实现 UPSERT 写入模式:执行侧生成的是普通 INSERT,"
-                            + "跑起来会插入重复行而不是按主键更新。请把任务的写入模式"
-                            + "改为 OVERWRITE 或 APPEND 后重新发布");
-        }
-    }
-
-    private String buildInsert(CopySpec spec, List<String> columns) {
+    private String buildWrite(CopySpec spec, List<String> columns) {
         String table = qualified(spec.targetDs(), spec.targetDatabase(),
                 spec.targetSchema(), spec.targetTable());
+
+        if ("UPSERT".equals(spec.writeMode())) {
+            DialectUpsert.UpsertStatement statement = DialectUpsert.generate(
+                    spec.targetDs().getType(), table, columns, spec.primaryKeys());
+            // warning 记在日志里而不是丢掉:它们说的是"语句合法但结果未必如你所想"
+            // (最要紧的一条是 Doris 的目标表必须建成 UNIQUE KEY 模型),
+            // 而这类事只在出问题之后才有人回来翻日志。
+            for (String warning : statement.warnings()) {
+                log.warn("UPSERT 写入 {}: {}", table, warning);
+            }
+            return statement.sql();
+        }
+
         String columnList = columns.stream().map(c -> quote(spec.targetDs(), c))
                 .reduce((a, b) -> a + ", " + b).orElseThrow();
         String placeholders = String.join(", ", Collections.nCopies(columns.size(), "?"));

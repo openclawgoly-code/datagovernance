@@ -114,7 +114,7 @@ def wait_terminal(execution_id, seconds=300):
     return detail
 
 
-def make_job(name, target_table, write_mode, retry_attempts):
+def make_job(name, target_table, write_mode, retry_attempts, primary_keys=None):
     job = call("POST", "/jobs", {
         "name": name, "jobType": "OFFLINE_SYNC",
         "config": {
@@ -124,6 +124,7 @@ def make_job(name, target_table, write_mode, retry_attempts):
             "targetSchema": SCHEMA, "targetTable": target_table,
             "fieldMappings": {"id": "id", "title": "title"},
             "writeMode": write_mode, "batchSize": BATCH,
+            **({"primaryKeys": primary_keys} if primary_keys else {}),
         },
         "timeoutMs": 300000,
         "retryMaxAttempts": retry_attempts,
@@ -165,23 +166,31 @@ created_datasources.append(ds)
 call("POST", f"/datasources/{ds}/test")
 
 
-def target_with_check(name):
-    """目标表 = 源表结构 + 一条拒绝 BAD_ID 的 CHECK。"""
+def target_with_check(name, primary_key=False):
+    """目标表 = 源表结构 + 一条拒绝 BAD_ID 的 CHECK。
+
+    primary_key:UPSERT 那一节要的 —— ON CONFLICT 认的是真实存在的约束,
+    没有主键它会直接报 42P10 而不是走更新分支。
+    """
+    pk = ", PRIMARY KEY (id)" if primary_key else ""
+    null = " NOT NULL" if primary_key else ""
     psql(f"DROP TABLE IF EXISTS {SCHEMA}.{name}; "
          f"CREATE TABLE {SCHEMA}.{name} ("
-         f"  id int, title text, CONSTRAINT {name}_ck CHECK (id <> {BAD_ID}))")
+         f"  id int{null}, title text, "
+         f"  CONSTRAINT {name}_ck CHECK (id <> {BAD_ID}){pk})")
     return name
 
 
 dst_append = target_with_check(f"p8_dst_append_{RUN}")
 dst_overwrite = target_with_check(f"p8_dst_over_{RUN}")
+dst_upsert = target_with_check(f"p8_dst_upsert_{RUN}", primary_key=True)
 dst_clean = f"p8_dst_clean_{RUN}"
 psql(f"DROP TABLE IF EXISTS {SCHEMA}.{dst_clean}; "
      f"CREATE TABLE {SCHEMA}.{dst_clean} (id int, title text)")
 
 # 编译要读源表与目标表的<b>列</b>结构,模式级浏览只列表名 —— 必须逐表探一次
 call("GET", f"/datasources/{ds}/catalog?database={PG_DB}&schema={SCHEMA}&refresh=true")
-for t in (src, dst_append, dst_overwrite, dst_clean):
+for t in (src, dst_append, dst_overwrite, dst_upsert, dst_clean):
     call("GET", f"/datasources/{ds}/catalog?database={PG_DB}&schema={SCHEMA}&table={t}")
 
 
@@ -274,6 +283,35 @@ check("OVERWRITE 重投多次,目标表里依然没有重复行",
       f"{total3} 行 / {distinct3} 个 id")
 
 
+# ═══ 四、UPSERT 同样幂等,重试也应照旧 ═════════════════════════════════
+# UPSERT 是第二种幂等的写入模式:同一主键写第二遍是覆盖而不是新增,所以整批
+# 重放一遍结果不变。这一节是 TableCopier.idempotentWriteMode() 把它算作幂等的
+# 现场依据 —— 它曾经生成的是普通 INSERT(那时 UPSERT 跑出来其实是 APPEND),
+# 若哪天又退回那样,这一节会红:目标表里会出现重复的 id。
+print(f"\n【四】UPSERT 写到一半失败 —— 同主键重写是覆盖,重投幂等,重试应照旧")
+
+job4 = make_job(f"P8-UPSERT-{RUN}", dst_upsert, "UPSERT", MAX_ATTEMPTS,
+                primary_keys=["id"])
+execution4 = call("POST", f"/jobs/{job4}/run")["data"]["id"]
+detail4 = wait_terminal(execution4)
+exec4 = detail4["execution"]
+
+total4 = int(psql(f"SELECT count(*) FROM {SCHEMA}.{dst_upsert}"))
+distinct4 = int(psql(f"SELECT count(DISTINCT id) FROM {SCHEMA}.{dst_upsert}"))
+print(f"       尝试 {exec4.get('attemptCount')} 次,"
+      f"目标表 {total4} 行 / {distinct4} 个不同 id")
+
+check("执行最终失败", exec4["status"] == "FAILED", exec4["status"])
+check(f"UPSERT 的重试没有被误伤,尝试满 {MAX_ATTEMPTS} 次",
+      exec4.get("attemptCount") == MAX_ATTEMPTS,
+      f"实际尝试 {exec4.get('attemptCount')} 次 —— "
+      f"停在 1 说明它被当成了非幂等写入")
+check("UPSERT 重投多次,目标表里依然没有重复行",
+      total4 == distinct4 and total4 > 0,
+      f"{total4} 行 / {distinct4} 个 id"
+      + ("" if total4 == distinct4 else " —— 退化成 INSERT 了"))
+
+
 # ═══ 清理 ═════════════════════════════════════════════════════════════
 print("\n清理…")
 for job_id in created_jobs:
@@ -283,6 +321,7 @@ for ds_id in created_datasources:
 psql(f"DROP TABLE IF EXISTS {SCHEMA}.{src}; "
      f"DROP TABLE IF EXISTS {SCHEMA}.{dst_append}; "
      f"DROP TABLE IF EXISTS {SCHEMA}.{dst_overwrite}; "
+     f"DROP TABLE IF EXISTS {SCHEMA}.{dst_upsert}; "
      f"DROP TABLE IF EXISTS {SCHEMA}.{dst_clean};")
 
 print("\n" + "=" * 78)

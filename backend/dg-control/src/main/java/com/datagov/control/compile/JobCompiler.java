@@ -2,6 +2,7 @@ package com.datagov.control.compile;
 
 import com.datagov.control.domain.JobType;
 import com.datagov.control.entity.ControlEntities.JobDefinition;
+import com.datagov.data.spi.DataSourceType;
 
 import java.util.Map;
 
@@ -66,5 +67,17 @@ public interface JobCompiler {
          */
         Map<String, String> tableColumns(String workspaceId, String dataSourceId,
                                          String database, String schema, String table);
+
+        /**
+         * 数据源的类型(方言)。
+         *
+         * <p>编译期要它做什么:同一份配置在不同方言上的<b>结果</b>可能不同,而不只是
+         * 语法不同。最典型的是 UPSERT —— Doris/StarRocks 没有 upsert 语法,按主键
+         * 覆盖靠的是表模型,目标表若建成了明细模型,任务会成功、数据会重复,
+         * 没有任何报错。这类事必须在保存任务时就说出来。
+         *
+         * @return 拿不到数据源时返回 null
+         */
+        DataSourceType dataSourceType(String workspaceId, String dataSourceId);
     }
 }
