@@ -141,6 +141,8 @@ public class TableCopier {
             throw new IllegalStateException("源表 %s 没有可复制的字段".formatted(spec.sourceTable()));
         }
 
+        requireSupportedWriteMode(spec.writeMode());
+
         String selectSql = buildSelect(spec, sourceColumns);
         String insertSql = buildInsert(spec, targetColumns);
 
@@ -331,6 +333,23 @@ public class TableCopier {
      */
     static boolean idempotentWriteMode(String writeMode) {
         return "OVERWRITE".equals(writeMode);
+    }
+
+    /**
+     * 拦住执行侧没实现的写入模式。
+     *
+     * <p>编译期已经拦过一道({@code OfflineSyncCompiler}),这里是第二道 ——
+     * 而且是不能省的一道:<b>已经发布的任务跑的是存下来的物理计划,不会再过
+     * 编译器</b>。少了它,这次改动之前建的 UPSERT 任务会照旧静默跑成 APPEND,
+     * 而那正是要修掉的东西。手工改过计划的也一样。
+     */
+    static void requireSupportedWriteMode(String writeMode) {
+        if ("UPSERT".equals(writeMode)) {
+            throw new IllegalArgumentException(
+                    "本版本尚未实现 UPSERT 写入模式:执行侧生成的是普通 INSERT,"
+                            + "跑起来会插入重复行而不是按主键更新。请把任务的写入模式"
+                            + "改为 OVERWRITE 或 APPEND 后重新发布");
+        }
     }
 
     private String buildInsert(CopySpec spec, List<String> columns) {

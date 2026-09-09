@@ -299,7 +299,13 @@ detail1 = wait_terminal(exec1["id"], 60)
 check("任务如期失败(告警的触发源)", detail1["execution"]["status"] == "FAILED",
       detail1["execution"]["status"])
 
-alert1 = wait_alert(lambda a: a.get("executionId") == exec1["id"])
+# 认告警要<b>连规则一起认</b>,不能只认执行 ID。同一次失败可以触发多条规则 ——
+# 工作区里但凡还有一条「任务失败就通知」的规则(比如 seed-demo-data.py 灌的演示
+# 规则,它指着一个不可达的地址),就会为同一个执行再产生一条推送失败的告警。
+# 只按 executionId 挑,挑到哪一条要看列表顺序:这个脚本因此红过一次,而被测的
+# 那条规则其实好好的。下面那条 scoped_alert 一开始就是这么写的,这里补齐。
+alert1 = wait_alert(
+    lambda a: a["ruleId"] == rule["id"] and a.get("executionId") == exec1["id"])
 check("执行失败触发了告警", alert1 is not None,
       alert1["title"] if alert1 else "30 秒内没等到")
 check("告警状态是「已通知」", alert1 and alert1["status"] == "NOTIFIED",
@@ -338,7 +344,8 @@ check("窗口拉大之前已经有一条推送成功的同源告警(它将成为
 before_hook2 = len(received)
 exec2 = call("POST", f"/jobs/{fail_job['id']}/run")["data"]
 wait_terminal(exec2["id"], 60)
-alert2 = wait_alert(lambda a: a.get("executionId") == exec2["id"])
+alert2 = wait_alert(
+    lambda a: a["ruleId"] == rule["id"] and a.get("executionId") == exec2["id"])
 check("窗口内的同源告警<b>仍然被记录</b> —— 没有静默丢弃",
       alert2 is not None, alert2["id"] if alert2 else "没等到")
 check("但它的状态是「已抑制」,不是「已通知」",

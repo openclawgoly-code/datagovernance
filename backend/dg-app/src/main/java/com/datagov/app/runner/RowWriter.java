@@ -51,6 +51,7 @@ public class RowWriter {
                         Map<String, List<RuleInterpreter.Rule>> fieldRules,
                         String writeMode, int batchSize,
                         JobRunner.RunContext context) throws SQLException {
+        TableCopier.requireSupportedWriteMode(writeMode);
         Connection connection = open(targetDs);
         try {
             connection.setAutoCommit(false);

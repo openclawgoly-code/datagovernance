@@ -526,6 +526,49 @@ check("规则挂在未映射字段上被拦(编译期)",
       and any("不在字段映射里" in d["message"] for d in bad_compile["diagnostics"]),
       bad_compile["summary"])
 
+# ── 没实现的写入模式必须在编译期挡住 ──────────────────────────────────
+# UPSERT 曾经是可选项:编译期校验主键,执行期却生成一条普通 INSERT ——
+# 跑出来是 APPEND,插入重复行而不是按主键更新。用户配的是「按主键更新」,
+# 拿到的是一张越跑越大的表,而且没有任何提示。宁可编译失败。
+#
+# 两条断言要分开:光验"编译失败"不够 —— 若报的是「写入模式无效: UPSERT」,
+# 用户会以为自己拼错了,而真相是平台没实现。这两句话指向完全不同的下一步动作。
+upsert_job = call("POST", "/jobs", {
+    "name": f"P2-UPSERT-{RUN}", "jobType": "OFFLINE_SYNC",
+    "config": {
+        "sourceDataSourceId": ds_id, "sourceDatabase": PG_DB,
+        "sourceSchema": "dg_probe_schema", "sourceTable": rule_src,
+        "targetDataSourceId": ds_id, "targetDatabase": PG_DB,
+        "targetSchema": "dg_probe_schema", "targetTable": rule_dst,
+        "fieldMappings": {"id": "id"}, "writeMode": "UPSERT",
+    },
+})["data"]
+upsert_compile = call("POST", f"/jobs/{upsert_job['id']}/compile")["data"]
+check("UPSERT 写入模式在编译期被拦(而不是默默跑成 APPEND)",
+      not upsert_compile["succeeded"]
+      and any("尚未实现" in d["message"] for d in upsert_compile["diagnostics"]),
+      upsert_compile["summary"])
+check("拦 UPSERT 的理由说的是「没实现」,不是「填错了」",
+      any("尚未实现" in d["message"] and "UPSERT" in d["message"]
+          for d in upsert_compile["diagnostics"]),
+      "; ".join(d["message"] for d in upsert_compile["diagnostics"])[:140])
+
+typo_job = call("POST", "/jobs", {
+    "name": f"P2-写入模式拼错-{RUN}", "jobType": "OFFLINE_SYNC",
+    "config": {
+        "sourceDataSourceId": ds_id, "sourceDatabase": PG_DB,
+        "sourceSchema": "dg_probe_schema", "sourceTable": rule_src,
+        "targetDataSourceId": ds_id, "targetDatabase": PG_DB,
+        "targetSchema": "dg_probe_schema", "targetTable": rule_dst,
+        "fieldMappings": {"id": "id"}, "writeMode": "APPPEND",
+    },
+})["data"]
+typo_compile = call("POST", f"/jobs/{typo_job['id']}/compile")["data"]
+check("真拼错的写入模式报的是「无效」并列出可选值",
+      not typo_compile["succeeded"]
+      and any("写入模式无效" in d["message"] for d in typo_compile["diagnostics"]),
+      typo_compile["summary"])
+
 call("POST", f"/jobs/{rule_job['id']}/publish")
 rule_exec = call("POST", f"/jobs/{rule_job['id']}/run")["data"]
 for _ in range(60):
@@ -552,6 +595,8 @@ check("被引用的规则不许删(否则任务会在凌晨的调度里找不到
 
 # 解除引用后就能删了
 call("DELETE", f"/jobs/{bad_rule_job['id']}")
+call("DELETE", f"/jobs/{upsert_job['id']}")
+call("DELETE", f"/jobs/{typo_job['id']}")
 call("DELETE", f"/jobs/{rule_job['id']}")
 after_release = call("GET", f"/rules/{trim_rule['id']}")["data"]
 check("任务删除后引用计数归零", (after_release.get("referenceCount") or 0) == 0,

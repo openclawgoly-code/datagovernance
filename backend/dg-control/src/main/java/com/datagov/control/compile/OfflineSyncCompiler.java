@@ -26,7 +26,7 @@ import java.util.Map;
  * sourceDataSourceId, sourceDatabase, sourceSchema, sourceTable
  * targetDataSourceId, targetDatabase, targetSchema, targetTable
  * fieldMappings: { 源字段: 目标字段 }
- * writeMode:     APPEND | OVERWRITE | UPSERT
+ * writeMode:     APPEND | OVERWRITE(UPSERT 见 UNIMPLEMENTED_WRITE_MODES)
  * whereClause:   增量同步的过滤条件,可选
  * batchSize:     写入批次
  * </pre>
@@ -44,7 +44,26 @@ public class OfflineSyncCompiler implements JobCompiler {
     static final int DEFAULT_BATCH_SIZE = 1000;
     static final int MAX_BATCH_SIZE = 50_000;
 
-    private static final List<String> WRITE_MODES = List.of("APPEND", "OVERWRITE", "UPSERT");
+    private static final List<String> WRITE_MODES = List.of("APPEND", "OVERWRITE");
+
+    /**
+     * 界面上曾经给过、执行侧其实没实现的写入模式。
+     *
+     * <p>单独列出来而不是从 {@link #WRITE_MODES} 里一删了事,是为了能给一句说得清的
+     * 错。混在一起的话用户看到的是"写入模式无效: UPSERT",他会以为自己拼错了,
+     * 而真相是平台没实现。
+     *
+     * <p><b>UPSERT 的实情</b>:{@code TableCopier.buildInsert} 生成的是一条普通
+     * INSERT,没有 ON CONFLICT / ON DUPLICATE KEY / MERGE。编译期校验主键、执行期
+     * 不用它 —— 跑出来其实是 APPEND,插入重复行而不是按主键更新。这比报错坏得多:
+     * 用户配的是"按主键更新",拿到的是一张越跑越大的表,而且没有任何提示。
+     *
+     * <p>要实现它,除了逐方言的 SQL(PostgreSQL 的 ON CONFLICT、MySQL/Doris 的
+     * ON DUPLICATE KEY、Oracle/SQLServer/达梦的 MERGE),编译期还要把这两条校验
+     * 加回来:主键字段必须存在于目标表;主键必须出现在字段映射的目标端(否则插入
+     * 时它是 NULL,永远匹配不上)。
+     */
+    private static final List<String> UNIMPLEMENTED_WRITE_MODES = List.of("UPSERT");
 
     @Override
     public JobType jobType() {
@@ -90,7 +109,7 @@ public class OfflineSyncCompiler implements JobCompiler {
         CompilerSupport.validateFieldMappings(collector, sourceColumns, targetColumns,
                 mappings, "fieldMappings");
 
-        String writeMode = validateWriteMode(collector, config, mappings, targetColumns);
+        String writeMode = validateWriteMode(collector, config);
         int batchSize = validateBatchSize(collector, config);
         validateFieldRules(collector, config, mappings);
 
@@ -104,40 +123,29 @@ public class OfflineSyncCompiler implements JobCompiler {
     /**
      * 校验写入模式。
      *
-     * <p>UPSERT 需要主键 —— 没有主键的"按主键更新"是一句自相矛盾的话,而目标端
-     * 对它的反应通常是全表扫描后逐行比对,慢到像是挂住了。
+     * <p>把"没实现"和"填错了"分开报:两者对用户的下一步动作完全不同 —— 前者要
+     * 换一种模式,后者要改拼写。
      */
-    private String validateWriteMode(CompileResult.Collector collector, Map<String, Object> config,
-                                     Map<String, String> mappings, Map<String, String> targetColumns) {
+    private String validateWriteMode(CompileResult.Collector collector, Map<String, Object> config) {
         String writeMode = str(config, "writeMode");
         if (writeMode == null || writeMode.isBlank()) {
             writeMode = "APPEND";
+        }
+        if (UNIMPLEMENTED_WRITE_MODES.contains(writeMode)) {
+            // 宁可在这里报错,也不能让它默默跑成 APPEND。见
+            // UNIMPLEMENTED_WRITE_MODES 的说明:配的是"按主键更新",跑出来是
+            // "插入重复行",而且没有任何提示 —— 这比编译失败坏得多。
+            collector.error(CompileStage.STRUCTURAL_VALIDATION, "writeMode",
+                    "本版本尚未实现 UPSERT 写入模式",
+                    "执行侧生成的是普通 INSERT,跑起来其实是 APPEND,会插入重复行而不是"
+                            + "按主键更新。请改用 OVERWRITE(每次整表覆盖),或用 APPEND "
+                            + "配合目标表上的唯一约束由数据库去挡重复");
+            return writeMode;
         }
         if (!WRITE_MODES.contains(writeMode)) {
             collector.error(CompileStage.STRUCTURAL_VALIDATION, "writeMode",
                     "写入模式无效: " + writeMode, "可选值: " + String.join(" / ", WRITE_MODES));
             return writeMode;
-        }
-
-        if ("UPSERT".equals(writeMode)) {
-            List<String> keys = stringList(config, "primaryKeys");
-            if (keys.isEmpty()) {
-                collector.error(CompileStage.STRUCTURAL_VALIDATION, "primaryKeys",
-                        "UPSERT 模式必须指定主键字段",
-                        "改用 APPEND,或补上用于判断记录是否已存在的字段");
-            } else if (!targetColumns.isEmpty()) {
-                for (String key : keys) {
-                    if (!targetColumns.containsKey(key)) {
-                        collector.error(CompileStage.SCHEMA_VALIDATION, "primaryKeys." + key,
-                                "目标表没有主键字段「%s」".formatted(key));
-                    } else if (!mappings.containsValue(key)) {
-                        // 主键不在映射里,插入时它会是 NULL,UPSERT 永远匹配不上
-                        collector.error(CompileStage.SCHEMA_VALIDATION, "primaryKeys." + key,
-                                "主键字段「%s」没有出现在字段映射的目标端".formatted(key),
-                                "UPSERT 靠主键判断记录是否存在,它必须有值可写");
-                    }
-                }
-            }
         }
 
         if ("OVERWRITE".equals(writeMode)) {
@@ -222,7 +230,9 @@ public class OfflineSyncCompiler implements JobCompiler {
         target.put("schema", str(config, "targetSchema"));
         target.put("table", str(config, "targetTable"));
         target.put("writeMode", writeMode);
-        target.put("primaryKeys", stringList(config, "primaryKeys"));
+        // 不再写 primaryKeys:离线同步的计划里没有任何消费者会读它(UPSERT 一停,
+        // 它就是纯粹的死数据),而计划里躺着一个没人用的字段,会让下一个读代码的人
+        // 以为 UPSERT 是通的。实现 UPSERT 时连同 stringList 一起加回来。
         target.put("batchSize", batchSize);
         plan.put("target", target);
 
@@ -248,13 +258,5 @@ public class OfflineSyncCompiler implements JobCompiler {
         ((Map<Object, Object>) map).forEach((k, v) ->
                 result.put(String.valueOf(k), v == null ? null : String.valueOf(v)));
         return result;
-    }
-
-    private static List<String> stringList(Map<String, Object> config, String key) {
-        Object raw = config.get(key);
-        if (!(raw instanceof List<?> list)) {
-            return List.of();
-        }
-        return list.stream().filter(java.util.Objects::nonNull).map(String::valueOf).toList();
     }
 }
