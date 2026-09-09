@@ -1,5 +1,6 @@
 package com.datagov.metadata.domain;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,34 +26,34 @@ public enum RuleKind {
 
     /** 时间/日期格式:把源端的字符串日期规整成统一格式 */
     DATE_FORMAT("时间日期格式", Category.CLEANSE,
-            Map.of("sourcePattern", "源格式,如 yyyy/MM/dd",
+            ordered("sourcePattern", "源格式,如 yyyy/MM/dd",
                     "targetPattern", "目标格式,如 yyyy-MM-dd")),
 
     /** 数值格式:保留小数位、去掉千分位 */
     NUMBER_FORMAT("数值格式", Category.CLEANSE,
-            Map.of("scale", "保留小数位数",
+            ordered("scale", "保留小数位数",
                     "stripGrouping", "是否去掉千分位分隔符,true/false")),
 
     /** 缺失值:空值填充成默认值 */
     NULL_FILL("缺失值填充", Category.CLEANSE,
-            Map.of("defaultValue", "空值时填什么",
+            ordered("defaultValue", "空值时填什么",
                     "treatBlankAsNull", "空白字符串是否算空,true/false")),
 
     // ── 转换 ────────────────────────────────────────────────────────────
 
     /** 字符串替换 */
     STRING_REPLACE("字符串替换", Category.TRANSFORM,
-            Map.of("search", "要替换的内容",
+            ordered("search", "要替换的内容",
                     "replacement", "替换成什么",
                     "regex", "search 是否为正则,true/false")),
 
     /** 大小写 */
     CHANGE_CASE("大小写转换", Category.TRANSFORM,
-            Map.of("mode", "UPPER / LOWER")),
+            ordered("mode", "UPPER / LOWER")),
 
     /** 前后缀 */
     AFFIX("增删前后缀", Category.TRANSFORM,
-            Map.of("prefix", "要加的前缀",
+            ordered("prefix", "要加的前缀",
                     "suffix", "要加的后缀",
                     "stripPrefix", "要去掉的前缀",
                     "stripSuffix", "要去掉的后缀")),
@@ -65,12 +66,12 @@ public enum RuleKind {
      * 而规则定义是所有人都能看的。
      */
     DECRYPT("解密", Category.TRANSFORM,
-            Map.of("algorithm", "AES_GCM / SM4",
+            ordered("algorithm", "AES_GCM / SM4",
                     "credentialId", "密钥所在的凭据 ID —— 不是密钥本身")),
 
     /** 去空格 */
     TRIM("去空格", Category.TRANSFORM,
-            Map.of("mode", "BOTH / LEADING / TRAILING")),
+            ordered("mode", "BOTH / LEADING / TRAILING")),
 
     /**
      * 脱敏(序号 35)。
@@ -88,7 +89,7 @@ public enum RuleKind {
      * 取值空间有限的字段是可以被穷举还原的,那不叫脱敏。
      */
     MASK("脱敏", Category.TRANSFORM,
-            Map.of("mode", "PARTIAL(保留头尾)/ HASH(不可逆但可比较)/ FIXED(全部替换)",
+            ordered("mode", "PARTIAL(保留头尾)/ HASH(不可逆但可比较)/ FIXED(全部替换)",
                     "keepPrefix", "PARTIAL:保留前几位,默认 3",
                     "keepSuffix", "PARTIAL:保留后几位,默认 4",
                     "maskChar", "PARTIAL / FIXED:替换字符,默认 *",
@@ -134,10 +135,31 @@ public enum RuleKind {
      * 加一种规则时只改这个枚举,界面自动跟上。
      */
     public Map<String, String> paramSpec() {
-        return Map.copyOf(paramSpec);
+        // 必须是 unmodifiableMap 而不是 Map.copyOf:后者返回的是无序不可变映射,
+        // 会把上面辛苦保住的声明顺序又扔掉一次。不可变性两者都给,顺序只有前者留。
+        return Collections.unmodifiableMap(paramSpec);
     }
 
     /** 必填参数。缺了它规则跑起来一定不对,所以在定义保存时就拦。 */
+    /**
+     * 保序地构造参数说明。
+     *
+     * <p><b>不能用 {@code Map.of}</b>:它的迭代顺序不保证,JDK 还会按 hash 随机化 ——
+     * 同一条规则在两台机器上,界面里的参数顺序可能不一样。而这些参数在上面是
+     * 按"先决定语义的、再细化的"顺序写的:脱敏的 {@code mode} 必须排第一,
+     * 其余四个参数的含义全都取决于它。这个顺序是信息,不能丢。
+     */
+    private static Map<String, String> ordered(String... kv) {
+        if (kv.length % 2 != 0) {
+            throw new IllegalArgumentException("参数说明必须成对出现");
+        }
+        Map<String, String> map = new LinkedHashMap<>();
+        for (int i = 0; i < kv.length; i += 2) {
+            map.put(kv[i], kv[i + 1]);
+        }
+        return map;
+    }
+
     public List<String> requiredParams() {
         return switch (this) {
             case DATE_FORMAT -> List.of("targetPattern");

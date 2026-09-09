@@ -56,6 +56,14 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/integration/JobListView.vue'),
         meta: { title: '任务管理', permission: 'control:job:read' },
       },
+      // 规则管理(功能 17)。它的菜单与权限码由 V9 迁移种进后端,routePath 是
+      // /integration/rules —— 路由这一条缺失过一阵子,点侧边栏直接落 404。
+      {
+        path: 'integration/rules',
+        name: 'rules',
+        component: () => import('@/views/integration/RuleListView.vue'),
+        meta: { title: '规则管理', permission: 'metadata:rule:read' },
+      },
       // ── 数据开发(序号 18-23)────────────────────────────────────────
       {
         path: 'dev/streaming',

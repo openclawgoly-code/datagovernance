@@ -19,9 +19,3 @@ DG_ADMIN_PASSWORD='…' DG_PLAYWRIGHT_ROOT=…/node_modules \
 
 `seed-demo-data.py` 是必要的一步:空列表页截出来没有意义。它建六个数据源、
 四个任务、三条清洗规则与告警规则,并真的跑几次任务产生执行记录。
-
-## known-issue-rules-menu-404.jpg
-
-这一张不是操作步骤,是**缺陷证据**:点侧边栏「数据集成 › 规则管理」会落到
-404。后端菜单、权限码与 `/api/v1/rules` 接口都在,缺的是前端页面与路由。
-手册里对应位置有说明。
