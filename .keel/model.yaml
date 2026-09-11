@@ -1,0 +1,12 @@
+# Keel 项目模型（keel extract 生成的 brownfield 骨架；真相源，随 git 提交，人可维护）
+project:
+  id: e9579ae7-ed5c-58dc-8d0b-c55acbd33b91
+  name: datagovernance
+  mode: brownfield
+  stack_ref:
+    stack_id: datagovernance-as-practiced
+model:
+  revision: 1
+  base: as_is
+  module_refs: []
+  deltas: []

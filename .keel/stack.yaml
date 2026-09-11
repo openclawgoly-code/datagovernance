@@ -1,0 +1,12 @@
+# as-practiced 栈档案（keel extract 生成的骨架，人可改；BF-06 最小形态 / spec §6.1）
+# 最近栈判定：next+fastify+pg（全部 0 分，取默认）；候选得分：wx-native+nestjs+pg=0
+# task_templates 与 mapping_rules 整体复制自 next+fastify+pg；步骤可能不贴合存量风格，差距表留 V2。
+id: datagovernance-as-practiced
+version: 0.1.0
+components: []
+conventions: 本仓库工程约定见仓库根 CLAUDE.md / AGENTS.md（as-practiced 占位，可手改）。
+mapping_rules: []
+task_templates: []
+llm_friendliness: 3
+status: draft
+pitfall_ids: []

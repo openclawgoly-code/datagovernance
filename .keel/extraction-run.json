@@ -1,0 +1,15 @@
+{
+  "id": "05c4e6da-945a-5733-adfc-9d0072845972",
+  "project_id": "e9579ae7-ed5c-58dc-8d0b-c55acbd33b91",
+  "commit_sha": "1424ea96b012279c805d3a1af1ed9cb56c7b8966",
+  "extractor_version": "0.2.0",
+  "coverage": {
+    "entities": 1,
+    "endpoints": 1,
+    "jobs": 1,
+    "pages": 1
+  },
+  "output_hash": "8f96cdf6",
+  "inferred_count": 0,
+  "created_at": "2026-09-11T11:53:10.432Z"
+}

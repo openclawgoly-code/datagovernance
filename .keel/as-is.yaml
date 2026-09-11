@@ -1,0 +1,32 @@
+schema_version: 1
+project:
+  id: e9579ae7-ed5c-58dc-8d0b-c55acbd33b91
+  name: datagovernance
+extraction:
+  commit_sha: 1424ea96b012279c805d3a1af1ed9cb56c7b8966
+  extractor_version: 0.2.0
+  coverage:
+    entities: 1
+    endpoints: 1
+    jobs: 1
+    pages: 1
+  inferred_count: 0
+  scanned_files: 0
+model:
+  entities: []
+  relations: []
+  invariants: []
+  state_machines: []
+  domain_events: []
+  use_cases: []
+  permissions: []
+  risk_checks: []
+presentation:
+  pages: []
+  endpoints: []
+runtime:
+  jobs: []
+  events: []
+stack:
+  components: []
+tests: []
