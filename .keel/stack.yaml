@@ -1,12 +1,325 @@
 # as-practiced 栈档案（keel extract 生成的骨架，人可改；BF-06 最小形态 / spec §6.1）
-# 最近栈判定：next+fastify+pg（全部 0 分，取默认）；候选得分：wx-native+nestjs+pg=0
-# task_templates 与 mapping_rules 整体复制自 next+fastify+pg；步骤可能不贴合存量风格，差距表留 V2。
+# 最近栈判定：spring-boot+mybatis+vue；候选得分：next+fastify+pg=2, spring-boot+mybatis+vue=12, wx-native+nestjs+pg=1
+# task_templates 与 mapping_rules 整体复制自 spring-boot+mybatis+vue；步骤可能不贴合存量风格，差距表留 V2。
 id: datagovernance-as-practiced
 version: 0.1.0
-components: []
+components:
+  - layer: dependencies
+    name: "@element-plus/icons-vue"
+    version: ^2.3.0
+  - layer: dependencies
+    name: axios
+    version: ^1.7.0
+  - layer: dependencies
+    name: element-plus
+    version: ^2.8.0
+  - layer: dependencies
+    name: pinia
+    version: ^2.3.0
+  - layer: dependencies
+    name: sql-formatter
+    version: ^15.8.2
+  - layer: dependencies
+    name: vue
+    version: ^3.5.0
+  - layer: dependencies
+    name: vue-router
+    version: ^4.5.0
+  - layer: devDependencies
+    name: "@types/node"
+    version: ^22.10.0
+  - layer: devDependencies
+    name: "@vitejs/plugin-vue"
+    version: ^5.2.0
+  - layer: devDependencies
+    name: "@vue/tsconfig"
+    version: ^0.9.0
+  - layer: devDependencies
+    name: typescript
+    version: ^5.7.0
+  - layer: devDependencies
+    name: unplugin-auto-import
+    version: ^0.18.0
+  - layer: devDependencies
+    name: unplugin-vue-components
+    version: ^0.27.0
+  - layer: devDependencies
+    name: vite
+    version: ^5.4.0
+  - layer: devDependencies
+    name: vue-tsc
+    version: ^2.1.0
+  - layer: maven
+    name: commons-net
+    version: ${commons-net.version}
+  - layer: maven
+    name: dg-common
+    version: ${project.version}
+  - layer: maven
+    name: dg-control
+    version: ${project.version}
+  - layer: maven
+    name: dg-data-connectors
+    version: ${project.version}
+  - layer: maven
+    name: dg-data-spi
+    version: ${project.version}
+  - layer: maven
+    name: dg-governance
+    version: ${project.version}
+  - layer: maven
+    name: dg-metadata
+    version: ${project.version}
+  - layer: maven
+    name: dg-platform
+    version: ${project.version}
+  - layer: maven
+    name: dg-runtime
+    version: ${project.version}
+  - layer: maven
+    name: DmJdbcDriver18
+    version: ${dm8.version}
+  - layer: maven
+    name: flyway-core
+    version: managed
+  - layer: maven
+    name: flyway-database-postgresql
+    version: managed
+  - layer: maven
+    name: HikariCP
+    version: managed
+  - layer: maven
+    name: jackson-annotations
+    version: managed
+  - layer: maven
+    name: jackson-databind
+    version: managed
+  - layer: maven
+    name: jackson-datatype-jsr310
+    version: managed
+  - layer: maven
+    name: jakarta.validation-api
+    version: managed
+  - layer: maven
+    name: jjwt-api
+    version: ${jjwt.version}
+  - layer: maven
+    name: jjwt-impl
+    version: ${jjwt.version}
+  - layer: maven
+    name: jjwt-jackson
+    version: ${jjwt.version}
+  - layer: maven
+    name: jsch
+    version: ${jsch.version}
+  - layer: maven
+    name: lombok
+    version: managed
+  - layer: maven
+    name: mssql-jdbc
+    version: managed
+  - layer: maven
+    name: mybatis-plus-jsqlparser
+    version: ${mybatis-plus.version}
+  - layer: maven
+    name: mybatis-plus-spring-boot3-starter
+    version: ${mybatis-plus.version}
+  - layer: maven
+    name: mysql-connector-j
+    version: managed
+  - layer: maven
+    name: ojdbc11
+    version: ${ojdbc.version}
+  - layer: maven
+    name: postgresql
+    version: managed
+  - layer: maven
+    name: slf4j-api
+    version: managed
+  - layer: maven
+    name: spring-boot-dependencies
+    version: ${spring-boot.version}
+  - layer: maven
+    name: spring-boot-starter-jdbc
+    version: managed
+  - layer: maven
+    name: spring-boot-starter-mail
+    version: managed
+  - layer: maven
+    name: spring-boot-starter-validation
+    version: managed
+  - layer: maven
+    name: spring-boot-starter-web
+    version: managed
+  - layer: maven
+    name: spring-context
+    version: managed
+  - layer: maven
+    name: spring-security-crypto
+    version: managed
+  - layer: maven
+    name: spring-web
+    version: managed
+  - layer: maven
+    name: springdoc-openapi-starter-webmvc-ui
+    version: ${springdoc.version}
+  - layer: maven-test
+    name: embedded-postgres
+    version: ${embedded-postgres.version}
+  - layer: maven-test
+    name: h2
+    version: managed
+  - layer: maven-test
+    name: junit-jupiter
+    version: managed
+  - layer: maven-test
+    name: mariaDB4j-core
+    version: ${mariadb4j.version}
+  - layer: maven-test
+    name: mysql
+    version: managed
+  - layer: maven-test
+    name: postgresql
+    version: managed
+  - layer: maven-test
+    name: spring-boot-starter-test
+    version: managed
 conventions: 本仓库工程约定见仓库根 CLAUDE.md / AGENTS.md（as-practiced 占位，可手改）。
-mapping_rules: []
-task_templates: []
+mapping_rules:
+  - concept: aggregate_root
+    produces:
+      - kind: migration
+        path_pattern: backend/{app}/src/main/resources/db/migration/V{n}__{entity}.sql
+      - kind: entity
+        path_pattern: backend/{module}/src/main/java/**/entity/{entity}Entity.java
+      - kind: mapper
+        path_pattern: backend/{module}/src/main/java/**/mapper/{entity}Mapper.java
+      - kind: service
+        path_pattern: backend/{module}/src/main/java/**/service/{entity}Service.java
+    test_requirements:
+      - "{entity}ServiceTest 覆盖不变量与非法输入"
+      - 迁移可重复执行（Flyway 校验和稳定）
+  - concept: state_machine
+    produces:
+      - kind: transition
+        path_pattern: backend/{module}/src/main/java/**/domain/{entity}Status.java
+      - kind: service_method
+        path_pattern: backend/{module}/src/main/java/**/service/{entity}Service.java
+    test_requirements:
+      - "{entity}LifecycleTest 覆盖全部合法迁移与非法迁移（非法迁移抛业务异常）"
+  - concept: use_case
+    produces:
+      - kind: controller
+        path_pattern: backend/{app}/src/main/java/**/controller/{module}Controller.java
+      - kind: service
+        path_pattern: backend/{module}/src/main/java/**/service/{entity}Service.java
+      - kind: api_client
+        path_pattern: frontend/src/api/{module}.ts
+      - kind: view
+        path_pattern: frontend/src/views/{module}/{entity}ListView.vue
+    test_requirements:
+      - controller 层覆盖权限拒绝路径（无权限码 → 403）
+      - service 层覆盖正常与边界输入
+  - concept: domain_event
+    produces:
+      - kind: event_type
+        path_pattern: backend/{module}/src/main/java/**/event/{module}Events.java
+      - kind: listener
+        path_pattern: backend/{module}/src/main/java/**/service/{entity}Listener.java
+    test_requirements:
+      - 监听器幂等：同一事件重复投递不产生第二份副作用
+  - concept: permission
+    produces:
+      - kind: permission_seed
+        path_pattern: backend/{app}/src/main/resources/db/migration/V{n}__seed_permissions.sql
+      - kind: annotation
+        path_pattern: backend/{app}/src/main/java/**/controller/{module}Controller.java
+      - kind: route_meta
+        path_pattern: frontend/src/router/index.ts
+    test_requirements:
+      - 权限码在迁移种子、后端注解、前端路由 meta 三处一致
+      - PermissionServiceTest 覆盖越权访问被拒
+task_templates:
+  - id: add-aggregate
+    applies_to: aggregate_root
+    steps:
+      - 先写 Flyway 迁移 V{n}__{entity}.sql（schema 的真相源），字段含审计列与逻辑删除列
+      - 生成 {entity}Entity + Mapper（无 ORM 注解的仓库跳过实体类，直接用 JdbcTemplate）
+      - 生成 {entity}Service：入参校验 → 权限判定 → 事务 → 持久化 → 发事件
+      - 补 {entity}ServiceTest（不变量、边界值、非法输入）
+    definition_of_done:
+      - 迁移可重复执行且与实体字段一致
+      - service 不在事务内调用外部服务
+      - 新增字段在迁移与实体两处一致
+    verify_commands:
+      - mvn -q -DskipTests=false test
+    default_context_budget: 40000
+    brownfield_only: false
+    example: |
+      ```sql
+      -- V{n}__{entity}.sql —— schema 的真相源
+      CREATE TABLE {module}_{entity} (
+        id          VARCHAR(64) PRIMARY KEY,
+        workspace_id VARCHAR(64) NOT NULL,
+        status      VARCHAR(32) NOT NULL,
+        created_at  TIMESTAMP   NOT NULL,
+        deleted     BOOLEAN     NOT NULL DEFAULT FALSE
+      );
+      ```
+  - id: add-state-machine
+    applies_to: state_machine
+    steps:
+      - 定义 {entity}Status 枚举与合法迁移表
+      - service 的迁移方法先校验当前态，非法迁移抛业务异常（不是静默忽略）
+      - 补 {entity}LifecycleTest 覆盖全部合法与非法迁移
+    definition_of_done:
+      - 非法迁移抛业务异常并带当前态与目标态
+      - 终态不可再迁移
+    verify_commands:
+      - mvn -q -DskipTests=false test
+    default_context_budget: 24000
+    brownfield_only: false
+  - id: add-endpoint
+    applies_to: use_case
+    steps:
+      - controller 方法加 @RequirePermission("域:资源:动作")，权限码同步进种子迁移
+      - 前端 frontend/src/api/{module}.ts 加调用，视图加 meta.permission
+      - 补 controller 权限拒绝路径测试
+    definition_of_done:
+      - 未授权访问返回 403 且带拒绝理由（不静默失败）
+      - 权限码在迁移种子、后端注解、前端路由 meta 三处一致
+    verify_commands:
+      - mvn -q -DskipTests=false test
+      - pnpm -C frontend build
+    default_context_budget: 32000
+    brownfield_only: false
+  - id: add-event-listener
+    applies_to: domain_event
+    steps:
+      - 在 {module}Events 里定义事件类型（事件身份是类型，不是字符串）
+      - 监听器用 @EventListener + REQUIRES_NEW 事务，自带幂等键
+      - 补重复投递测试
+    definition_of_done:
+      - 同一事件重复投递不产生第二份副作用
+    verify_commands:
+      - mvn -q -DskipTests=false test
+    default_context_budget: 24000
+    brownfield_only: false
+  - id: characterize-use-case
+    applies_to: use_case
+    steps:
+      - 定位 {use_case} 的现有 controller 与 service，通读现状，不改被测代码
+      - 构造代表性输入（含边界值与历史真实样例）
+      - 录制当前输出（响应体、落库变化、发出的事件）作为基线
+      - 断言再次执行与录制完全相等
+    definition_of_done:
+      - 只新增测试文件，未修改被测代码
+      - 两次运行结果一致
+      - 发现的 bug 记 Observation，不在本 task 修
+    verify_commands:
+      - mvn -q -DskipTests=false test
+    default_context_budget: 36000
+    brownfield_only: true
 llm_friendliness: 3
 status: draft
 pitfall_ids: []
