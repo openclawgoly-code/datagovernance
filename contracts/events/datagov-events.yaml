@@ -1,0 +1,94 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# datagovernance → dataQA Kafka 事件契约(Phase 0 冻结稿)
+#
+# 全部为 datagov → dataQA 单向广播(datagov 不消费 dataQA 命令,保跨系统同步子图无环)。
+# topic 以 dg. 前缀标识来源平台。事件名与 payload 以 SPACE-MODEL §F 为准。
+# 载荷用 JSON Schema 2020-12 描述($defs),外层为公共信封。
+# ─────────────────────────────────────────────────────────────────────────────
+
+topics:
+  dg.metadata.schema:
+    events: [SchemaRefreshed, SchemaDrifted]     # F.2
+    consumer: dataQA Semantic —— structure fact 更新 / 快照失效
+  dg.runtime.execution:
+    events: [ExecutionSucceeded, ExecutionFailed, ExecutionTimedOut]   # F.4
+    consumer: dataQA Agent —— 触发/输入异常归因
+  dg.governance.sensitive:
+    events: [SensitiveDataAccessed]              # F.6
+    consumer: dataQA Governance —— 敏感访问留痕汇聚(分级 L3+)
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+
+# 公共信封:每条事件外层一致
+Envelope:
+  type: object
+  required: [eventType, eventId, occurredAt, source, workspaceId, payload]
+  properties:
+    eventType:   { type: string }
+    eventId:     { type: string, description: 幂等去重键 }
+    occurredAt:  { type: string, format: date-time }
+    source:      { const: datagov }
+    workspaceId: { type: string, description: 租户键,dataQA 按此隔离 }
+    payload:     { description: 见 $defs 对应事件 }
+
+$defs:
+
+  SchemaRefreshed:
+    type: object
+    required: [dataSourceRef, refreshedAt]
+    properties:
+      dataSourceRef: { type: string }
+      tables:        { type: array, items: { type: string }, description: 本次刷新涉及的表(库.表) }
+      refreshedAt:   { type: string, format: date-time }
+
+  SchemaDrifted:
+    type: object
+    required: [table, changes]
+    description: 清单未强制但强烈建议(SPACE-MODEL F.2);让 dataQA 提前失效相关 structure fact
+    properties:
+      table:   { type: string }
+      changes:
+        type: array
+        items:
+          type: object
+          required: [column, changeType]
+          properties:
+            column:     { type: string }
+            changeType: { type: string, enum: [ADDED, REMOVED, TYPE_CHANGED] }
+
+  # 三个执行终态共用同一 payload 形状,eventType 区分
+  ExecutionOutcome:
+    type: object
+    required: [jobDefId, execId, state, finishedAt, metric]
+    properties:
+      jobDefId:   { type: string }
+      execId:     { type: string }
+      taskId:     { type: string, description: 质检任务回填(若来自 createQualityTask) }
+      state:      { type: string, enum: [SUCCEEDED, FAILED, TIMEOUT],
+                    description: "对齐 SPACE-MODEL Execution 状态词(TIMEOUT);事件名仍为 ExecutionTimedOut(F.4)" }
+      finishedAt: { type: string, format: date-time }
+      metric:
+        type: object
+        description: >
+          datagov 的 ExecutionMetric(SPACE-MODEL C+D.4)—— 仅行数/字节/时延计数,
+          **不含资产读写清单**。资产级读写来自 Q GetJobDataSourceRelations(序号8),不放事件里。
+        properties:
+          rowsRead:    { type: integer }
+          rowsWritten: { type: integer }
+          bytes:       { type: integer }
+          latencyMs:   { type: integer }
+          lag:         { type: integer }
+      errorClass: { type: [string, "null"], description: 失败时的错误分类,归因线索 }
+      logRef:     { type: [string, "null"], description: 日志地址,配合 getTaskLog 取证 }
+
+  SensitiveDataAccessed:
+    type: object
+    required: [oaAccount, table, classification, action, occurredAt]
+    description: 敏感数据(L3+)访问留痕;满足 R8 健康医疗数据留痕要求
+    properties:
+      userId:         { type: string }
+      oaAccount:      { type: string }
+      table:          { type: string }
+      classification: { type: string, enum: [L1, L2, L3, L4] }
+      action:         { type: string, enum: [read, export, preview] }
+      occurredAt:     { type: string, format: date-time }

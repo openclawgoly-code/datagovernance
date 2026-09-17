@@ -1,0 +1,326 @@
+openapi: 3.1.0
+# ─────────────────────────────────────────────────────────────────────────────
+# datagovernance → dataQA 集成契约(Phase 0 冻结稿)
+#
+# 本文件是 datagov 需向 dataQA 暴露的 REST 契约。端点形状**以 dataQA 的真实 SPI 为准**
+# (~/projects/dataQA/backend/dq-capability-spi),Phase 0 判据 = dataQA 的适配器 SPI 能
+# 与本契约生成的客户端编译期对齐。
+#
+# 诚实前提:datagov 侧对应的 §F 命令/查询多为 SPACE-MODEL 的目标设计,尚未全部实现;
+# 本契约冻结的是"接口形状",落地由 datagov 完成。标 [FREEZE-n] 的字段取值域待客户方确认。
+# ─────────────────────────────────────────────────────────────────────────────
+info:
+  title: datagov ⇄ dataQA Integration Contract
+  version: 0.1.0-phase0
+  description: >
+    dataQA(治理 Agent)架在 datagov(DataOps 底座)之上。本契约覆盖 dataQA 5 个适配器
+    (Metadata / Scheduler / Log / Code / Identity)对 datagov 的调用。跨系统唯一写入是
+    createQualityTask。所有调用经 APISIX,身份经 Bearer credentialToken 透传。
+
+servers:
+  - url: https://{apisix}/dg-api/v1
+    variables: { apisix: { default: gateway.internal } }
+
+security:
+  - oaCredential: []          # 无凭证 = 401,绝不回退服务账号
+
+paths:
+
+  # ── Metadata 适配器(只读,返回内容按 token 对应用户的 dataScopes 过滤)───────────
+  /metadata/tables:
+    get:
+      operationId: listTables
+      summary: 全部表元数据(已按数据权限过滤)   # dataQA MetadataAdapter.listTables
+      x-datagov: "Q GetSchemaTree / ListDataSourcesByCatalog (F.2)"
+      x-phase: 1
+      responses:
+        "200": { description: OK, content: { application/json: { schema: {
+          type: array, items: { $ref: '#/components/schemas/TableMeta' } } } } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /metadata/tables/{database}/{table}:
+    get:
+      operationId: getTable
+      summary: 单表元数据;越权表对该用户"不存在"   # MetadataAdapter.getTable → Optional
+      x-datagov: "Q GetSchemaTree (F.2)"
+      x-phase: 1
+      parameters:
+        - { name: database, in: path, required: true, schema: { type: string } }
+        - { name: table, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TableMeta' } } } }
+        "404": { description: 无该表或无数据权限(语义上等价,不区分,避免探测) }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /metadata/code-values/{codeSetId}:
+    get:
+      operationId: getCodeValues
+      summary: 按码集编号取值域(ref_dw_cd_val 中 dw_cd_id=codeSetId)  # MetadataAdapter.getCodeValues
+      x-datagov: "【需冻结 FREEZE-codeset】datagov 登记码集为 Standard 后暴露此查询;
+                  MVP 可经 Data 受控查询 ExecuteQuery 读 ref_dw_cd_val"
+      x-phase: 1
+      parameters:
+        - { name: codeSetId, in: path, required: true, schema: { type: string, example: CD2125 } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: {
+          type: array, items: { $ref: '#/components/schemas/CodeValue' } } } } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── Scheduler 适配器(唯一写入 + 只读执行历史)──────────────────────────────────
+  /quality-tasks:
+    post:
+      operationId: createQualityTask
+      summary: 创建质检调度任务 —— 全系统唯一跨系统写入   # SchedulerAdapter.createQualityTask
+      description: >
+        datagov 内部编排 CreateBatchDevJobDef → BindSchedule → PublishDefinition(F.2),
+        并由 Control CompileDefinition(F.3)二次编译;返回可调度任务 ID。
+        演进:datagov 落 C+D.6 的 QualityRule 类型后改用专用 CreateQualityJobDef,
+        质检结果 QualityResult 归 Governance。
+      x-datagov: "C CreateBatchDevJobDef + BindSchedule + PublishDefinition (F.2)"
+      x-phase: 2
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/QualityTaskRequest' } } }
+      responses:
+        "200": { description: 创建结果(success=false 时带 message,不抛 HTTP 5xx),
+          content: { application/json: { schema: { $ref: '#/components/schemas/QualityTaskResult' } } } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+        "403": { description: 该用户无 quality_rule.publish 权限(datagov Governance EvaluateAccess 判定) }
+    get:
+      operationId: listTasksBySourceTag
+      summary: 按来源标记筛选本系统创建的任务(审计/批量回滚)  # SchedulerAdapter.listTasksBySourceTag
+      x-phase: 2
+      parameters:
+        - { name: sourceTag, in: query, required: true,
+            schema: { type: string, default: "created_by=dataqa" } }
+      responses:
+        "200": { description: 任务 ID 列表, content: { application/json: { schema: {
+          type: array, items: { type: string } } } } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /executions/failed:
+    get:
+      operationId: listFailedInstances
+      summary: 指定日期的失败实例(批量归因入口)   # SchedulerAdapter.listFailedInstances
+      x-datagov: "Q ListExecutions (F.4)"
+      x-phase: 3
+      parameters:
+        - { name: date, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: {
+          type: array, items: { $ref: '#/components/schemas/TaskInstance' } } } } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /executions:
+    get:
+      operationId: getExecutionHistory
+      summary: 某任务在时间窗内的执行历史(窗口不足由调用方扩窗重查) # SchedulerAdapter.getExecutionHistory
+      x-datagov: "Q ListExecutions / GetExecution (F.4)"
+      x-phase: 3
+      parameters:
+        - { name: taskId, in: query, required: true, schema: { type: string } }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: {
+          type: array, items: { $ref: '#/components/schemas/TaskInstance' } } } } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── Log / Code 适配器(只读,归因证据)──────────────────────────────────────────
+  /executions/{taskId}/{instanceId}/log:
+    get:
+      operationId: getTaskLog
+      summary: 取执行实例日志;取不到返回 404,归因据此走 P6(证据不足)  # LogAdapter.getTaskLog
+      x-datagov: "Q GetExecutionLog (F.4)"
+      x-phase: 3
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+        - { name: instanceId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TaskLog' } } } }
+        "404": { description: 无日志(证据不足,非错误) }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  /tasks/{taskId}/code:
+    get:
+      operationId: getTaskCode
+      summary: 取任务代码(P2/P3/P4 证据来源)   # CodeAdapter.getTaskCode
+      x-datagov: "Q GetJobDef / GetDefinitionVersion (F.2)"
+      x-phase: 3
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/TaskCode' } } } }
+        "404": { description: 无该任务定义 }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+  # ── Identity 适配器(凭票换上下文;认证由院方 OA 做)────────────────────────────
+  /identity/resolve:
+    post:
+      operationId: resolveIdentity
+      summary: 用 OA 凭证换取身份与数据权限上下文    # IdentityAdapter.resolve
+      x-datagov: "Q GetUser (F.1) + GetDataScope【需冻结 FREEZE-scope】"
+      x-freeze: "【FREEZE-oa】OA 协议 OIDC/CAS/LDAP 待客户定(decision.md #4);建议默认 OIDC"
+      x-phase: 1
+      requestBody:
+        required: true
+        content: { application/json: { schema: {
+          type: object, required: [credentialToken],
+          properties: { credentialToken: { type: string, description: OA 签发凭证 } } } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/UserContext' } } } }
+        "401": { description: 凭证无效/过期 }
+
+  # ── Lineage(Phase 3,直接查 datagov,不由 dataQA 重建)─────────────────────────
+  /lineage:
+    get:
+      operationId: getLineage
+      summary: 表的上下游血缘   # GOVERNANCE-MODEL Lineage 原语
+      x-datagov: "Q GetLineage / GetJobDataSourceRelations 序号8 (F.2)"
+      x-phase: 3
+      parameters:
+        - { name: table, in: query, required: true, schema: { type: string, description: 库名.表名 } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Lineage' } } } }
+        "401": { $ref: '#/components/responses/Unauthorized' }
+
+components:
+
+  securitySchemes:
+    oaCredential:
+      type: http
+      scheme: bearer
+      description: >
+        Authorization: Bearer <credentialToken>。credentialToken 由院方 OA 签发,
+        即 dataQA UserContext.credentialToken —— 适配器只透传不解析。datagov 从中
+        resolve 出身份与 dataScopes,做数据权限过滤与判定。无此头 = 401,不回退服务账号。
+
+  responses:
+    Unauthorized:
+      description: 缺失或无效的 credentialToken(无服务账号旁路)
+
+  schemas:
+
+    TableRef:
+      type: object
+      required: [database, table]
+      properties:
+        database: { type: string, description: 库名(小写) }
+        table:    { type: string, description: 表名(小写) }
+
+    ColumnMeta:
+      type: object
+      required: [name, dataType, nullable, partitionKey]
+      properties:
+        name:         { type: string }
+        dataType:     { type: string }
+        chineseName:  { type: string, description: 中文召回主要权重来源(ADR-004) }
+        comment:      { type: string }
+        nullable:     { type: boolean }
+        partitionKey: { type: boolean }
+
+    TableMeta:
+      type: object
+      required: [ref, columns]
+      properties:
+        ref:         { $ref: '#/components/schemas/TableRef' }
+        chineseName: { type: string, description: 表中文名,"客户适当性"要能召回到这里 }
+        comment:     { type: string }
+        columns:     { type: array, items: { $ref: '#/components/schemas/ColumnMeta' } }
+        partitionCol: { type: [string, "null"] }
+
+    CodeValue:
+      type: object
+      required: [codeSetId, value, label]
+      properties:
+        codeSetId: { type: string, example: CD2125 }
+        value:     { type: string }
+        label:     { type: string, description: 取值中文含义 }
+
+    QualityTaskRequest:
+      type: object
+      required: [ruleName, dimension, targetTable, sql, createdBy]
+      description: "【FREEZE-rule】字段取值域待客户定(decision.md #1)"
+      properties:
+        ruleName:    { type: string }
+        dimension:   { type: string, description: "【FREEZE-rule】线上值待统一:dataQA 现发中文(RuleDimension.chineseName,如 唯一性/一致性/有效性/准确性);建议双边统一为 wireName 小写(uniqueness/consistency/validity/accuracy)。暂设自由串,勿写死枚举" }
+        targetTable: { type: string, description: 库名.表名 }
+        columns:     { type: array, items: { type: string } }
+        sql:         { type: string, description: 已由 Control 三道闸门渲染校验,此处透传 }
+        period:      { type: string, description: "【FREEZE-rule】周期;dataQA 现发中文(如 每日),建议统一 cron 或 D/W/M" }
+        priority:    { type: string, description: "【FREEZE-rule】优先级;dataQA 现发中文(如 高),建议统一 HIGH/MEDIUM/LOW" }
+        alertCondition: { type: string, description: "【FREEZE-rule】告警条件表达式" }
+        createdBy:   { type: string, description: 创建人 OA 账号 }
+        sourceTag:   { type: string, default: "created_by=dataqa" }
+
+    QualityTaskResult:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean }
+        taskId:  { type: [string, "null"], description: 上线后回显(验收 1.4) }
+        message: { type: string, description: 失败原因;成功时空 }
+
+    TaskInstance:
+      type: object
+      required: [taskId, instanceId, state]
+      properties:
+        taskId:     { type: string }
+        taskName:   { type: string }
+        instanceId: { type: string }
+        state:      { type: string, enum: [SUCCESS, FAILED, RUNNING] }
+        cycleUnit:  { type: string, enum: [D, W, M], description: P5 周期语义判定输入 }
+        curRunDate: { type: string, format: date, description: 数据日期(业务日期) }
+        startTime:  { type: [string, "null"], format: date-time }
+        endTime:    { type: [string, "null"], format: date-time }
+        owner:      { type: string, description: 归因报告"责任人" }
+        logRef:     { type: string, description: 日志地址,结论证据引用 }
+
+    TaskLog:
+      type: object
+      required: [taskId, content, truncated]
+      properties:
+        taskId:    { type: string }
+        logRef:    { type: string }
+        content:   { type: string }
+        truncated: { type: boolean, description: P6 判定必要条件之一 }
+        exitCode:  { type: [integer, "null"], description: 无退出码为 null(P6 另一必要条件) }
+
+    TaskCode:
+      type: object
+      required: [taskId, mainSql]
+      properties:
+        taskId:  { type: string }
+        mainSql: { type: string, description: P3/P4 判定来源 }
+        files:   { type: object, additionalProperties: { type: string },
+                   description: "其他配置文件,键为文件名;P2 需要 insert.sql" }
+
+    DataScope:
+      type: object
+      required: [scopeType, expr]
+      description: "【FREEZE-scope】粒度待客户定(decision.md #2);行列级会改签名"
+      properties:
+        scopeType: { type: string, enum: [DB, TABLE, ROW],
+                     description: "与 dataQA DataScope.ScopeType 一致(行列级建模为单个 ROW);MVP 建议 TABLE。列级需先改 dataQA SPI,由 FREEZE-scope 冻结后双边同步" }
+        expr:      { type: string, description: 作用域表达式 }
+
+    UserContext:
+      type: object
+      required: [userId, oaAccount]
+      description: dataQA UserContext 的跨系统投影;不含 credentialToken 明文
+      properties:
+        userId:      { type: string }
+        oaAccount:   { type: string, description: 身份真正来源 }
+        displayName: { type: string }
+        dataScopes:  { type: array, items: { $ref: '#/components/schemas/DataScope' } }
+        roles:       { type: array, items: { type: string } }
+        issuedAt:    { type: string, format: date-time }
+
+    Lineage:
+      type: object
+      required: [table]
+      properties:
+        table:      { type: string }
+        upstream:   { type: array, items: { type: string }, description: produced-by }
+        downstream: { type: array, items: { type: string }, description: derived-from
+                      }
