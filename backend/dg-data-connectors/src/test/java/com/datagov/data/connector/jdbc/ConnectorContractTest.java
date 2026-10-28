@@ -79,6 +79,12 @@ class ConnectorContractTest {
         assertThat(new DamengConnector().buildJdbcUrl(DataSourceType.DAMENG, config))
                 .isEqualTo("jdbc:dm://db.internal:1234");
 
+        assertThat(new Db2Connector().buildJdbcUrl(DataSourceType.DB2, config))
+                .isEqualTo("jdbc:db2://db.internal:1234/appdb");
+
+        assertThat(new KingbaseConnector().buildJdbcUrl(DataSourceType.KINGBASE, config))
+                .isEqualTo("jdbc:kingbase8://db.internal:1234/appdb");
+
         // Doris 走 FE 的 MySQL 协议端口
         assertThat(new DorisConnector().buildJdbcUrl(DataSourceType.DORIS, config))
                 .isEqualTo("jdbc:mysql://db.internal:1234/appdb");
@@ -95,6 +101,10 @@ class ConnectorContractTest {
                 .contains(":5432/");
         assertThat(new DamengConnector().buildJdbcUrl(DataSourceType.DAMENG, noPort))
                 .endsWith(":5236");
+        assertThat(new Db2Connector().buildJdbcUrl(DataSourceType.DB2, noPort))
+                .contains(":50000/");
+        assertThat(new KingbaseConnector().buildJdbcUrl(DataSourceType.KINGBASE, noPort))
+                .contains(":54321/");
         assertThat(new DorisConnector().buildJdbcUrl(DataSourceType.DORIS, noPort))
                 .contains(":9030/");
     }
@@ -172,7 +182,9 @@ class ConnectorContractTest {
                 new Object[]{new PostgreSqlConnector(), DataSourceType.POSTGRESQL},
                 new Object[]{new OracleConnector(), DataSourceType.ORACLE},
                 new Object[]{new SqlServerConnector(), DataSourceType.SQLSERVER},
-                new Object[]{new DamengConnector(), DataSourceType.DAMENG})) {
+                new Object[]{new DamengConnector(), DataSourceType.DAMENG},
+                new Object[]{new Db2Connector(), DataSourceType.DB2},
+                new Object[]{new KingbaseConnector(), DataSourceType.KINGBASE})) {
             ConnectorCapabilities capabilities =
                     ((DataSourceConnector) pair[0]).capabilities((DataSourceType) pair[1]);
             assertThat(capabilities.hasSchemaLevel())
@@ -213,6 +225,8 @@ class ConnectorContractTest {
                 new Object[]{new OracleConnector(), DataSourceType.ORACLE},
                 new Object[]{new SqlServerConnector(), DataSourceType.SQLSERVER},
                 new Object[]{new DamengConnector(), DataSourceType.DAMENG},
+                new Object[]{new Db2Connector(), DataSourceType.DB2},
+                new Object[]{new KingbaseConnector(), DataSourceType.KINGBASE},
                 new Object[]{new DorisConnector(), DataSourceType.DORIS},
                 new Object[]{new FtpConnector(), DataSourceType.FTP},
                 new Object[]{new SftpConnector(), DataSourceType.SFTP},

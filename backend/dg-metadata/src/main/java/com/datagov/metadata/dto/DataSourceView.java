@@ -2,6 +2,7 @@ package com.datagov.metadata.dto;
 
 import com.datagov.data.spi.DataSourceType;
 import com.datagov.metadata.domain.DataSourceStatus;
+import com.datagov.metadata.domain.VendorProfile;
 import com.datagov.metadata.entity.DataSourceEntity;
 
 import com.datagov.data.spi.ConnectionConfig;
@@ -28,6 +29,9 @@ public record DataSourceView(
         DataSourceType.Family family,
         DataSourceStatus status,
         String description,
+
+        /** 厂商预设:泛微/金蝶/用友。null 等价于 GENERIC */
+        VendorProfile vendorProfile,
 
         /** 所属目录(功能 5);null 表示未分类 */
         String catalogId,
@@ -72,6 +76,7 @@ public record DataSourceView(
                 entity.getFamily(),
                 entity.getStatus(),
                 entity.getDescription(),
+                entity.getVendorProfile(),
                 entity.getCatalogId(),
                 entity.getProbeEnabled(),
                 entity.getProbeIntervalMinutes(),

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.datagov.data.spi.DataSourceType;
 import com.datagov.metadata.domain.DataSourceStatus;
+import com.datagov.metadata.domain.VendorProfile;
 import lombok.Data;
 
 import java.time.Instant;
@@ -31,6 +32,9 @@ public class DataSourceEntity {
     private DataSourceType.Family family;
     private DataSourceStatus status;
     private String description;
+
+    /** 厂商预设:泛微/金蝶/用友。null 等价于 GENERIC */
+    private VendorProfile vendorProfile;
 
     /** 所属目录(功能 5);null 表示未分类 */
     private String catalogId;

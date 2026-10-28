@@ -10,9 +10,9 @@ package com.datagov.common.error;
  *   <li>{@code DAT_} Data(连接器)</li>
  *   <li>{@code RTM_} Runtime(执行)</li>
  *   <li>{@code CTL_} Control(编译与调度)</li>
+ *   <li>{@code GOV_} Governance(治理)</li>
  *   <li>{@code SYS_} 平台通用</li>
  * </ul>
- * P4 再加 {@code GOV_}(Governance)。
  *
  * <p>Runtime 用 {@code RTM_} 而不是本文档早先写的 {@code RUN_}:其余前缀都是
  * Space 名的三字母缩写(PLT/MTD/DAT/CTL/GOV),RUN 是唯一的例外,而一个只有
@@ -68,6 +68,11 @@ public enum ErrorCode {
     CTL_PLAN_STALE("CTL_PLAN_STALE", 409, "物理计划已过期,请重新编译"),
     CTL_DAG_INVALID("CTL_DAG_INVALID", 400, "工作流 DAG 非法"),
 
+    // ── Governance ─────────────────────────────────────────────
+    // 跨空间读取也用 404:与 SYS_NOT_FOUND 不同,这个码让"报告不存在"与
+    // "报告在别的空间"对调用方呈现为同一个答案,不泄露存在性。
+    GOV_REPORT_NOT_FOUND("GOV_REPORT_NOT_FOUND", 404, "分析报告不存在"),
+
     // ── Metadata ───────────────────────────────────────────────
     MTD_DATASOURCE_NOT_FOUND("MTD_DATASOURCE_NOT_FOUND", 404, "数据源不存在"),
     MTD_DATASOURCE_NAME_DUPLICATED("MTD_DATASOURCE_NAME_DUPLICATED", 409, "同空间下数据源名称已存在"),
@@ -80,6 +85,12 @@ public enum ErrorCode {
     // 而那种失败发生在凌晨的调度里
     MTD_RULE_IN_USE("MTD_RULE_IN_USE", 409, "规则已被任务引用,无法删除"),
     MTD_CATALOG_NOT_FOUND("MTD_CATALOG_NOT_FOUND", 404, "目录快照不存在"),
+    MTD_CATALOG_ASSET_NOT_FOUND("MTD_CATALOG_ASSET_NOT_FOUND", 404, "数据目录资产不存在"),
+    MTD_CATALOG_NAME_DUPLICATED("MTD_CATALOG_NAME_DUPLICATED", 409, "同空间下数据目录名称已存在"),
+    MTD_CATALOG_REFRESH_FAILED("MTD_CATALOG_REFRESH_FAILED", 502, "数据目录采集失败"),
+    MTD_LINEAGE_NODE_NOT_FOUND("MTD_LINEAGE_NODE_NOT_FOUND", 404, "血缘节点不存在"),
+    MTD_SENSITIVITY_NOT_FOUND("MTD_SENSITIVITY_NOT_FOUND", 404, "敏感标签不存在"),
+    MTD_SENSITIVITY_SCAN_FAILED("MTD_SENSITIVITY_SCAN_FAILED", 502, "敏感扫描失败"),
     MTD_CONFIG_INVALID("MTD_CONFIG_INVALID", 400, "数据源连接配置不合法"),
 
     // ── Data(连接器)────────────────────────────────────────────

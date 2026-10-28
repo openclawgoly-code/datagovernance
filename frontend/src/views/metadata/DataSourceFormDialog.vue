@@ -35,6 +35,7 @@ const form = reactive<DataSourceForm & { authType: CredentialAuthType; secret: s
   name: '',
   type: '',
   description: '',
+  vendorProfile: undefined,
   catalogId: undefined,
   host: '',
   port: undefined,
@@ -58,6 +59,20 @@ const family = computed(() => selectedType.value?.family ?? null)
 const showJdbcFields = computed(() => family.value === 'RELATIONAL' || family.value === 'MPP')
 const showFileFields = computed(() => family.value === 'FILE')
 const showHttpFields = computed(() => family.value === 'HTTP')
+const showObjectStorageFields = computed(() => family.value === 'OBJECT_STORAGE')
+const isLocalObjectStorage = computed(() => form.type === 'LOCAL')
+
+/** 厂商预设:只影响表单默认值与排查提示,不改变底层 DataSourceType。 */
+const vendorProfiles = [
+  { value: 'GENERIC', label: '通用' },
+  { value: 'WEAVER_ECOLOGY', label: '泛微 e-cology' },
+  { value: 'WEAVER_EOFFICE', label: '泛微 e-office' },
+  { value: 'KINGDEE_EAS', label: '金蝶 EAS' },
+  { value: 'KINGDEE_K3CLOUD', label: '金蝶 K/3 Cloud / 云星空' },
+  { value: 'YONYOU_NC', label: '用友 NC / NCC' },
+  { value: 'YONYOU_U8', label: '用友 U8 / U8+' },
+  { value: 'YONYOU_YONBIP', label: '用友 YonBIP' },
+]
 
 /**
  * 多节点只对 MPP 开放(功能2)。
@@ -71,7 +86,11 @@ const rules = computed<FormRules>(() => ({
   name: [{ required: true, message: '请输入数据源名称', trigger: 'blur' }],
   type: [{ required: true, message: '请选择数据源类型', trigger: 'change' }],
   host: showJdbcFields.value || showFileFields.value
+    || (showObjectStorageFields.value && !isLocalObjectStorage.value)
     ? [{ required: !form.jdbcUrlOverride, message: '请输入主机地址', trigger: 'blur' }]
+    : [],
+  databaseName: showObjectStorageFields.value
+    ? [{ required: true, message: '请输入 Bucket 或根目录', trigger: 'blur' }]
     : [],
   baseUrl: showHttpFields.value
     ? [{ required: true, message: '请输入接口地址', trigger: 'blur' }]
@@ -90,6 +109,7 @@ function open(row: DataSource | null) {
     name: row?.name ?? '',
     type: row?.type ?? '',
     description: row?.description ?? '',
+    vendorProfile: row?.vendorProfile ?? undefined,
     catalogId: row?.catalogId ?? undefined,
     host: row?.host ?? '',
     port: row?.port ?? undefined,
@@ -110,7 +130,8 @@ function open(row: DataSource | null) {
 function onTypeChange(type: string) {
   const info = props.types.find((t) => t.type === type)
   if (info && !editingId.value) {
-    form.port = info.defaultPort
+    // 0 表示“没有默认端口”(例如 LOCAL 目录),不要把它送进端口校验
+    form.port = info.defaultPort > 0 ? info.defaultPort : undefined
     form.authType = info.family === 'HTTP' ? 'TOKEN' : 'PASSWORD'
   }
   // 从 MPP 切到别的类型后,残留的节点会让后端直接报"该类型不支持多节点"。
@@ -138,6 +159,7 @@ function buildPayload(): DataSourceForm {
     name: form.name,
     type: form.type,
     description: form.description || undefined,
+    vendorProfile: form.vendorProfile || undefined,
     catalogId: form.catalogId || undefined,
     host: form.host || undefined,
     port: form.port,
@@ -255,6 +277,24 @@ defineExpose({ open })
         </div>
       </el-form-item>
 
+      <el-form-item
+        v-if="showJdbcFields"
+        label="厂商预设"
+      >
+        <el-select v-model="form.vendorProfile" clearable placeholder="通用" style="width: 100%">
+          <el-option
+            v-for="profile in vendorProfiles"
+            :key="profile.value"
+            :label="profile.label"
+            :value="profile.value"
+          />
+        </el-select>
+        <div class="text-muted">
+          泛微/金蝶/用友只是应用厂商,底层仍是标准关系库。预设用于填默认值与排除系统表,
+          不改变数据源类型。
+        </div>
+      </el-form-item>
+
       <el-form-item label="所属目录">
         <el-select v-model="form.catalogId" placeholder="未分类" clearable style="width: 100%">
           <el-option v-for="c in flatCatalogs" :key="c.id" :label="c.label" :value="c.id" />
@@ -321,6 +361,26 @@ defineExpose({ open })
       <template v-if="showHttpFields">
         <el-form-item label="接口地址" prop="baseUrl">
           <el-input v-model="form.baseUrl" placeholder="https://example.com/api" />
+        </el-form-item>
+      </template>
+
+      <!-- 对象存储:Parquet 数据湖的存放位置 -->
+      <template v-if="showObjectStorageFields">
+        <el-form-item v-if="!isLocalObjectStorage" label="Endpoint" prop="host">
+          <el-input v-model="form.host" placeholder="http://minio:9000 或 s3.amazonaws.com" />
+        </el-form-item>
+        <el-form-item v-if="!isLocalObjectStorage" label="端口">
+          <el-input-number v-model="form.port" :min="1" :max="65535" controls-position="right" />
+        </el-form-item>
+        <el-form-item :label="isLocalObjectStorage ? '根目录' : 'Bucket'" prop="databaseName">
+          <el-input
+            v-model="form.databaseName"
+            :placeholder="isLocalObjectStorage ? '/data/lakehouse' : 'warehouse'"
+          />
+          <div class="text-muted">
+            LOCAL 填本地/NFS 路径;S3/MinIO/OSS 填 Endpoint + Bucket。Parquet 前缀在
+            「数据目录」来源里配置 rootPath。
+          </div>
         </el-form-item>
       </template>
 

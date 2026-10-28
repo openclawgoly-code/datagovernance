@@ -55,6 +55,7 @@
     <mybatis-plus.version>3.5.9</mybatis-plus.version>
     <springdoc.version>2.6.0</springdoc.version>
     <jjwt.version>0.12.6</jjwt.version>
+    <duckdb.version>1.5.6.0</duckdb.version>
 
     <!-- 连接器驱动: 版本集中管理,便于 R7(连接器矩阵)审计 -->
     <ojdbc.version>23.5.0.24.07</ojdbc.version>
@@ -107,6 +108,12 @@
         <groupId>com.baomidou</groupId>
         <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
         <version>${mybatis-plus.version}</version>
+      </dependency>
+      <!-- Parquet/对象存储目录的轻量查询引擎：只用于读 footer/采样，不承载生产查询 -->
+      <dependency>
+        <groupId>org.duckdb</groupId>
+        <artifactId>duckdb_jdbc</artifactId>
+        <version>${duckdb.version}</version>
       </dependency>
       <!-- MyBatis-Plus 3.5.9 起,依赖 JSqlParser 的功能(分页插件、多租户插件、
            动态表名等)被拆到独立 artifact。不加它 PaginationInnerInterceptor

@@ -20,6 +20,9 @@ space:
     - Provenance
     - LineageRecord         # 可信记录(本体归 metadata)
     - SensitiveDataPolicy   # 序号35 合规
+    # 外部分析 Agent 的结论归口 —— 见 docs/analysis-report.md
+    - AnalysisReport        # 聚合根:subject/title/state/createdBy/correlationId
+    - AnalysisReportVersion # 不可变内容:summary/bodyMd/conclusion/evidence/model/digest
     # 以下为清单未覆盖但预留,见风险 R10
     - QualityRule           # NOT IN SCOPE
     - QualityResult         # NOT IN SCOPE
@@ -35,6 +38,8 @@ space:
     Alert: [TRIGGERED, NOTIFYING, NOTIFIED, SUPPRESSED, NOTIFY_FAILED, ACKNOWLEDGED, RESOLVED]
     AlertRule: [ENABLED, DISABLED]
     AlertChannel: [ACTIVE, UNREACHABLE, DISABLED]
+    AnalysisReport: [PUBLISHED, RETRACTED]
+    AnalysisReportVersion: [CURRENT, SUPERSEDED]   # 不可变;修订产生新版本
 
   commands:
     - CreateAlertRule
@@ -45,6 +50,9 @@ space:
     - TestAlertChannel        # 序号33 连通性测试
     - AcknowledgeAlert
     - ResolveAlert
+    - PublishAnalysisReport          # 外部 Agent 发布结论(首版)
+    - PublishAnalysisReportVersion   # 修订;旧版转 SUPERSEDED
+    - RetractAnalysisReport
 
   queries:
     - GetMonitorDashboard     # 序号24 跨数据集成+数据开发聚合
@@ -54,6 +62,8 @@ space:
     - SearchAuditLog          # 序号27 跨数据集成+数据开发
     - EvaluateAccess          # 被 control 在编译期同步调用
     - GetLineageProvenance
+    - GetAnalysisReport
+    - ListAnalysisReports
 
   events_produced:
     - AlertTriggered
@@ -65,6 +75,8 @@ space:
     - AccessDenied
     - SensitiveDataAccessed
     - WorkspaceSuspensionOrdered   # 由 control 消费;治理不向任何 Space 发命令
+    - AnalysisReportPublished
+    - AnalysisReportRetracted
 
   events_consumed:
     - ExecutionAccepted
@@ -91,10 +103,13 @@ space:
     - 序号25 的"告警频率"实现为 NOTIFIED 后的抑制窗口
     - 血缘本体归 metadata,血缘的可信记录与审计归此 Space
     - 治理约束是编译的输入(control 在编译期调用 EvaluateAccess),不是事后检查
+    - 分析报告不可变,修订产生新版本;evidence 非空,INCONCLUSIVE 是结论的一等取值
+    - 分析报告只接受携带用户上下文的写入,无服务账号(与 GOVERNANCE-MODEL §G 一致)
 
   storage:
     aggregates: PostgreSQL(由事件驱动的物化视图 —— 不得跨库 join 其他 Space)
     audit: OpenSearch(独立保留期,通常远长于执行日志)
+    analysis_reports: PostgreSQL(append-only,正文 inline,与审计索引分离)
     events: Kafka
 
   runtime: governance-service (Spring Boot)
@@ -124,7 +139,8 @@ space:
     - 不得向任何 Space 发出 Command(需要干预时发事件,保持依赖图无环)
     - 不得直接读取其他 Space 的内部数据库表
     - 不得拥有血缘的本体定义
+    - 不得把分析结论实现为 Runtime 的 Artifact(报告不是可执行制品),也不得写入业务表
 
   api_boundary: REST /api/v1/governance/**
   consistency: 监控与告警为最终一致(事件驱动);EvaluateAccess 为强一致同步调用
-  versioning: AlertRule 变更留痕;AuditRecord 不可变、只追加
+  versioning: AlertRule 变更留痕;AuditRecord 不可变、只追加;AnalysisReport 不可变、修订产生新版本、撤回用状态表达

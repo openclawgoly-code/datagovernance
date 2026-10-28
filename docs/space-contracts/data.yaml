@@ -10,7 +10,7 @@ space:
   participates_in: [1, 2, 3, 4, 9, 11, 12, 13, 14, 34]
 
   core_objects:
-    - Connector                 # MySQL Oracle SQLServer PostgreSQL DM8 StarRocks Doris FTP SFTP RestAPI
+    - Connector                 # MySQL Oracle SQLServer PostgreSQL DM8 DB2 Kingbase StarRocks Doris FTP SFTP RestAPI LOCAL S3 MinIO OSS
     - DataSourceConnection
     - ConnectivityProbeResult   # 序号6
     - SchemaDiscoveryResult     # 序号7 库/模式/表/字段/视图

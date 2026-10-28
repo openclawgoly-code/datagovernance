@@ -84,12 +84,16 @@ public final class DialectUpsert {
         }
 
         return switch (type) {
-            case POSTGRESQL -> postgres(qualifiedTable, columns, keys, updatable, warnings);
+            case POSTGRESQL, KINGBASE -> postgres(type, qualifiedTable, columns, keys,
+                    updatable, warnings);
             case MYSQL -> mysql(qualifiedTable, columns, keys, updatable, warnings);
             case DORIS, STARROCKS -> doris(type, qualifiedTable, columns, warnings);
             case ORACLE, DAMENG -> mergeWithDual(type, qualifiedTable, columns, keys,
                     updatable, warnings);
-            case SQLSERVER -> mergeWithValues(qualifiedTable, columns, keys, updatable, warnings);
+            case SQLSERVER -> mergeWithValues(type, true, qualifiedTable, columns, keys,
+                    updatable, warnings);
+            case DB2 -> mergeWithValues(type, false, qualifiedTable, columns, keys,
+                    updatable, warnings);
             default -> throw new IllegalArgumentException(
                     "%s 不支持 UPSERT —— 它不是关系型数据源".formatted(type.displayName()));
         };
@@ -97,23 +101,24 @@ public final class DialectUpsert {
 
     // ── 各方言 ──────────────────────────────────────────────────────────
 
-    private static UpsertStatement postgres(String table, List<String> columns,
+    private static UpsertStatement postgres(DataSourceType type, String table,
+                                            List<String> columns,
                                             Set<String> keys, List<String> updatable,
                                             List<String> warnings) {
-        DataSourceType t = DataSourceType.POSTGRESQL;
-        StringBuilder sql = new StringBuilder(insertHead(t, table, columns));
-        sql.append(" ON CONFLICT (").append(joinQuoted(t, keys)).append(')');
+        StringBuilder sql = new StringBuilder(insertHead(type, table, columns));
+        sql.append(" ON CONFLICT (").append(joinQuoted(type, keys)).append(')');
         if (updatable.isEmpty()) {
             sql.append(" DO NOTHING");
         } else {
             // EXCLUDED 是 PostgreSQL 给"本来要插入的那一行"起的名字
-            sql.append(" DO UPDATE SET ").append(assignments(t, updatable, "EXCLUDED."));
+            sql.append(" DO UPDATE SET ").append(assignments(type, updatable, "EXCLUDED."));
         }
         // ON CONFLICT 认的是<b>约束</b>而不是列:目标表这几列上没有唯一约束或
         // 主键时,PostgreSQL 报 42P10,而不是默默退化成普通 INSERT。这一条要说
         // 在前面 —— 报错信息("there is no unique or exclusion constraint
         // matching the ON CONFLICT specification")对没见过的人不好懂。
-        warnings.add("PostgreSQL 的 ON CONFLICT 依赖目标表上真实存在的主键或唯一约束;"
+        warnings.add("%s 的 ON CONFLICT 依赖目标表上真实存在的主键或唯一约束;"
+                .formatted(type.displayName())
                 + "这几列上没有约束时会直接报错(42P10),不会退化成普通插入");
         return new UpsertStatement(sql.toString(), warnings);
     }
@@ -177,17 +182,21 @@ public final class DialectUpsert {
      *
      * <p>它没有 {@code DUAL},但有表值构造器,效果一样。
      */
-    private static UpsertStatement mergeWithValues(String table, List<String> columns,
+    private static UpsertStatement mergeWithValues(DataSourceType type, boolean semicolon,
+                                                   String table,
+                                                   List<String> columns,
                                                    Set<String> keys, List<String> updatable,
                                                    List<String> warnings) {
-        DataSourceType t = DataSourceType.SQLSERVER;
         StringBuilder sql = new StringBuilder("MERGE INTO ").append(table).append(" AS tgt")
                 .append(" USING (VALUES (").append(placeholders(columns.size())).append("))")
-                .append(" AS src (").append(joinQuoted(t, columns)).append(')')
-                .append(" ON ").append(joinCondition(t, keys));
-        appendMergeBranches(t, sql, columns, updatable);
-        // MERGE 在 SQL Server 里<b>必须</b>以分号结束,少了它报 155xx 系列的语法错
-        sql.append(';');
+                .append(" AS src (").append(joinQuoted(type, columns)).append(')')
+                .append(" ON ").append(joinCondition(type, keys));
+        appendMergeBranches(type, sql, columns, updatable);
+        // MERGE 在 SQL Server 里<b>必须</b>以分号结束,少了它报 155xx 系列的语法错;
+        // Db2 的 JDBC 语句不接受结尾分号。
+        if (semicolon) {
+            sql.append(';');
+        }
         return new UpsertStatement(sql.toString(), warnings);
     }
 

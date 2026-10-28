@@ -447,6 +447,9 @@ public class TableCopier {
             case SQLSERVER ->
                     "jdbc:sqlserver://%s:%d;databaseName=%s".formatted(config.host(), port, database);
             case DAMENG -> "jdbc:dm://%s:%d".formatted(config.host(), port);
+            case KINGBASE -> "jdbc:kingbase8://%s:%d/%s".formatted(config.host(), port,
+                    database.isBlank() ? "kingbase" : database);
+            case DB2 -> "jdbc:db2://%s:%d/%s".formatted(config.host(), port, database);
             default -> throw new IllegalArgumentException(
                     "数据复制不支持数据源类型 " + entity.getType());
         };

@@ -21,6 +21,16 @@ space:
     - View
     - SchemaSnapshot
     - SchemaVersion
+    # 规范化数据目录(P10.1/P10.2)
+    - CatalogSource
+    - CatalogDataset
+    - CatalogColumn
+    - CatalogPartition
+    # 字段血缘与敏感标签(P10.4)
+    - LineageNode              # TABLE / COLUMN / DATASET
+    - LineageEdge              # 只追加,SQL 变化标 SUPERSEDED
+    - SensitivityRule
+    - SensitivityLabel
     # 规则
     - Rule                     # 序号17 CLEANSING / TRANSFORM
     - RuleParam

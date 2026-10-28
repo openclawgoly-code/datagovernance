@@ -217,6 +217,39 @@ class TypeMappersTest {
     }
 
     @Nested
+    @DisplayName("Db2 与 Kingbase")
+    class Db2AndKingbase {
+
+        @Test
+        @DisplayName("Db2 的 DECFLOAT / CLOB / XML 不会落到 UNKNOWN")
+        void db2Types() {
+            TypeMapper mapper = TypeMappers.forType(DataSourceType.DB2);
+            assertThat(mapper.map("DECFLOAT", Types.OTHER, null, null))
+                    .isEqualTo(CanonicalType.DECIMAL);
+            assertThat(mapper.map("CLOB", Types.CLOB, null, null))
+                    .isEqualTo(CanonicalType.TEXT);
+            assertThat(mapper.map("XML", Types.SQLXML, null, null))
+                    .isEqualTo(CanonicalType.TEXT);
+            assertThat(mapper.map("TIMESTAMP", Types.TIMESTAMP, null, null))
+                    .isEqualTo(CanonicalType.TIMESTAMP);
+        }
+
+        @Test
+        @DisplayName("Kingbase 兼容 Oracle 的 VARCHAR2 / NUMBER / CLOB")
+        void kingbaseOracleCompatibility() {
+            TypeMapper mapper = TypeMappers.forType(DataSourceType.KINGBASE);
+            assertThat(mapper.map("VARCHAR2", Types.VARCHAR, 50, null))
+                    .isEqualTo(CanonicalType.VARCHAR);
+            assertThat(mapper.map("NUMBER", Types.NUMERIC, 9, 0))
+                    .isEqualTo(CanonicalType.INT);
+            assertThat(mapper.map("CLOB", Types.CLOB, null, null))
+                    .isEqualTo(CanonicalType.TEXT);
+            assertThat(mapper.map("TIMESTAMPTZ", Types.TIMESTAMP, null, null))
+                    .isEqualTo(CanonicalType.TIMESTAMP_TZ);
+        }
+    }
+
+    @Nested
     @DisplayName("兜底行为")
     class Fallback {
 

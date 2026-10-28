@@ -48,6 +48,7 @@ public class AuditInterceptor implements HandlerInterceptor {
             Map.entry("/rules", new String[]{"RULE", "METADATA"}),
             Map.entry("/governance/alert-rules", new String[]{"ALERT_RULE", "GOVERNANCE"}),
             Map.entry("/governance/alerts", new String[]{"ALERT", "GOVERNANCE"}),
+            Map.entry("/governance/analysis-reports", new String[]{"ANALYSIS_REPORT", "GOVERNANCE"}),
             Map.entry("/governance/channels", new String[]{"ALERT_CHANNEL", "GOVERNANCE"}),
             Map.entry("/workspaces", new String[]{"WORKSPACE", "PLATFORM"}),
             Map.entry("/users", new String[]{"USER", "PLATFORM"}),
@@ -130,6 +131,11 @@ public class AuditInterceptor implements HandlerInterceptor {
         }
         if ("login".equals(last)) {
             return AuditService.LOGIN;
+        }
+        // 撤回改变的是报告状态,不是新建一份东西 —— 记成 UPDATE 才对得上
+        // "谁把这个结论撤了"这个问题。发布新版本仍是 CREATE(产生了新版本行)。
+        if ("retract".equals(last)) {
+            return AuditService.UPDATE;
         }
         return switch (method) {
             case "POST" -> AuditService.CREATE;

@@ -48,10 +48,11 @@ public final class DialectDdl {
         return switch (type) {
             case MYSQL -> mysql(table, columnClauses, spec, warnings);
             case DORIS, STARROCKS -> doris(type, table, columnClauses, spec, warnings);
-            case POSTGRESQL -> postgres(table, columnClauses, spec, warnings);
+            case POSTGRESQL, KINGBASE -> postgres(table, columnClauses, spec, warnings);
             case ORACLE -> oracle(table, columnClauses, spec, warnings);
             case SQLSERVER -> sqlServer(table, columnClauses, spec, warnings);
             case DAMENG -> dameng(table, columnClauses, spec, warnings);
+            case DB2 -> db2(table, columnClauses, spec, warnings);
             default -> throw new IllegalArgumentException(
                     "%s 不支持建表 —— 它不是关系型数据源".formatted(type.displayName()));
         };
@@ -198,6 +199,32 @@ public final class DialectDdl {
         return new TableDdl.GeneratedDdl(statements, warnings);
     }
 
+    private static TableDdl.GeneratedDdl db2(String table, List<String> columns,
+                                             TableDdl.CreateTableSpec spec,
+                                             List<String> warnings) {
+        StringBuilder sql = new StringBuilder("CREATE TABLE ").append(table).append(" (\n  ")
+                .append(String.join(",\n  ", columns));
+        if (!spec.primaryKeys().isEmpty()) {
+            sql.append(",\n  PRIMARY KEY (")
+                    .append(joinQuoted(DataSourceType.DB2, spec.primaryKeys())).append(')');
+        }
+        sql.append("\n)");
+
+        List<String> statements = new ArrayList<>();
+        statements.add(sql.toString());
+        if (isPresent(spec.comment())) {
+            statements.add("COMMENT ON TABLE %s IS %s".formatted(table, literal(spec.comment())));
+        }
+        for (TableDdl.ColumnSpec column : spec.columns()) {
+            if (isPresent(column.comment())) {
+                statements.add("COMMENT ON COLUMN %s.%s IS %s".formatted(
+                        table, quote(DataSourceType.DB2, column.name()),
+                        literal(column.comment())));
+            }
+        }
+        return new TableDdl.GeneratedDdl(statements, warnings);
+    }
+
     // ── 列渲染 ──────────────────────────────────────────────────────────
 
     private static String renderColumn(DataSourceType type, TableDdl.ColumnSpec column,
@@ -242,19 +269,30 @@ public final class DialectDdl {
                 }
                 case SQLSERVER -> "BIT";
                 case DAMENG -> "BIT";
+                case DB2 -> warnAnd(warnings,
+                        "列 %s:Db2 无 BOOLEAN,使用 SMALLINT(0/1)".formatted(column.name()),
+                        "SMALLINT");
                 default -> "BOOLEAN";
             };
-            case TINYINT -> type == DataSourceType.ORACLE ? "NUMBER(3)" : "TINYINT";
+            case TINYINT -> switch (type) {
+                case ORACLE -> "NUMBER(3)";
+                case DB2 -> warnAnd(warnings,
+                        "列 %s:Db2 无 TINYINT,使用 SMALLINT".formatted(column.name()),
+                        "SMALLINT");
+                default -> "TINYINT";
+            };
             case SMALLINT -> type == DataSourceType.ORACLE ? "NUMBER(5)" : "SMALLINT";
             case INT -> switch (type) {
                 case ORACLE -> "NUMBER(10)";
                 case POSTGRESQL -> "INTEGER";
+                case DB2 -> "INTEGER";
                 default -> "INT";
             };
             case BIGINT -> type == DataSourceType.ORACLE ? "NUMBER(19)" : "BIGINT";
             case FLOAT -> switch (type) {
                 case POSTGRESQL -> "REAL";
                 case ORACLE -> "BINARY_FLOAT";
+                case DB2 -> "REAL";
                 default -> "FLOAT";
             };
             case DOUBLE -> switch (type) {
@@ -290,6 +328,11 @@ public final class DialectDdl {
                     // Doris 的 VARCHAR 按字节算长度,中文一字三字节 —— 不放大三倍
                     // 会让「姓名 VARCHAR(10)」在存四个汉字时就截断
                     case DORIS, STARROCKS -> "VARCHAR(%d)".formatted(Math.min(len * 3, 65533));
+                    // Db2 的 VARCHAR 上限 32672;超过后用 CLOB,否则建表直接失败
+                    case DB2 -> len > 32672
+                            ? warnAnd(warnings, "列 %s:长度 %d 超过 Db2 VARCHAR 上限,改用 CLOB"
+                            .formatted(column.name(), len), "CLOB")
+                            : "VARCHAR(%d)".formatted(len);
                     default -> "VARCHAR(%d)".formatted(len);
                 };
             }
@@ -298,6 +341,7 @@ public final class DialectDdl {
                 case SQLSERVER -> "NVARCHAR(MAX)";
                 // Doris 没有 TEXT,STRING 是它的等价物(上限 1MB)
                 case DORIS, STARROCKS -> "STRING";
+                case DB2 -> "CLOB";
                 default -> "TEXT";
             };
             case DATE -> "DATE";
@@ -317,38 +361,46 @@ public final class DialectDdl {
                 default -> "TIMESTAMP";
             };
             case TIMESTAMP_TZ -> switch (type) {
-                case POSTGRESQL -> "TIMESTAMP WITH TIME ZONE";
+                case POSTGRESQL, KINGBASE -> "TIMESTAMP WITH TIME ZONE";
                 case ORACLE -> "TIMESTAMP WITH TIME ZONE";
                 case SQLSERVER -> "DATETIMEOFFSET";
-                // MySQL / Doris 没有带时区的时间戳。这是<b>会丢信息</b>的降级,
+                // MySQL / Doris / Db2 没有带时区的时间戳。这是<b>会丢信息</b>的降级,
                 // 必须提醒 —— 时区丢了之后数据看着还在,只是不知道是哪个时区的
                 default -> warnAnd(warnings,
                         "列 %s:%s 无带时区的时间戳,降级为不带时区 —— 时区信息会丢失"
                                 .formatted(column.name(), type.displayName()),
-                        type == DataSourceType.MYSQL ? "DATETIME" : "DATETIME");
+                        type == DataSourceType.MYSQL || type == DataSourceType.DORIS
+                                || type == DataSourceType.STARROCKS ? "DATETIME" : "TIMESTAMP");
             };
             case BINARY, VARBINARY -> switch (type) {
-                case POSTGRESQL -> "BYTEA";
+                case POSTGRESQL, KINGBASE -> "BYTEA";
                 case ORACLE, DAMENG -> "BLOB";
                 case SQLSERVER -> "VARBINARY(MAX)";
                 case DORIS, STARROCKS -> warnAnd(warnings,
                         "列 %s:Doris 不支持二进制类型,使用 STRING".formatted(column.name()),
                         "STRING");
+                case DB2 -> warnAnd(warnings,
+                        "列 %s:Db2 二进制列使用 VARBINARY,长内容请人工确认".formatted(column.name()),
+                        precision == null || precision <= 0
+                                ? "VARBINARY(255)" : "VARBINARY(%d)".formatted(precision));
                 default -> "VARBINARY(%d)".formatted(
                         precision == null || precision <= 0 ? 255 : precision);
             };
             case BLOB -> switch (type) {
-                case POSTGRESQL -> "BYTEA";
+                case POSTGRESQL, KINGBASE -> "BYTEA";
                 case SQLSERVER -> "VARBINARY(MAX)";
                 case DORIS, STARROCKS -> warnAnd(warnings,
                         "列 %s:Doris 不支持 BLOB,使用 STRING".formatted(column.name()),
                         "STRING");
+                case DB2 -> "BLOB";
                 default -> "BLOB";
             };
             case JSON -> switch (type) {
                 case MYSQL -> "JSON";
-                case POSTGRESQL -> "JSONB";
+                case POSTGRESQL, KINGBASE -> "JSONB";
                 case DORIS, STARROCKS -> "JSON";
+                case DB2 -> warnAnd(warnings,
+                        "列 %s:Db2 无 JSON 类型,使用 CLOB".formatted(column.name()), "CLOB");
                 default -> warnAnd(warnings,
                         "列 %s:%s 无 JSON 类型,使用文本".formatted(column.name(), type.displayName()),
                         type == DataSourceType.ORACLE || type == DataSourceType.DAMENG
@@ -357,9 +409,13 @@ public final class DialectDdl {
             case ARRAY -> switch (type) {
                 case POSTGRESQL -> warnAnd(warnings,
                         "列 %s:数组元素类型未知,使用 TEXT[]".formatted(column.name()), "TEXT[]");
+                case KINGBASE -> warnAnd(warnings,
+                        "列 %s:数组元素类型未知,使用 TEXT[]".formatted(column.name()), "TEXT[]");
                 case DORIS, STARROCKS -> warnAnd(warnings,
                         "列 %s:数组元素类型未知,使用 ARRAY<STRING>".formatted(column.name()),
                         "ARRAY<STRING>");
+                case DB2 -> warnAnd(warnings,
+                        "列 %s:Db2 无数组类型,序列化为文本".formatted(column.name()), "CLOB");
                 default -> warnAnd(warnings,
                         "列 %s:%s 无数组类型,序列化为文本".formatted(column.name(), type.displayName()),
                         "TEXT");

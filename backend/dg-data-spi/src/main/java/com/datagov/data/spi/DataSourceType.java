@@ -19,6 +19,10 @@ public enum DataSourceType {
     SQLSERVER("SQLServer", Family.RELATIONAL, "com.microsoft.sqlserver.jdbc.SQLServerDriver", 1433),
     /** 达梦 DM8 —— 信创关系库主力 */
     DAMENG("达梦DM8", Family.RELATIONAL, "dm.jdbc.driver.DmDriver", 5236),
+    /** IBM Db2 —— 金蝶 EAS 老版本、部分用友 NC 部署 */
+    DB2("IBM Db2", Family.RELATIONAL, "com.ibm.db2.jcc.DB2Driver", 50000),
+    /** 人大金仓 KingbaseES —— 泛微/用友信创场景 */
+    KINGBASE("人大金仓 KingbaseES", Family.RELATIONAL, "com.kingbase8.Driver", 54321),
 
     // ── MPP 分析型(功能 3)───────────────────────────────────────
     DORIS("Apache Doris", Family.MPP, "com.mysql.cj.jdbc.Driver", 9030),
@@ -29,7 +33,15 @@ public enum DataSourceType {
     SFTP("SFTP", Family.FILE, null, 22),
 
     // ── 接口(功能 4)─────────────────────────────────────────────
-    REST_API("RestAPI", Family.HTTP, null, 443);
+    REST_API("RestAPI", Family.HTTP, null, 443),
+
+    // ── 对象存储:Parquet 数据湖的存放位置 ───────────────────────────
+    /** 本地/挂载目录(NFS、CephFS 等),开发与私有化部署用;也用于测试 */
+    LOCAL("本地/NFS 目录", Family.OBJECT_STORAGE, null, 0),
+    /** S3 及 S3 兼容对象存储;MinIO/OSS 也可用各自类型以获得默认端口语义 */
+    S3("S3 / S3 兼容", Family.OBJECT_STORAGE, null, 443),
+    MINIO("MinIO", Family.OBJECT_STORAGE, null, 9000),
+    OSS("阿里云 OSS", Family.OBJECT_STORAGE, null, 443);
 
     /**
      * 数据源族 —— 决定该类型能提供哪些 Capability,以及 UI 该渲染哪种浏览器
@@ -39,7 +51,8 @@ public enum DataSourceType {
         RELATIONAL,
         MPP,
         FILE,
-        HTTP
+        HTTP,
+        OBJECT_STORAGE
     }
 
     private final String displayName;

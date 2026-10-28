@@ -1,6 +1,7 @@
 package com.datagov.metadata.dto;
 
 import com.datagov.data.spi.DataSourceType;
+import com.datagov.metadata.domain.VendorProfile;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -48,11 +49,29 @@ public record DataSourceUpsertCommand(
         String credentialId,
 
         Integer connectTimeoutMs,
-        Integer readTimeoutMs
+        Integer readTimeoutMs,
+
+        /** 厂商预设:泛微/金蝶/用友。null 等价于 GENERIC */
+        VendorProfile vendorProfile
 ) {
 
     public DataSourceUpsertCommand {
         properties = properties == null ? Map.of() : Map.copyOf(properties);
         nodes = nodes == null ? List.of() : List.copyOf(nodes);
+    }
+
+    /**
+     * 兼容旧调用方:厂商 profile 是后加的字段,既有测试与内部构造不应被迫
+     * 全部改签名。
+     */
+    public DataSourceUpsertCommand(
+            String name, DataSourceType type, String description, String catalogId,
+            String host, Integer port, String databaseName, String username,
+            Map<String, String> properties, List<ConnectionConfig.Node> nodes,
+            String jdbcUrlOverride, String baseUrl, String credentialId,
+            Integer connectTimeoutMs, Integer readTimeoutMs) {
+        this(name, type, description, catalogId, host, port, databaseName, username,
+                properties, nodes, jdbcUrlOverride, baseUrl, credentialId,
+                connectTimeoutMs, readTimeoutMs, null);
     }
 }

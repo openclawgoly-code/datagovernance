@@ -431,6 +431,7 @@ public class DataSourceService {
         entity.setType(command.type());
         entity.setFamily(command.type().family());
         entity.setDescription(command.description());
+        entity.setVendorProfile(command.vendorProfile());
         entity.setCatalogId(command.catalogId());
         entity.setHost(command.host());
         entity.setPort(command.port());

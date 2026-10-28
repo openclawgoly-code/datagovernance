@@ -46,4 +46,12 @@ public record ConnectorCapabilities(
     public static ConnectorCapabilities httpBased() {
         return new ConnectorCapabilities(true, false, false, false, false, true, false, false);
     }
+
+    /**
+     * 对象存储:能验通;目录/数据集浏览由 CatalogProvider 负责,不走
+     * 关系型目录树。置 false 是为了不让 UI 误画一棵“库/表”树。
+     */
+    public static ConnectorCapabilities objectStorage() {
+        return new ConnectorCapabilities(true, false, false, false, false, false, false, false);
+    }
 }

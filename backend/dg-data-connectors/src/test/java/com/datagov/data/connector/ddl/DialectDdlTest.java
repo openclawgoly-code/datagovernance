@@ -119,10 +119,34 @@ class DialectDdlTest {
             assertThat(sql).contains("[appdb].[orders]");
         }
 
+        @Test
+        @DisplayName("Db2 用双引号标识符,注释是独立语句")
+        void db2() {
+            TableDdl.GeneratedDdl ddl = DialectDdl.generate(DataSourceType.DB2,
+                    spec(column("id", CanonicalType.BIGINT),
+                            new TableDdl.ColumnSpec("name", CanonicalType.VARCHAR, 64, null,
+                                    true, "客户名")));
+
+            assertThat(ddl.statements().get(0)).contains("CREATE TABLE \"appdb\".\"orders\"");
+            assertThat(ddl.statements().get(0)).contains("PRIMARY KEY (\"id\")");
+            assertThat(ddl.statements()).anyMatch(s -> s.startsWith("COMMENT ON TABLE"));
+            assertThat(ddl.statements()).anyMatch(s -> s.startsWith("COMMENT ON COLUMN"));
+        }
+
+        @Test
+        @DisplayName("Kingbase 复用 PostgreSQL 的建表语法")
+        void kingbaseUsesPostgresDdl() {
+            String sql = DialectDdl.generate(DataSourceType.KINGBASE,
+                    spec(column("id", CanonicalType.BIGINT))).asScript();
+            assertThat(sql).contains("CREATE TABLE \"appdb\".\"orders\"");
+            assertThat(sql).contains("PRIMARY KEY (\"id\")");
+        }
+
         @ParameterizedTest(name = "{0} 能生成建表语句")
         @EnumSource(value = DataSourceType.class,
-                names = {"MYSQL", "POSTGRESQL", "ORACLE", "SQLSERVER", "DAMENG", "DORIS", "STARROCKS"})
-        @DisplayName("七种关系型/MPP 类型都能生成")
+                names = {"MYSQL", "POSTGRESQL", "ORACLE", "SQLSERVER", "DAMENG", "DB2",
+                        "KINGBASE", "DORIS", "STARROCKS"})
+        @DisplayName("九种关系型/MPP 类型都能生成")
         void allRelationalTypesGenerate(DataSourceType type) {
             TableDdl.GeneratedDdl ddl = DialectDdl.generate(type,
                     spec(column("id", CanonicalType.BIGINT), column("name", CanonicalType.VARCHAR)));
@@ -171,6 +195,26 @@ class DialectDdlTest {
                     spec(column("id", CanonicalType.BIGINT),
                             column("name", CanonicalType.VARCHAR, 10, null))).asScript();
             assertThat(sql).contains("VARCHAR(30)");
+        }
+
+        @Test
+        @DisplayName("Db2 没有 BOOLEAN,降级为 SMALLINT 并提醒")
+        void db2HasNoBoolean() {
+            TableDdl.GeneratedDdl ddl = DialectDdl.generate(DataSourceType.DB2,
+                    spec(column("id", CanonicalType.BIGINT), column("flag", CanonicalType.BOOLEAN)));
+            assertThat(ddl.asScript()).contains("SMALLINT");
+            assertThat(ddl.warnings()).anyMatch(w -> w.contains("BOOLEAN"));
+        }
+
+        @Test
+        @DisplayName("Kingbase 支持带时区时间戳与 JSONB")
+        void kingbaseKeepsPgTypes() {
+            TableDdl.GeneratedDdl ddl = DialectDdl.generate(DataSourceType.KINGBASE,
+                    spec(column("id", CanonicalType.BIGINT),
+                            column("created_at", CanonicalType.TIMESTAMP_TZ),
+                            column("payload", CanonicalType.JSON)));
+            assertThat(ddl.asScript()).contains("TIMESTAMP WITH TIME ZONE");
+            assertThat(ddl.asScript()).contains("JSONB");
         }
 
         @Test

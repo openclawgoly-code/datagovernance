@@ -35,6 +35,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/metadata/DataSourceListView.vue'),
         meta: { title: '数据源', permission: 'metadata:datasource:read' },
       },
+      {
+        path: 'metadata/catalog',
+        name: 'catalog-assets',
+        component: () => import('@/views/metadata/CatalogAssetView.vue'),
+        meta: { title: '数据目录', permission: 'metadata:asset:read' },
+      },
       // 注册中心与语义映射(序号 34 的契约第 3、4 条)
       {
         path: 'metadata/registry',

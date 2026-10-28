@@ -40,8 +40,8 @@ backend/
   dg-common           跨 Space 共享内核:响应封装 / 错误码 / 租户上下文 / 状态机 / 加密
   dg-platform         Platform/Tenancy Space —— 空间(租户)、用户、角色、菜单权限、凭据
   dg-data-spi         Data Space 对外契约 —— 纯接口 + 值对象,零驱动依赖
-  dg-data-connectors  Data Space 实现 —— 10 种连接器、类型映射、异常翻译
-  dg-metadata         Metadata Space —— 数据源定义、生命周期、目录快照、版本、注册中心
+  dg-data-connectors  Data Space 实现 —— 16 种数据源类型(含 4 种对象存储)、类型映射、异常翻译
+  dg-metadata         Metadata Space —— 数据源定义、规范化数据目录、字段血缘、敏感标签、注册中心
   dg-runtime          Runtime Space —— 统一 Execution 事实、执行器、制品、规则解释器
   dg-control          Control Space —— 任务定义、编译、DAG、Cron 调度、下发
   dg-governance       Governance Space —— 监控、告警、审计、告警渠道
@@ -75,6 +75,8 @@ Metadata 就获得了执行能力,边界即失守。
 | 元数据库 | PostgreSQL 16 + Flyway | 达梦 DM8 / 人大金仓 KingbaseES |
 | 前端 | Vue 3 + TypeScript + Vite + Element Plus | 同(纯前端无替代压力) |
 | 运行时(P2+) | Apache Flink | 同 |
+
+> 口径区分：`DB2` / `Kingbase` 是**外部数据源连接器**（驱动需现场安装，未安装时不会出现在可用类型列表）；`LOCAL` / `S3` / `MinIO` / `OSS` 是**对象存储类型**，Parquet 目录采集用 DuckDB 读 footer，不用于生产查询；「元数据库」一行的达梦/金仓是**平台自身元数据库的替代方向**，迁移脚本尚未提供。
 
 完整选型与替代矩阵见 `SPACE-MODEL.md` 第 L 章。
 

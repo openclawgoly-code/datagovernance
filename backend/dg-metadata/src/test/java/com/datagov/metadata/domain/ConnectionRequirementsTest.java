@@ -96,6 +96,41 @@ class ConnectionRequirementsTest {
     }
 
     @Nested
+    @DisplayName("必填库名")
+    class RequiredDatabase {
+
+        @Test
+        @DisplayName("Db2 / Kingbase 缺少库名在保存前被拒")
+        void db2AndKingbaseRequireDatabase() {
+            for (DataSourceType type : List.of(DataSourceType.DB2, DataSourceType.KINGBASE)) {
+                DataSourceUpsertCommand missing = new DataSourceUpsertCommand(
+                        "ds", type, null, null,
+                        "h", type.defaultPort(), null, "etl", Map.of(), List.of(),
+                        null, null, "cred_1", null, null);
+
+                assertThatThrownBy(() -> ConnectionRequirements.validate(missing))
+                        .isInstanceOf(BizException.class)
+                        .hasMessageContaining("库名")
+                        .hasMessageContaining(type.displayName());
+            }
+        }
+
+        @Test
+        @DisplayName("给出库名后通过")
+        void withDatabasePasses() {
+            for (DataSourceType type : List.of(DataSourceType.DB2, DataSourceType.KINGBASE)) {
+                DataSourceUpsertCommand command = new DataSourceUpsertCommand(
+                        "ds", type, null, null,
+                        "h", type.defaultPort(), "appdb", "etl", Map.of(), List.of(),
+                        null, null, "cred_1", null, null);
+
+                assertThatCode(() -> ConnectionRequirements.validate(command))
+                        .doesNotThrowAnyException();
+            }
+        }
+    }
+
+    @Nested
     @DisplayName("连接变更判定")
     class Changed {
 

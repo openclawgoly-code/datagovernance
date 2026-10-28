@@ -321,6 +321,10 @@ Definition (from Metadata)
 | `PolicyDecision` | subject, action, resource, effect, reason | 授权判定 |
 | `Provenance` / `LineageRecord` | 可信血缘记录(与 Metadata 的血缘本体分离) | 派生自 8 + 执行事实 |
 | `SensitiveDataPolicy` | 脱敏与访问约束 | 序号 35 的合规要求 |
+| `AnalysisReport` | subjectType/subjectId、title、state、createdBy、correlationId | 外部分析 Agent 的结论归口,见 `docs/analysis-report.md` |
+| `AnalysisReportVersion` | version、summary、bodyMd、conclusion(CONFIRMED / INCONCLUSIVE)、evidence[]、model、contentDigest | 不可变;修订产生新版本 |
+
+**为什么报告归 Governance**:报告是"关于事实的解释",与 `Provenance`/`AuditRecord`/`PolicyDecision` 同层。放进 Runtime 的 `Artifact` 会让制品仓库同时承载构建产物与结论,且对象归属错位;挂在 `Alert` 上则把报告降级成瞬时通知的备注。
 
 **血缘的归属划分**:血缘的**本体与结构**(哪些边、什么类型)归 Metadata;血缘的**可信记录**(某次执行确实从 A 读到 B、由谁触发、何时)归 Governance。前者是定义,后者是事实。
 
@@ -470,6 +474,15 @@ DRAFT ──> ANNOTATING ──> REVIEWING ──> QC_PASSED ──> PUBLISHED �
 
 `PUBLISHED` 后内容不可变,任何修改产生新的 `DatasetVersion`。`Model ──TrainedOn──> DatasetVersion` 必须指向 `FROZEN` 或 `PUBLISHED` 版本,保证训练可复现。
 
+### E.9 `AnalysisReport`(Governance,外部 Agent 写入)
+
+```text
+PUBLISHED ──PublishAnalysisReportVersion──> (新版本;旧版本转 SUPERSEDED)
+PUBLISHED ──RetractAnalysisReport────────> RETRACTED
+```
+
+没有 `DRAFT`(草稿留在调用方),没有 `DELETE`(事实只能撤回)。`INCONCLUSIVE` 是**结论字段的一等取值**,不是失败态 —— 与三约束里的「证据不足拒绝定论」一致。
+
 ---
 
 ## F. Command / Query / Event Model
@@ -579,17 +592,23 @@ Data Space 以同步 Command/Query 为主,自身几乎没有独立生命周期,�
 ```text
 Commands  CreateAlertRule, UpdateAlertRule, EnableAlertRule, DisableAlertRule,
           CreateAlertChannel, TestAlertChannel,        ← 序号 33 连通性测试
-          AcknowledgeAlert, ResolveAlert
+          AcknowledgeAlert, ResolveAlert,
+          PublishAnalysisReport, PublishAnalysisReportVersion, RetractAnalysisReport
+                                                       ← 外部分析 Agent 写入,唯一写入口
 
 Queries   GetMonitorDashboard,                          ← 序号 24
           ListTodayAlerts, ListHistoricalAlerts, GetAlertDetail,   ← 序号 26
           SearchAuditLog,                               ← 序号 27
-          EvaluateAccess, GetLineageProvenance
+          EvaluateAccess, GetLineageProvenance,
+          GetAnalysisReport, ListAnalysisReports
 
 Events    AlertTriggered, AlertNotified, AlertNotifyFailed, AlertSuppressed,
           AlertResolved, AuditRecorded, AccessDenied, SensitiveDataAccessed,
-          WorkspaceSuspensionOrdered   ← 由 Control 消费后暂停该租户的调度
+          WorkspaceSuspensionOrdered,   ← 由 Control 消费后暂停该租户的调度
+          AnalysisReportPublished, AnalysisReportRetracted
 ```
+
+`AnalysisReport` 是外部 Agent(首个实现:DeepAnalyze)对平台事实的解释结论:不可变、evidence 非空、修订产生新版本。它**不是** Runtime 的 Artifact(制品是可执行/可部署内容),也**不产生 Command** —— 发布只发事件。
 
 **Governance 对其他 Space 只发事件,不发命令。** 需要停掉某个租户的任务时,它发出 `WorkspaceSuspensionOrdered`,由 Control 消费后执行暂停 —— 而不是直接命令 Control。
 
@@ -897,6 +916,7 @@ I.1 的 7 个是**模块边界**(包结构、依赖方向、Contract),不是 7 �
 | **密钥存储** Vault / KMS | Credential 密文、Workspace 鉴权密钥 | Platform | 仅 Runtime 可经一次性注入句柄解密,不落任何业务库 |
 | **执行事实库** PostgreSQL 按时间分区 | Execution / ExecutionAttempt / ExecutionMetric | Runtime | 与元数据库分离(写多读多);按天/月分区 + 保留策略 |
 | **日志检索** OpenSearch | ExecutionLog / ErrorLog / AuditRecord | Runtime(执行日志)/ Governance(审计) | 按天滚动索引;**审计索引保留期独立设置**,通常远长于执行日志 |
+| **分析报告库** PostgreSQL(append-only) | AnalysisReport / AnalysisReportVersion | Governance | 按 `workspace_id` 行级隔离;正文不可变,修订产生新版本;不进审计索引 |
 | **事件总线** Kafka | 全部跨 Space Event | 共享基础设施 | 按 Space 前缀分 topic;`execution.*` 独立 topic(量最大) |
 | **缓存** Redis | Schema 树、菜单权限、调度分布式锁、告警抑制窗口 | 多 Space 共用 | key 按 Space 前缀隔离;**调度锁必须用独立 DB index** |
 | **对象存储** MinIO / S3 | 平台级 JAR(32)、文件同步中转、查询结果导出 | Runtime | 按 `workspace/` 前缀分区 |

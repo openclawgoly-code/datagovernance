@@ -94,6 +94,22 @@ class DialectUpsertTest {
         }
 
         @Test
+        @DisplayName("Kingbase 复用 PostgreSQL 的 ON CONFLICT")
+        void kingbase() {
+            assertThat(sql(DataSourceType.KINGBASE)).isEqualTo(sql(DataSourceType.POSTGRESQL));
+        }
+
+        @Test
+        @DisplayName("Db2 用 MERGE ... USING (VALUES ...),不以分号结尾")
+        void db2() {
+            String generated = sql(DataSourceType.DB2);
+            assertThat(generated).startsWith("MERGE INTO \"orders\" AS tgt")
+                    .contains("USING (VALUES (?, ?, ?)) AS src (\"id\", \"name\", \"amount\")")
+                    .contains("WHEN MATCHED THEN UPDATE SET")
+                    .doesNotEndWith(";");
+        }
+
+        @Test
         @DisplayName("SQL Server 用 MERGE ... USING (VALUES ...),并以分号结尾")
         void sqlServer() {
             assertThat(sql(DataSourceType.SQLSERVER)).isEqualTo(
@@ -129,8 +145,8 @@ class DialectUpsertTest {
          */
         @ParameterizedTest
         @EnumSource(value = DataSourceType.class,
-                names = {"POSTGRESQL", "MYSQL", "DORIS", "STARROCKS", "ORACLE",
-                        "SQLSERVER", "DAMENG"})
+                names = {"POSTGRESQL", "KINGBASE", "MYSQL", "DORIS", "STARROCKS", "ORACLE",
+                        "SQLSERVER", "DAMENG", "DB2"})
         @DisplayName("占位符个数恰好等于列数(每个值只绑一次)")
         void placeholderCountEqualsColumnCount(DataSourceType type) {
             String generated = sql(type);
@@ -149,7 +165,7 @@ class DialectUpsertTest {
          */
         private String updateClause(DataSourceType type, String generated) {
             return switch (type) {
-                case POSTGRESQL -> after(generated, "DO UPDATE SET ");
+                case POSTGRESQL, KINGBASE -> after(generated, "DO UPDATE SET ");
                 case MYSQL -> after(generated, "ON DUPLICATE KEY UPDATE ");
                 default -> {
                     String tail = after(generated, "WHEN MATCHED THEN UPDATE SET ");
@@ -167,7 +183,8 @@ class DialectUpsertTest {
 
         @ParameterizedTest
         @EnumSource(value = DataSourceType.class,
-                names = {"POSTGRESQL", "MYSQL", "ORACLE", "SQLSERVER", "DAMENG"})
+                names = {"POSTGRESQL", "KINGBASE", "MYSQL", "ORACLE", "SQLSERVER", "DAMENG",
+                        "DB2"})
         @DisplayName("主键列不出现在 UPDATE 的赋值里")
         void primaryKeyIsNeverUpdated(DataSourceType type) {
             // Oracle 明令禁止(ORA-38104:ON 子句里的列不能被更新),其余方言

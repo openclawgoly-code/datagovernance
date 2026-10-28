@@ -7,6 +7,7 @@ import com.datagov.common.tenant.WorkspaceContext;
 import com.datagov.data.spi.ConnectionConfig;
 import com.datagov.data.spi.ConnectivityResult;
 import com.datagov.data.spi.DataSourceType;
+import com.datagov.metadata.domain.VendorProfile;
 import com.datagov.metadata.dto.DataSourceUpsertCommand;
 import com.datagov.metadata.dto.DataSourceView;
 import com.datagov.metadata.entity.DataSourceVersionEntity;
@@ -65,6 +66,8 @@ public class DataSourceController {
             @NotBlank(message = "名称不能为空") String name,
             @NotNull(message = "类型不能为空") DataSourceType type,
             String description,
+            /** 厂商预设:泛微/金蝶/用友;为空等价于 GENERIC */
+            VendorProfile vendorProfile,
             /** 所属目录(功能5);为空表示未分类 */
             String catalogId,
             String host,
@@ -226,6 +229,7 @@ public class DataSourceController {
                 request.name(), request.type(), request.description(), request.catalogId(),
                 request.host(), request.port(), request.databaseName(), request.username(),
                 request.properties(), request.nodes(), request.jdbcUrlOverride(), request.baseUrl(),
-                credentialId, request.connectTimeoutMs(), request.readTimeoutMs());
+                credentialId, request.connectTimeoutMs(), request.readTimeoutMs(),
+                request.vendorProfile());
     }
 }

@@ -24,6 +24,27 @@ import java.util.Set;
 public final class ConnectionRequirements {
 
     /**
+     * 哪些关系型类型的 database 字段是必填的。
+     *
+     * <p>Oracle / 达梦用 database 承载服务名/SID;Db2 / Kingbase 的 database
+     * 是连接目标本身,空值没有合理默认。
+     */
+    private static boolean requiresDatabase(DataSourceType type) {
+        return type == DataSourceType.ORACLE
+                || type == DataSourceType.DAMENG
+                || type == DataSourceType.DB2
+                || type == DataSourceType.KINGBASE;
+    }
+
+    private static String databaseLabel(DataSourceType type) {
+        return switch (type) {
+            case ORACLE -> "服务名或 SID";
+            case DAMENG, DB2, KINGBASE -> "库名";
+            default -> "库名";
+        };
+    }
+
+    /**
      * 附加节点数量上限。FE 通常 3 台,给到 8 已经很宽裕;设上限是因为节点列表
      * 会被拼进 JDBC URL,无上限意味着一个超长 URL 可以从表单一路传到驱动。
      */
@@ -48,11 +69,11 @@ public final class ConnectionRequirements {
                     // 端口可空 —— 连接器会回落到该类型的默认端口
                 }
                 // Oracle / 达梦 的 database 字段承载服务名或 SID,同样必填;
+                // Db2 / Kingbase 的 database 是连接目标本身,不能空;
                 // MySQL / PostgreSQL 允许留空(连默认库后再下钻)
-                if (!hasUrlOverride
-                        && (type == DataSourceType.ORACLE || type == DataSourceType.DAMENG)
+                if (!hasUrlOverride && requiresDatabase(type)
                         && !isPresent(command.databaseName())) {
-                    missing.add(type == DataSourceType.ORACLE ? "服务名或 SID" : "库名");
+                    missing.add(databaseLabel(type));
                 }
             }
             case FILE -> {
@@ -63,6 +84,20 @@ public final class ConnectionRequirements {
             case HTTP -> {
                 if (!isPresent(command.baseUrl())) {
                     missing.add("接口地址(baseUrl)");
+                }
+            }
+            case OBJECT_STORAGE -> {
+                if (type == DataSourceType.LOCAL) {
+                    if (!isPresent(command.databaseName()) && !isPresent(command.baseUrl())) {
+                        missing.add("根目录(databaseName 或 baseUrl)");
+                    }
+                } else {
+                    if (!isPresent(command.host()) && !isPresent(command.baseUrl())) {
+                        missing.add("对象存储 Endpoint");
+                    }
+                    if (!isPresent(command.databaseName())) {
+                        missing.add("Bucket");
+                    }
                 }
             }
         }

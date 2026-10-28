@@ -28,12 +28,14 @@ public final class TypeMappers {
             case MYSQL -> mySql(false);
             case DORIS, STARROCKS -> doris();
             case POSTGRESQL -> postgreSql();
+            case KINGBASE -> kingbase();
             case ORACLE -> oracle();
             case SQLSERVER -> sqlServer();
             case DAMENG -> dameng();
+            case DB2 -> db2();
             // 非 JDBC 类型没有列的概念,给一个永远返回 UNKNOWN 的映射器,
             // 免得调用方还要判空。
-            case FTP, SFTP, REST_API -> (raw, jdbc, p, s) -> CanonicalType.UNKNOWN;
+            case FTP, SFTP, REST_API, LOCAL, S3, MINIO, OSS -> (raw, jdbc, p, s) -> CanonicalType.UNKNOWN;
         };
     }
 
@@ -162,6 +164,76 @@ public final class TypeMappers {
                 return CanonicalType.ARRAY;
             }
             CanonicalType byName = PG_TYPES.get(name);
+            return byName != null ? byName : byJdbcType(jdbcType);
+        };
+    }
+
+    // ── 人大金仓 KingbaseES ─────────────────────────────────────────────
+
+    /**
+     * KingbaseES 以 PostgreSQL 为底座，但为了兼容 Oracle 应用，额外提供
+     * VARCHAR2 / NUMBER / CLOB / RAW 等类型。直接套 PG 映射会让这些列
+     * 落到 UNKNOWN，进而让整库迁移把类型退化成 VARCHAR —— 所以这里在
+     * PG 映射之上加一层 Oracle 兼容别名。
+     */
+    static TypeMapper kingbase() {
+        TypeMapper base = postgreSql();
+        return (raw, jdbcType, precision, scale) -> {
+            String name = normalize(raw);
+            return switch (name) {
+                case "varchar2", "nvarchar2" -> CanonicalType.VARCHAR;
+                case "nchar" -> CanonicalType.CHAR;
+                case "number" -> mapOracleNumber(precision, scale);
+                case "clob", "nclob" -> CanonicalType.TEXT;
+                case "blob" -> CanonicalType.BLOB;
+                case "raw", "long raw" -> CanonicalType.VARBINARY;
+                case "rowid", "urowid" -> CanonicalType.VARCHAR;
+                case "tinyint" -> CanonicalType.TINYINT;
+                case "datetime", "datetime2", "smalldatetime" -> CanonicalType.TIMESTAMP;
+                case "uniqueidentifier" -> CanonicalType.VARCHAR;
+                default -> base.map(raw, jdbcType, precision, scale);
+            };
+        };
+    }
+
+    // ── IBM Db2 ─────────────────────────────────────────────────────────
+
+    private static final Map<String, CanonicalType> DB2_TYPES = Map.ofEntries(
+            Map.entry("smallint", CanonicalType.SMALLINT),
+            Map.entry("integer", CanonicalType.INT),
+            Map.entry("int", CanonicalType.INT),
+            Map.entry("bigint", CanonicalType.BIGINT),
+            Map.entry("decimal", CanonicalType.DECIMAL),
+            Map.entry("numeric", CanonicalType.DECIMAL),
+            Map.entry("dec", CanonicalType.DECIMAL),
+            Map.entry("decfloat", CanonicalType.DECIMAL),
+            Map.entry("real", CanonicalType.FLOAT),
+            Map.entry("double", CanonicalType.DOUBLE),
+            Map.entry("double precision", CanonicalType.DOUBLE),
+            Map.entry("float", CanonicalType.DOUBLE),
+            Map.entry("character", CanonicalType.CHAR),
+            Map.entry("char", CanonicalType.CHAR),
+            Map.entry("graphic", CanonicalType.CHAR),
+            Map.entry("varchar", CanonicalType.VARCHAR),
+            Map.entry("character varying", CanonicalType.VARCHAR),
+            Map.entry("vargraphic", CanonicalType.VARCHAR),
+            Map.entry("long varchar", CanonicalType.TEXT),
+            Map.entry("clob", CanonicalType.TEXT),
+            Map.entry("dbclob", CanonicalType.TEXT),
+            Map.entry("binary", CanonicalType.BINARY),
+            Map.entry("varbinary", CanonicalType.VARBINARY),
+            Map.entry("blob", CanonicalType.BLOB),
+            Map.entry("date", CanonicalType.DATE),
+            Map.entry("time", CanonicalType.TIME),
+            Map.entry("timestamp", CanonicalType.TIMESTAMP),
+            Map.entry("boolean", CanonicalType.BOOLEAN),
+            Map.entry("xml", CanonicalType.TEXT),
+            Map.entry("rowid", CanonicalType.VARCHAR)
+    );
+
+    static TypeMapper db2() {
+        return (raw, jdbcType, precision, scale) -> {
+            CanonicalType byName = DB2_TYPES.get(normalize(raw));
             return byName != null ? byName : byJdbcType(jdbcType);
         };
     }

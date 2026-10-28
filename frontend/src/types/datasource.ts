@@ -8,7 +8,7 @@
  */
 
 /** 与 DataSourceType.Family 逐一对应,决定 UI 该渲染哪种表单/浏览器,而不是具体类型名。 */
-export type DataSourceFamily = 'RELATIONAL' | 'MPP' | 'FILE' | 'HTTP'
+export type DataSourceFamily = 'RELATIONAL' | 'MPP' | 'FILE' | 'HTTP' | 'OBJECT_STORAGE'
 
 /**
  * 数据源生命周期状态,与 SPACE-MODEL.md E.1 的六态一致。
@@ -90,6 +90,9 @@ export interface DataSource {
   status: DataSourceStatus
   description: string | null
 
+  /** 厂商预设:WEAVER_ECOLOGY / KINGDEE_EAS / YONYOU_U8 ...;null 等价于 GENERIC */
+  vendorProfile: string | null
+
   /** 所属目录(功能5);null 表示未分类 */
   catalogId: string | null
 
@@ -145,6 +148,8 @@ export interface DataSourceForm {
   name: string
   type: string
   description?: string
+  /** 厂商预设:泛微/金蝶/用友;为空等价于 GENERIC */
+  vendorProfile?: string
   catalogId?: string
   host?: string
   port?: number

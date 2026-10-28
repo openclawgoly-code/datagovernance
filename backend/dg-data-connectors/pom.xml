@@ -49,6 +49,11 @@
       <groupId>com.dameng</groupId><artifactId>DmJdbcDriver18</artifactId>
     </dependency>
 
+    <!-- Parquet 目录采集:读 footer/schema/分区统计;不用于生产查询 -->
+    <dependency>
+      <groupId>org.duckdb</groupId><artifactId>duckdb_jdbc</artifactId>
+    </dependency>
+
     <!-- 文件 (功能 2: FTP / SFTP) -->
     <dependency>
       <groupId>commons-net</groupId><artifactId>commons-net</artifactId>

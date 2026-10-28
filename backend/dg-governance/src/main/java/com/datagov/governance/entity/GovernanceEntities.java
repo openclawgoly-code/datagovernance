@@ -5,6 +5,9 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.datagov.governance.domain.AlertStatus;
+import com.datagov.governance.domain.ReportConclusion;
+import com.datagov.governance.domain.ReportState;
+import com.datagov.governance.domain.ReportSubjectType;
 import lombok.Data;
 
 import java.time.Instant;
@@ -212,5 +215,76 @@ public final class GovernanceEntities {
         private String detail;
 
         private Instant occurredAt;
+    }
+
+    /**
+     * 分析报告聚合根。
+     *
+     * <p>可变的只有 {@link #state} 与 {@link #latestVersion}:报告内容本身
+     * 不允许改写,修订必须新增一行版本。这样"上周的结论是什么"才有答案。
+     *
+     * <p>{@code correlationId} 在 workspace 内唯一,是幂等键 —— 上游重试
+     * 不应该产生第二份报告。
+     */
+    @Data
+    @TableName("gv_analysis_report")
+    public static class AnalysisReport {
+        @TableId(type = IdType.INPUT)
+        private String id;
+
+        private String workspaceId;
+        private ReportSubjectType subjectType;
+        private String subjectId;
+        private String title;
+
+        private ReportState state;
+        /** 指向 {@link AnalysisReportVersion#version};版本状态由它派生 */
+        private Integer latestVersion;
+
+        private String correlationId;
+
+        private String createdBy;
+        private Instant createdAt;
+
+        private Instant retractedAt;
+        private String retractedBy;
+    }
+
+    /**
+     * 分析报告的一个不可变版本。
+     *
+     * <p>没有 updated_at,没有 deleted 列:一条能被修改的结论就不再是
+     * "当时得出的结论"。{@code evidenceJson} / {@code modelJson} 用 TEXT
+     * 存 JSON —— 它们只被整体读写,拆成关系表反而让版本写入失去原子性。
+     */
+    @Data
+    @TableName("gv_analysis_report_version")
+    public static class AnalysisReportVersion {
+        @TableId(type = IdType.INPUT)
+        private String id;
+
+        private String reportId;
+        private String workspaceId;
+        private Integer version;
+        /** 上一版;首版为 null */
+        private Integer supersedesVersion;
+
+        private String summary;
+        private String bodyMd;
+        private ReportConclusion conclusion;
+        private String insufficientReason;
+
+        /** JSON 数组:证据引用。服务端只做结构校验,见 AnalysisReportPolicy */
+        private String evidenceJson;
+        /** JSON 对象:{provider, name, version, endpointKind} */
+        private String modelJson;
+
+        private String sessionRef;
+        private String maxSensitivity;
+        private String contentDigest;
+        private Instant generatedAt;
+
+        private String createdBy;
+        private Instant createdAt;
     }
 }
