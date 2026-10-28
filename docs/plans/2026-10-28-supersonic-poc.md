@@ -1,7 +1,7 @@
 # SuperSonic AI 问数 POC（Phase 1）
 
 - 日期：2026-10-28
-- 状态：SuperSonic + ClickHouse 已跑通；待 DeepSeek Key 与语义模型
+- 状态：SuperSonic + ClickHouse + DeepSeek 已跑通 1 个语义模型的端到端问答；待扩展到 20–30 个模型和 50 问
 - 关联：`docs/plans/2026-10-26-catalog-lakehouse-lineage.md` §20
 - 部署说明：`deploy/supersonic/README.md`
 
@@ -255,14 +255,34 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
 - SuperSonic 数据源 `testConnect=true`；
 - `getDbNames` 返回 `synthetic`；
 - `getTables(databaseId=3, db=synthetic)` 返回 **30 张表**；
-- DuckDB 对照：`testConnect=true`，但 `getCatalogs` 报 `Table with name CATALOGS does not exist`，`getTables` 为空，确认不适合 UI POC。
+- DuckDB 对照：`testConnect=true`，但 `getCatalogs` 报 `Table with name CATALOGS does not exist`，`getTables` 为空，确认不适合 UI POC；
+- DeepSeek 模型已配置：`testConnection=true`，模型 `deepseek-chat`；
+- 已建 POC 语义链路：
+  - 主题域 `销售分析`（id=4）
+  - 模型 `销售汇总`（id=8，表 `synthetic.dws_sales_master_0000`）
+  - 数据集 `销售数据集`（id=4）
+  - 助手 `销售分析助手`（id=5，绑定 DeepSeek 模型 id=2）
+- 已用 4 个问题做冒烟：
+
+| # | 问题 | 结果 | 说明 |
+|---|---|---|---|
+| 1 | 按状态统计订单数和总金额 | 通过 | 生成 `GROUP BY status` + `COUNT(*)` + `SUM(total_amount)` |
+| 2 | 最近3天各区域的销售额 | 通过 | 时间过滤正确；但合成 DWS 只有 10-25/10-26 两天数据 |
+| 3 | 总金额最高的3个区域 | 部分通过 | 排序正确，但 SQL 只返回 region，没有返回金额 |
+| 4 | 按日期看每天的销售额 | 通过 | `GROUP BY dt` + `SUM(total_amount)` |
 
 尚未验证：
 
-- DeepSeek 实际连通与 50 问准确率（需要 API Key）；
-- 图表/看板/导出；
-- 20–30 个语义模型的建模工作量；
-- 1000 张表的 ClickHouse 装载耗时。
+- 50 问完整准确率（当前只有 4 问冒烟）；
+- 20–30 个语义模型的建模工作量（当前只有 1 个模型）；
+- 图表/看板/导出（SuperSonic UI 支持，但未逐项验收）；
+- 1000 张表的 ClickHouse 装载耗时；
+- 明细/脱敏/导出审批。
+
+### 已知问题
+
+- “总金额最高的3个区域”只返回区域名，没有把排序指标带进 SELECT；需要在语义模型/术语/示例问题里补强，或作为 50 问评测的失败样本。
+- 合成 DWS 只有 2 天数据，时间类问题的“最近 3 天”无法完整覆盖；评测前建议重新生成更多分区。
 
 ## 12. 交付物
 

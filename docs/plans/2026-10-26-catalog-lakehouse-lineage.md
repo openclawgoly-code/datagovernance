@@ -1034,10 +1034,12 @@ python3 scripts/seed-synthetic-warehouse.py \
 - 30 张合成表装入 ClickHouse（24,558 行），SuperSonic `testConnect=true`；
 - `getDbNames` 返回 `synthetic`，`getTables` 返回 30 张表；
 - DuckDB 对照：`testConnect=true`，但 `getCatalogs`/`getTables` 元数据接口失败，确认不适合 UI POC；
-- 尚未验证 DeepSeek Key、50 问准确率、图表/看板/导出。
+- DeepSeek `deepseek-chat` 已配置并通过连通测试；
+- 已建 1 个语义模型（`销售汇总`）、数据集和助手，4 个问题冒烟：3 个通过、1 个部分通过（TopN 未返回金额）；
+- 尚未验证 50 问准确率、图表/看板/导出。
 
 ### 下一步
 
-1. 配置 DeepSeek，建 20–30 个语义模型；
+1. 扩展到 20–30 个语义模型；
 2. 跑 50 问评测，按 80% 结果正确率决定是否进入 Phase 2；
 3. Phase 2 切 StarRocks/Doris External Catalog，并接平台权限/审计/脱敏。
