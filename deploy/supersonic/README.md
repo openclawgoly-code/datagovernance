@@ -142,17 +142,19 @@ curl -s -u default:clickhouse \
 
 ## 6. 配置数据源
 
-在 **数据源管理** 中新增 ClickHouse：
+在 **数据源管理** 中新增数据源。为了绕开 SuperSonic `ClickHouseAdaptor` 去掉反引号、导致中文 CTE 别名报错的问题，POC 用 **OTHER** 类型 + ClickHouse JDBC URL：
 
 | 配置项 | 值 |
 |---|---|
-| 类型 | ClickHouse |
+| 类型 | Other / OTHER |
 | JDBC URL | `jdbc:clickhouse://clickhouse:8123/synthetic` |
 | 用户名 | `default` |
 | 密码 | `clickhouse`（与 `.env` 的 `CLICKHOUSE_PASSWORD` 一致） |
 | 数据库 | `synthetic` |
 
 > 主机名必须是 `clickhouse`（不要用带下划线的容器名）。ClickHouse JDBC 对下划线主机名解析有兼容问题，会退化成 `localhost`。
+
+如果坚持用 `CLICKHOUSE` 类型，需要在助手的 S2SQL prompt 中强制“别名/CTE 名只用 ASCII”，否则含中文别名的嵌套查询可能失败。
 
 连接成功后应能看到 `synthetic` 库和 30（或 1000）张表。可先在查询页执行：
 
@@ -180,6 +182,23 @@ ORDER BY status;
 
 `data/synthetic-warehouse/manifest.json` 包含表、字段、PII 标记和血缘边，可作为建模与评测的对照答案。
 
+## 7.1 批量建 20 个模型
+
+手工建完第一个模型后，可以批量创建 POC 的 20 个模型/数据集：
+
+```bash
+SUPERSONIC_PASSWORD=admin123 python3 scripts/seed-supersonic-semantic.py
+```
+
+默认选择 12 张 DWD + 6 张 DWS + 2 张无 PII 的 ODS，自动：
+
+- 建模型、补中文名/描述；
+- 把金额/数量/记录数设成 `SUM` 度量；
+- 把 `customer_id`/`product_id` 建成维度；
+- 建数据集并绑定到助手 5。
+
+输出映射在 `tmp/supersonic-model-map.json`。
+
 ## 8. 50 问评测
 
 评测问题分五类，每类 10 个：
@@ -201,6 +220,20 @@ ORDER BY status;
 - 失败原因分类：语义缺失、字段歧义、LLM 生成错误、数据源问题。
 
 **POC 通过线（建议）**：50 问中结果正确 ≥ 40 个（80%），P95 延迟 ≤ 10s，无越权表访问。
+
+题库和自动比对脚本：
+
+```bash
+SUPERSONIC_PASSWORD=admin123 python3 scripts/evaluate-supersonic-50.py
+```
+
+输出：
+
+- `tmp/supersonic-50-results.csv`
+- `tmp/supersonic-50-results.json`
+- `docs/plans/2026-10-28-supersonic-50-eval.md`
+
+注意：这是**合成数据 + 单模型单数据集 + 简单聚合**的评测，不代表真实 1000 表环境的准确率。
 
 ## 9. 安全与边界
 

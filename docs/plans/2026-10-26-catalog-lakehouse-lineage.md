@@ -1035,11 +1035,13 @@ python3 scripts/seed-synthetic-warehouse.py \
 - `getDbNames` 返回 `synthetic`，`getTables` 返回 30 张表；
 - DuckDB 对照：`testConnect=true`，但 `getCatalogs`/`getTables` 元数据接口失败，确认不适合 UI POC；
 - DeepSeek `deepseek-chat` 已配置并通过连通测试；
-- 已建 1 个语义模型（`销售汇总`）、数据集和助手，4 个问题冒烟：3 个通过、1 个部分通过（TopN 未返回金额）；
-- 尚未验证 50 问准确率、图表/看板/导出。
+- 已建 **20 个语义模型 / 20 个数据集**（12 DWD + 6 DWS + 2 无 PII ODS），助手绑定 DeepSeek；
+- 50 问评测：**50 PASS / 0 FAIL**，见 `docs/plans/2026-10-28-supersonic-50-eval.md`；
+- 修复了中文 CTE 别名、指标被 `COUNT(*)` 替代、TopN 不带金额三个问题；
+- 尚未验证图表/看板/导出、多模型 join、真实业务问题。
 
 ### 下一步
 
-1. 扩展到 20–30 个语义模型；
-2. 跑 50 问评测，按 80% 结果正确率决定是否进入 Phase 2；
-3. Phase 2 切 StarRocks/Doris External Catalog，并接平台权限/审计/脱敏。
+1. Phase 2：切 StarRocks/Doris External Catalog，接平台权限/查询网关/审计/脱敏；
+2. 用真实业务问题扩充评测集，覆盖多轮、归因、同义词歧义；
+3. 评估图表/看板/导出。

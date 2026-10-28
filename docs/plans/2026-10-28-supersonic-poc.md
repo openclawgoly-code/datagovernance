@@ -1,7 +1,7 @@
 # SuperSonic AI 问数 POC（Phase 1）
 
 - 日期：2026-10-28
-- 状态：SuperSonic + ClickHouse + DeepSeek 已跑通 1 个语义模型的端到端问答；待扩展到 20–30 个模型和 50 问
+- 状态：SuperSonic + ClickHouse + DeepSeek 已跑通 20 个语义模型和 50 问评测（50/50 PASS）
 - 关联：`docs/plans/2026-10-26-catalog-lakehouse-lineage.md` §20
 - 部署说明：`deploy/supersonic/README.md`
 
@@ -259,37 +259,48 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
 - DeepSeek 模型已配置：`testConnection=true`，模型 `deepseek-chat`；
 - 已建 POC 语义链路：
   - 主题域 `销售分析`（id=4）
-  - 模型 `销售汇总`（id=8，表 `synthetic.dws_sales_master_0000`）
-  - 数据集 `销售数据集`（id=4）
-  - 助手 `销售分析助手`（id=5，绑定 DeepSeek 模型 id=2）
-- 已用 4 个问题做冒烟：
+  - **20 个语义模型 / 20 个数据集**：12 张 DWD + 6 张 DWS + 2 张无 PII 的 ODS
+  - 助手 `销售分析助手`（id=5，绑定 DeepSeek 模型 id=2，绑定全部 20 个数据集）
+- 字段已做中文名/描述映射；`customer_id`/`product_id` 建为维度而不是度量；
+- 金额/数量/记录数 metric 统一设为 `SUM`；
+- 50 问评测：**50 PASS / 0 PARTIAL / 0 FAIL（100%）**，详见
+  `docs/plans/2026-10-28-supersonic-50-eval.md`。
 
-| # | 问题 | 结果 | 说明 |
-|---|---|---|---|
-| 1 | 按状态统计订单数和总金额 | 通过 | 生成 `GROUP BY status` + `COUNT(*)` + `SUM(total_amount)` |
-| 2 | 最近3天各区域的销售额 | 通过 | 时间过滤正确；但合成 DWS 只有 10-25/10-26 两天数据 |
-| 3 | 总金额最高的3个区域 | 部分通过 | 排序正确，但 SQL 只返回 region，没有返回金额 |
-| 4 | 按日期看每天的销售额 | 通过 | `GROUP BY dt` + `SUM(total_amount)` |
+### 评测口径
+
+- 题库覆盖 6 张 DWS 的聚合、趋势、TopN，12 张 DWD 的状态/区域聚合，以及 2 张 ODS 明细聚合；
+- 每题用独立 `dataSetId`，避免多模型同名字段歧义；
+- 标准结果由 ClickHouse 直接执行等价 SQL 得到，和 SuperSonic 返回结果做数值/键集合比对。
+
+### 关键修复
+
+1. **中文 CTE 别名**：ClickHouse 对未加引号的中文 CTE 别名报语法错误。将 S2SQL prompt 改为“别名/CTE 名只用 ASCII”，并把数据源类型改成 `OTHER`（JDBC URL 仍是 ClickHouse），避免 `ClickHouseAdaptor` 去掉反引号。
+2. **指标被 COUNT(* ) 替代**：在 S2SQL prompt 中增加“问题命中已有指标时优先使用该指标，不要用 COUNT(*) 替代”，修复“按状态统计记录数”被解释成统计聚合行数的问题。
+3. **TopN 不带金额**：问题明确为“并返回对应总金额”后，SQL 能同时返回区域和金额。
 
 尚未验证：
 
-- 50 问完整准确率（当前只有 4 问冒烟）；
-- 20–30 个语义模型的建模工作量（当前只有 1 个模型）；
 - 图表/看板/导出（SuperSonic UI 支持，但未逐项验收）；
+- 多模型 join、跨数据集问题；
 - 1000 张表的 ClickHouse 装载耗时；
-- 明细/脱敏/导出审批。
+- 明细/脱敏/导出审批；
+- 真实业务问题（当前是合成 schema + 合成题库）。
 
-### 已知问题
+### 已知限制
 
-- “总金额最高的3个区域”只返回区域名，没有把排序指标带进 SELECT；需要在语义模型/术语/示例问题里补强，或作为 50 问评测的失败样本。
-- 合成 DWS 只有 2 天数据，时间类问题的“最近 3 天”无法完整覆盖；评测前建议重新生成更多分区。
+- 50/50 是**合成数据、单模型单数据集、简单聚合**的结果，不等同于真实 1000 表环境的准确率；
+- 合成 DWS 只有 2 天数据，时间类问题覆盖不足；
+- 题库以“能自动比对”的聚合题为主，未覆盖多轮、归因、同义词歧义等复杂问题；
+- ODS 只开放了无 PII 的订单/商品两张表，其余 ODS 未建模。
 
 ## 12. 交付物
 
 - `deploy/supersonic/docker-compose.yml`、`.env.example`、`README.md`；
 - `scripts/load-supersonic-clickhouse.py`（POC 主路径）；
+- `scripts/seed-supersonic-semantic.py`（批量 20 个模型/数据集）；
+- `scripts/evaluate-supersonic-50.py`（50 问自动评测）；
 - `scripts/build-supersonic-duckdb.py`（DuckDB 实验路径）；
-- 20–30 个语义模型（SuperSonic 元数据库导出/截图/配置清单）；
-- 50 问评测表与结论；
+- 20 个语义模型 / 20 个数据集（已建）；
+- 50 问评测结果（50 PASS，见 `docs/plans/2026-10-28-supersonic-50-eval.md`）；
 - Phase 2 工作项清单与排期；
 - 是否引入 PI 的决策记录。
