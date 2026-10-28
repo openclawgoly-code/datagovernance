@@ -53,3 +53,8 @@ secrets/
 
 ### 数据集缓存(seed-public-datasets.sh 下载与生成的内容,不进库)###
 .seed-cache/
+
+### SuperSonic POC 本地配置与元数据 ###
+deploy/supersonic/.env
+deploy/supersonic/supersonic_pg/
+deploy/supersonic/supersonic_db/

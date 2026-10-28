@@ -1,0 +1,275 @@
+# SuperSonic AI 问数 POC（Phase 1）
+
+- 日期：2026-10-28
+- 状态：SuperSonic + ClickHouse 已跑通；待 DeepSeek Key 与语义模型
+- 关联：`docs/plans/2026-10-26-catalog-lakehouse-lineage.md` §20
+- 部署说明：`deploy/supersonic/README.md`
+
+## 1. 决策
+
+### 1.1 第一阶段不部署 PI
+
+SuperSonic 负责“受治理的问数”：
+
+- 语义层：指标、维度、同义词、默认聚合；
+- Chat BI：自然语言 → 语义模型 → SQL → 图表；
+- BI：图表、看板、导出；
+- 企业权限：SuperSonic 自带账号/权限体系。
+
+PI（`git@github.com:earendil-works/pi.git`）是另一层：
+
+- MIT，Node.js ≥ 22.19；
+- 极简、可扩展的 **Agent Harness**，不是 BI 产品；
+- 提供 Agent 循环、工具、Skills、MCP、SDK/RPC；
+- **没有内置权限系统**，默认拥有启动用户的文件/进程/网络权限，生产必须容器化/沙箱化；
+- 适合开放式、多步分析，不适合作为“问数 + 图表 + 看板”的现成产品。
+
+结论：**POC 阶段 SuperSonic 单栈；PI 作为 Phase 3 可选的 Agent 编排层，不作为第一阶段依赖。**
+
+### 1.2 两者不是替代关系
+
+| 能力 | SuperSonic | PI |
+|---|---|---|
+| 自然语言问数 | 核心能力 | 需自己接工具 |
+| 语义层/指标口径 | 内置 | 不提供 |
+| SQL 生成/校验 | 内置 | 通过工具 |
+| 图表/看板 | 内置 BI UI | 需自己实现 |
+| 多步 Agent/工具编排 | 有限 | 强项 |
+| MCP/Skills/记忆 | 弱 | 强项 |
+| 企业权限/审计 | 自带 | 无内置，需自建 |
+| 业务人员开箱 UI | 有 | 主要是 TUI/CLI/SDK |
+
+如果未来需要“帮我分析为什么下降”这类开放式多步分析，再引入 PI，并让它调用 SuperSonic 的语义问数工具；不是用 PI 替换 SuperSonic。
+
+## 2. 目标与非目标
+
+### 2.1 目标
+
+1. 用 DeepSeek 驱动 SuperSonic，跑通自然语言问数；
+2. 在 Parquet 湖上（ClickHouse 服务层）建 20–30 个核心语义模型；
+3. 用 50 个真实业务问题评测，结果正确率 ≥ 80%；
+4. 验证图表、看板、CSV/XLSX/PDF 导出；
+5. 验证业务分析人员可直接使用 SuperSonic UI，无需平台前端改造；
+6. 形成生产化清单：权限、查询网关、脱敏、审计、并发。
+
+### 2.2 非目标（POC 不做）
+
+- 平台原生 `/insight/ask` 页面；
+- 平台 JWT/workspace 与 SuperSonic 账号打通；
+- PI / `dg-mcp`；
+- 1000 张表的语义建模；
+- StarRocks/Doris 生产集群；
+- 行级权限、列级动态脱敏、导出审批流；
+- Kafka/CDC 同步。
+
+## 3. POC 架构
+
+```text
+业务分析人员
+  → SuperSonic UI (localhost:9080)
+      → DeepSeek (OpenAI-compatible API)
+      → SuperSonic 语义层
+          → ClickHouse datasource (:8123)
+              → MergeTree 表（POC 服务层）
+                  → file() 读 Parquet
+                      → data/synthetic-warehouse/{ods,dwd,dws}/...
+```
+
+- **POC 服务层**：ClickHouse 用 `file()` 从 Parquet 装载，查询稳定、元数据浏览完整；
+- **为什么不用 DuckDB**：SuperSonic 的 DuckDB 连接器元数据接口不完整（`SHOW CATALOGS` 不兼容、schema/catalog 参数错位），SQL 能连但 UI 选不到表；
+- **生产路径**：对象存储/HDFS 上的 Parquet + StarRocks/Doris External Catalog，SuperSonic 语义模型不变。
+
+### 3.1 生产路径（Phase 2）
+
+```text
+平台 / SuperSonic
+  → 只读查询网关（白名单、maxRows、timeout、脱敏、审计）
+      → StarRocks / Doris External Catalog
+          → 对象存储 / HDFS 上的 Parquet
+```
+
+SuperSonic 通过 MySQL 协议连 StarRocks/Doris；语义模型不变。
+
+## 4. 实施步骤
+
+### M0：部署与连通（0.5 天）
+
+1. 生成 30 张表的合成湖（或使用已有湖）；
+2. `docker compose up -d` 启动 SuperSonic + ClickHouse；
+3. 运行 `load-supersonic-clickhouse.py`，把 Parquet 装进 ClickHouse；
+4. 配置 DeepSeek，测试连通；
+5. 配置 ClickHouse 数据源，执行冒烟 SQL。
+
+命令见 `deploy/supersonic/README.md`。
+
+### M1：语义建模（2–3 天）
+
+- 选 20–30 张核心表：优先 `dws_sales_master_*`，搭配少量 `dwd_*` 明细；
+- 每张表定义：
+  - 指标：`sum(total_amount)`、`count(*)`、`avg(quantity)`；
+  - 维度：`status`、`region`、`category`、`dt`；
+  - 同义词：销售额/营收/金额、客户数/用户数、最近一周/近 7 天；
+- 建数据集与助手，绑定 DeepSeek；
+- 用 `manifest.json` 校验字段名、PII 标记、血缘关系。
+
+### M2：50 问评测（2 天）
+
+- 业务方出题，平台/数据团队标注标准 SQL 与标准结果；
+- 每题记录：命中的语义模型、生成 SQL、结果、图表、延迟、token；
+- 失败分类：语义缺失、字段歧义、LLM 错误、数据源错误、权限问题。
+
+### M3：结论与生产化清单（1 天）
+
+- 给出通过/不通过；
+- 若不通过，优先补语义模型/同义词，而不是换 LLM；
+- 输出 Phase 2 工作项与工作量。
+
+## 5. 语义模型范围（建议）
+
+| 层级 | 数量 | 用途 |
+|---|---:|---|
+| DWS 汇总表 | 15–20 | 指标、趋势、排名、看板 |
+| DWD 明细表 | 5–10 | 明细查询、下钻 |
+| ODS | 0–2 | 仅用于对照，不直接开放 |
+
+核心字段：
+
+- 维度：`dt`、`status`、`region`、`category`、`product_id`、`customer_id`；
+- 指标：记录数、`sum(total_amount)`、`avg(total_amount)`、`sum(quantity)`、去重客户数；
+- 同义词：营收/销售额/金额；客户/用户；订单数/记录数。
+
+> ClickHouse 返回 `Int64` / `Decimal(18, 2)`，SuperSonic 的 ClickHouse 分类器不会自动识别为度量；建模型时需手动把数值列设为“度量”，把 `DateTime64`/`Date` 设为“时间维度”。
+
+## 6. 50 问评测模板
+
+| 类别 | 题数 | 示例 | 重点 |
+|---|---:|---|---|
+| 单表聚合 | 10 | 按 status 统计订单数和总金额 | 指标/维度命中 |
+| 多条件筛选 | 10 | 最近 3 天 region=区域-1 的销售额 | 时间/枚举条件 |
+| 时间趋势 | 10 | 按 dt 看每天记录数 | 日期粒度 |
+| TopN/排名 | 10 | 金额最高的 10 个 product_id | 排序/限制 |
+| 同义词/歧义 | 10 | “营收”“客户数”“最近一周” | 语义层质量 |
+
+每题记录：
+
+```text
+question_id, question, expected_sql, expected_result,
+actual_sql, actual_result, correct(y/n),
+matched_model, matched_metrics, chart_type,
+latency_ms, prompt_tokens, completion_tokens, failure_reason
+```
+
+### 通过线（建议）
+
+- 结果正确 ≥ 40/50（80%）；
+- 语义模型命中率 ≥ 80%；
+- P95 延迟 ≤ 10s；
+- 无越权表访问；
+- 图表类型合理率 ≥ 80%；
+- 单题平均 token 成本可接受（按 DeepSeek 计价核算）。
+
+## 7. 明细、PII 与导出（推荐默认值）
+
+> 用户已确认“明细可见”；以下为推荐默认值，POC 前可调整。
+
+- 业务分析人员可见明细行，但 **PII 字段默认脱敏**；
+- POC 阶段由 SuperSonic 数据集/字段权限兜底；生产阶段接平台敏感标签；
+- 导出 CSV/XLSX/PDF 需要单独权限，并记录导出人、时间、行数、字段；
+- 审计至少记录：用户、问题、生成 SQL、数据源、行数、耗时、是否导出；
+- 不在 Prompt 中发送整表数据，只发送 schema、语义模型和聚合结果。
+
+## 8. Phase 2：平台化（POC 通过后）
+
+1. **入口**：原生 `/insight/ask` 页面，或先嵌 SuperSonic UI；
+2. **身份**：平台 JWT → SuperSonic SSO/账号映射，按 workspace 隔离；
+3. **查询网关**：
+   - 只读白名单、禁用 DDL/DML；
+   - maxRows、timeout、并发限流；
+   - 敏感列 mask；
+   - 全量审计。
+4. **数据源**：ClickHouse POC → StarRocks/Doris External Catalog；
+5. **看板**：POC 存 SuperSonic；生产评估是否迁到平台统一权限/版本；
+6. **导出**：平台统一导出服务 + 审批/审计；
+7. **评测回归**：50 问变成回归集，语义模型变更必须跑。
+
+## 9. Phase 3：PI（可选）
+
+只有在出现以下需求时才引入：
+
+- 多步归因分析（“为什么下降”“对比一下”“再按区域拆”）；
+- Agent 自动浏览 catalog、血缘、敏感标签并生成报告；
+- Slack/飞书/钉钉等对话入口；
+- Skills/MCP/长期记忆。
+
+引入方式：
+
+```text
+业务人员
+  → PI（服务端，容器/沙箱）
+      → dg-mcp
+          ├─ semantic.ask   → SuperSonic
+          ├─ parquet.query
+          ├─ catalog.search
+          ├─ lineage.*
+          ├─ sensitivity.*
+          ├─ chart.render
+          └─ export.*
+```
+
+硬约束：
+
+- 服务端部署，不跑在分析师电脑上；
+- 不开放 shell/browser/文件系统工具；
+- 工具白名单 + 调用拦截 + 容器沙箱；
+- 会话/记忆按 workspace 隔离；
+- SuperSonic 仍是唯一语义层，PI 不重复维护指标；
+- 业务入口用 Web 聊天页，不用 TUI/CLI。
+
+## 10. 风险与待确认
+
+| 风险 | 影响 | 应对 |
+|---|---|---|
+| SuperSonic 的 DuckDB 连接器不完整 | 能连但 UI 选不到表 | 已改用 ClickHouse POC；DuckDB 仅保留实验脚本 |
+| ClickHouse 直接挂本地 Parquet 需读写/chown | 数据目录被容器改权限 | 仅 POC；生产用对象存储/HDFS + 外表 |
+| ClickHouse 是 POC 服务层，不是湖仓外表 | 与生产路径不完全一致 | 语义模型保持稳定，Phase 2 切 StarRocks/Doris |
+| ClickHouse 类型名不被 SuperSonic 分类器识别 | 数值列默认成普通字段 | 建模型时手动设为度量；Phase 2 换 StarRocks 后复核 |
+| 语义建模工作量被低估 | 准确率上不去 | 先 20–30 表，业务方参与定义同义词 |
+| DeepSeek 生成 SQL 不稳定 | 结果错误 | 语义层约束 + few-shot + 回归集 |
+| SuperSonic 账号与平台割裂 | 生产权限不一致 | Phase 2 接 SSO/workspace |
+| 导出泄露 PII | 合规风险 | 默认脱敏 + 单独授权 + 审计 |
+| 看板归属不清 | 后续迁移成本 | POC 放 SuperSonic，Phase 2 决策 |
+
+待确认（不阻塞 POC）：
+
+1. 明细中的 PII 是否允许不脱敏？推荐：默认脱敏，按角色申请。
+2. 导出是否需要审批？推荐：需要，至少审计。
+3. 看板长期归属平台还是 SuperSonic？推荐：POC 在 SuperSonic，生产统一到平台。
+
+## 11. 验证记录（2026-10-28）
+
+本机 Docker 实测：
+
+- `docker compose up -d`：PostgreSQL healthy、SuperSonic 启动、ClickHouse 启动；
+- SuperSonic UI `http://localhost:9080` 返回 302（登录页）；
+- 30 张合成表装入 ClickHouse：**24,558 行**（DWS 为聚合表，行数少于 1000/表）；
+- SuperSonic 数据源 `testConnect=true`；
+- `getDbNames` 返回 `synthetic`；
+- `getTables(databaseId=3, db=synthetic)` 返回 **30 张表**；
+- DuckDB 对照：`testConnect=true`，但 `getCatalogs` 报 `Table with name CATALOGS does not exist`，`getTables` 为空，确认不适合 UI POC。
+
+尚未验证：
+
+- DeepSeek 实际连通与 50 问准确率（需要 API Key）；
+- 图表/看板/导出；
+- 20–30 个语义模型的建模工作量；
+- 1000 张表的 ClickHouse 装载耗时。
+
+## 12. 交付物
+
+- `deploy/supersonic/docker-compose.yml`、`.env.example`、`README.md`；
+- `scripts/load-supersonic-clickhouse.py`（POC 主路径）；
+- `scripts/build-supersonic-duckdb.py`（DuckDB 实验路径）；
+- 20–30 个语义模型（SuperSonic 元数据库导出/截图/配置清单）；
+- 50 问评测表与结论；
+- Phase 2 工作项清单与排期；
+- 是否引入 PI 的决策记录。

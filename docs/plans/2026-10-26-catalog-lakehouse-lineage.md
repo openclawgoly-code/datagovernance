@@ -970,3 +970,74 @@ GET  /api/v1/metadata/sensitivity/rules
 - P10.3：Flink CDC/微批同步。
 - P10.4b：内容采样扫描 + 血缘传播 + 前端血缘图/复核工作台。
 - P10.2b：HDFS/Iceberg/Hive Metastore 适配。
+
+---
+
+## 19. 合成测试数据脚本（2026-10-28）
+
+新增 `scripts/seed-synthetic-warehouse.py`，用 DuckDB 直接生成 Parquet 数据湖，不依赖 Spark/Hadoop/Faker。
+
+结构：
+
+- ODS 400 张、DWD 400 张、DWS 200 张，共 1000 张表；
+- ODS/DWD 按 `dt=` 分区（默认 3 个），DWS 按聚合日期分区；
+- 约一半 ODS 表带 PII 列：姓名/手机号/身份证/邮箱/地址/银行卡/诊断；
+- DWD 对手机号/身份证/银行卡做 mask，金额派生 `amount_with_tax`；
+- DWS 按 `status/region` 聚合 `count/sum/max`；
+- 同时输出 `manifest.json`（数据集/字段/PII/行数/血缘边）与 `lineage.sql`（ODS→DWD→DWS 列级映射）。
+
+用法：
+
+```bash
+python3 -m pip install duckdb
+python3 scripts/seed-synthetic-warehouse.py \
+  --tables 1000 --rows 8000 --partitions 3 --payload-bytes 5120 \
+  --output data/synthetic-warehouse
+```
+
+实测：
+
+- 30 表 / 20 行：0.00GB，0.6s；
+- 1000 表 / 100 行：0.01GB，16.9s；
+- 1000 表 / 8000 行 / payload 512：**0.78GB，84s**；
+- 要达到约 5GB，建议把 `--payload-bytes` 提到 **5120**（payload 随机哈希块，Parquet 仍会压缩，生成后看 `manifest.parquetGB` 再微调）。
+
+生成后的接入方式：
+
+1. 新建 `LOCAL` 数据源，根目录 = `data/synthetic-warehouse`；
+2. 新建 `PARQUET_DIRECTORY` 目录来源，rootPath = 同一目录；
+3. 刷新后应看到约 1000 个 `PARQUET_DATASET`；
+4. 可把 `manifest.json`/`lineage.sql` 作为后续血缘解析与敏感扫描的对照答案。
+
+---
+
+## 20. P11 · SuperSonic AI 问数 POC（2026-10-28）
+
+### 决策
+
+- **Phase 1 不部署 PI**，先用 SuperSonic 验证“语义层 + 自然语言问数 + 图表/看板/导出”。
+- `earendil-works/pi` 是 MIT 的通用 Agent Harness（Node.js ≥ 22.19，带 Agent 循环/工具/MCP/SDK），不是 BI 产品，且没有内置权限系统；生产必须容器化/沙箱化。
+- PI 只作为 Phase 3 可选编排层：PI → `dg-mcp` → `semantic.ask`（SuperSonic）/ Parquet / catalog / lineage / sensitivity / chart / export。
+- POC 使用 SuperSonic 自带 UI，不做平台前端改造。
+
+### 已落地脚手架
+
+- `deploy/supersonic/docker-compose.yml`：SuperSonic standalone + PostgreSQL + ClickHouse；Parquet 目录挂入 ClickHouse 的 `user_files`。
+- `deploy/supersonic/README.md`：DeepSeek、ClickHouse 数据源、语义建模、50 问评测、安全边界。
+- `scripts/load-supersonic-clickhouse.py`：把合成湖 manifest 逐表装入 ClickHouse，用 `file()` 读 Parquet，并补 `dt` 分区列。
+- `scripts/build-supersonic-duckdb.py`：DuckDB 实验路径；连接器元数据不完整，不用于 UI POC。
+- `docs/plans/2026-10-28-supersonic-poc.md`：完整 POC 计划、验收线、Phase 2/3 路线。
+
+### 验证
+
+- 本机实际拉起 SuperSonic + PostgreSQL + ClickHouse；
+- 30 张合成表装入 ClickHouse（24,558 行），SuperSonic `testConnect=true`；
+- `getDbNames` 返回 `synthetic`，`getTables` 返回 30 张表；
+- DuckDB 对照：`testConnect=true`，但 `getCatalogs`/`getTables` 元数据接口失败，确认不适合 UI POC；
+- 尚未验证 DeepSeek Key、50 问准确率、图表/看板/导出。
+
+### 下一步
+
+1. 配置 DeepSeek，建 20–30 个语义模型；
+2. 跑 50 问评测，按 80% 结果正确率决定是否进入 Phase 2；
+3. Phase 2 切 StarRocks/Doris External Catalog，并接平台权限/审计/脱敏。

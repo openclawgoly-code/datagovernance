@@ -1,0 +1,77 @@
+services:
+  supersonic_postgres:
+    image: pgvector/pgvector:pg17
+    container_name: supersonic_postgres
+    environment:
+      LANG: C.UTF-8
+      POSTGRES_DATABASE: postgres
+      POSTGRES_USER: supersonic_user
+      POSTGRES_PASSWORD: supersonic_password
+    ports:
+      - "15432:5432"
+    volumes:
+      - ./supersonic_pg/data:/var/lib/postgresql/data
+    networks:
+      - supersonic_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supersonic_user -d postgres"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: supersonic_clickhouse
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      CLICKHOUSE_DB: synthetic
+    ports:
+      - "18123:8123"
+      - "19000:9000"
+    volumes:
+      # POC 直接读本地 Parquet;ClickHouse 启动时会 chown user_files,所以这里不能 :ro。
+      # 生产应改为对象存储/HDFS + 外表,不要把数据目录挂进容器。
+      - ${DG_DATA_DIR:?Set DG_DATA_DIR to the absolute path of datagovernance/data}/synthetic-warehouse:/var/lib/clickhouse/user_files/data/synthetic-warehouse
+    networks:
+      - supersonic_network
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user default --password $${CLICKHOUSE_PASSWORD} --query 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  supersonic_standalone:
+    image: supersonicbi/supersonic:${SUPERSONIC_VERSION:-latest}
+    container_name: supersonic_standalone
+    environment:
+      S2_DB_TYPE: postgres
+      SUPERSONIC_JWT_SECRET: ${SUPERSONIC_JWT_SECRET:?Set SUPERSONIC_JWT_SECRET to openssl rand -hex 64}
+      S2_DB_HOST: supersonic_postgres
+      S2_DB_PORT: 5432
+      S2_DB_DATABASE: postgres
+      S2_DB_USER: supersonic_user
+      S2_DB_PASSWORD: supersonic_password
+    ports:
+      - "9080:9080"
+    volumes:
+      # Parquet 只读;源和目标相同,这样 DuckDB 视图里的绝对路径在容器内也可解析。
+      - ${DG_DATA_DIR:?Set DG_DATA_DIR to the absolute path of datagovernance/data}:${DG_DATA_DIR:?Set DG_DATA_DIR to the absolute path of datagovernance/data}:ro
+      # DuckDB 需要可写目录(WAL/锁);数据库文件单独放这里。
+      - ${DG_DB_DIR:-./supersonic_db}:/var/lib/supersonic-db
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 4096M
+    depends_on:
+      supersonic_postgres:
+        condition: service_healthy
+    networks:
+      - supersonic_network
+    restart: unless-stopped
+
+networks:
+  supersonic_network:
