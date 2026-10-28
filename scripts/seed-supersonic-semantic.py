@@ -83,6 +83,17 @@ MODEL_LABELS = {
 
 MEASURE_NAMES = {"amount", "amount_with_tax", "quantity", "cnt", "total_amount"}
 
+PROMPT_FIX_MARKER = "ASCII letters, digits and underscores only"
+PROMPT_FIX = (
+    "7.Alias created by `AS` command must use ASCII letters, digits and underscores only; "
+    "NEVER use Chinese characters in aliases or CTE names.\n"
+    "8.If the question asks for a metric that exists in the Schema "
+    "(for example 记录数/总金额), use that metric and its aggregation; "
+    "do NOT replace it with COUNT(*) unless no matching metric exists.\n"
+    "9.The final SQL must be executable by ClickHouse: "
+    "avoid unquoted non-ASCII identifiers."
+)
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -339,7 +350,15 @@ def update_agent(client, agent_id, dataset_ids, chat_model_id):
         {"tools": [{"dataSetIds": dataset_ids, "id": "1", "type": "DATASET"}]},
         ensure_ascii=False,
     )
-    for app in (agent.get("chatAppConfig") or {}).values():
+    apps = agent.get("chatAppConfig") or {}
+    parser = apps.get("S2SQL_PARSER")
+    if parser:
+        prompt = parser.get("prompt") or ""
+        if PROMPT_FIX_MARKER not in prompt:
+            old_rule = "7.Alias created by `AS` command must be in the same language ast the `Question`."
+            prompt = prompt.replace(old_rule, PROMPT_FIX) if old_rule in prompt else prompt + "\n" + PROMPT_FIX
+            parser["prompt"] = prompt
+    for app in apps.values():
         app["chatModelId"] = chat_model_id
         if app.get("name") in ("语义SQL解析", "结果数据解读"):
             app["enable"] = True

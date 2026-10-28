@@ -195,7 +195,8 @@ SUPERSONIC_PASSWORD=admin123 python3 scripts/seed-supersonic-semantic.py
 - 建模型、补中文名/描述；
 - 把金额/数量/记录数设成 `SUM` 度量；
 - 把 `customer_id`/`product_id` 建成维度；
-- 建数据集并绑定到助手 5。
+- 建数据集并绑定到助手 5；
+- 修正 S2SQL prompt：只允许 ASCII 别名、优先使用已有指标、避免 ClickHouse 不兼容的非 ASCII 标识符。
 
 输出映射在 `tmp/supersonic-model-map.json`。
 
