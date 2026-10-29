@@ -232,6 +232,62 @@ public class InsightQueryService {
                 answer.rowCount(), answer.maskedColumns());
     }
 
+    public ExportFile exportXlsx(AskRequest request) {
+        WorkspaceContext.require();
+        WorkspaceContext.requireWorkspaceId();
+        Answer answer = ask(request);
+        List<String> keys = answer.columns().isEmpty()
+                ? (answer.rows().isEmpty() ? List.of() : List.copyOf(answer.rows().get(0).keySet()))
+                : answer.columns().stream()
+                        .map(column -> column.bizName() == null ? column.name() : column.bizName())
+                        .toList();
+        List<String> labels = answer.columns().isEmpty()
+                ? keys
+                : answer.columns().stream().map(SuperSonicClient.Column::name).toList();
+        try (var workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook();
+             var output = new java.io.ByteArrayOutputStream()) {
+            var sheet = workbook.createSheet("问数结果");
+            var header = sheet.createRow(0);
+            var headerStyle = workbook.createCellStyle();
+            var font = workbook.createFont();
+            font.setBold(true);
+            headerStyle.setFont(font);
+            for (int i = 0; i < labels.size(); i++) {
+                var cell = header.createCell(i);
+                cell.setCellValue(labels.get(i));
+                cell.setCellStyle(headerStyle);
+            }
+            for (int rowIndex = 0; rowIndex < answer.rows().size(); rowIndex++) {
+                var row = sheet.createRow(rowIndex + 1);
+                Map<String, Object> source = answer.rows().get(rowIndex);
+                for (int i = 0; i < keys.size(); i++) {
+                    Object value = source.get(keys.get(i));
+                    row.createCell(i).setCellValue(value == null ? "" : String.valueOf(value));
+                }
+            }
+            for (int i = 0; i < labels.size(); i++) {
+                sheet.autoSizeColumn(i);
+            }
+            workbook.write(output);
+            auditService.record(new AuditEntry(
+                    AuditService.EXPORT,
+                    "INSIGHT_EXPORT",
+                    Ids.of("inx"),
+                    truncate(request == null ? null : request.question(), 256),
+                    "GOVERNANCE",
+                    true,
+                    null,
+                    "POST /api/v1/insight/export/xlsx",
+                    "format=xlsx; rows=" + answer.rowCount()
+                            + "; masked=" + answer.maskedColumns()));
+            return new ExportFile("insight-" + System.currentTimeMillis() + ".xlsx",
+                    output.toByteArray(), answer.rowCount(), answer.maskedColumns());
+        } catch (java.io.IOException e) {
+            throw new BizException(ErrorCode.GOV_INSIGHT_FAILED,
+                    "生成 XLSX 失败: " + e.getMessage(), null, e);
+        }
+    }
+
     private static String csvCell(Object value) {
         if (value == null) {
             return "";

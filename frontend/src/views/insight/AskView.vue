@@ -16,6 +16,7 @@ const datasetId = ref<number>()
 const datasets = ref<InsightDataset[]>([])
 const asking = ref(false)
 const exporting = ref(false)
+const exportingXlsx = ref(false)
 const answer = ref<InsightAnswer | null>(null)
 const lastAsked = ref<{ question: string; dataSetId?: number } | null>(null)
 const history = ref<InsightQueryLog[]>([])
@@ -150,16 +151,31 @@ async function exportCsv() {
   }
   exporting.value = true
   try {
-    const blob = await insightApi.exportCsv(lastAsked.value)
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `insight-${Date.now()}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+    await download(await insightApi.exportCsv(lastAsked.value), 'csv')
   } finally {
     exporting.value = false
   }
+}
+
+async function exportXlsx() {
+  if (!answer.value || !lastAsked.value || exportingXlsx.value) {
+    return
+  }
+  exportingXlsx.value = true
+  try {
+    await download(await insightApi.exportXlsx(lastAsked.value), 'xlsx')
+  } finally {
+    exportingXlsx.value = false
+  }
+}
+
+function download(blob: Blob, extension: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `insight-${Date.now()}.${extension}`
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 function isNumeric(value: unknown) {
@@ -292,6 +308,14 @@ onBeforeUnmount(() => {
               @click="exportCsv"
             >
               导出 CSV
+            </el-button>
+            <el-button
+              v-if="auth.hasPermission('insight:export')"
+              size="small"
+              :loading="exportingXlsx"
+              @click="exportXlsx"
+            >
+              导出 XLSX
             </el-button>
           </div>
         </div>

@@ -19,6 +19,9 @@ export const insightApi = {
   exportCsv(payload: { question: string; dataSetId?: number }) {
     return http.postBlob('/insight/export', payload)
   },
+  exportXlsx(payload: { question: string; dataSetId?: number }) {
+    return http.postBlob('/insight/export/xlsx', payload)
+  },
   queries(params: { page?: number; size?: number } = {}) {
     return http.get<InsightPage<InsightQueryLog>>('/insight/queries', params)
   },

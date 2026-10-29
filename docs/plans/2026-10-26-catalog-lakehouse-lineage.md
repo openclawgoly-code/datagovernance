@@ -1076,7 +1076,8 @@ python3 scripts/seed-synthetic-warehouse.py \
 - `V19__insight_export.sql` + `POST /api/v1/insight/export`：
   - `insight:export` 单独授权(管理员/开发者,只读角色不给)；
   - 复用同一问数链路,CSV 结果同样脱敏；
-  - 写 `INSIGHT_EXPORT` 审计。
+  - 写 `INSIGHT_EXPORT` 审计；
+- `POST /api/v1/insight/export/xlsx`：基于 Apache POI 生成 XLSX，同样脱敏/审计。
 - `V20/V21` + `/insight/dashboards`：
   - 看板列表、创建、保存问题项、删除；
   - V21 修正 `menu:insight` 父菜单与问数叶子的层级；

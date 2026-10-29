@@ -47,6 +47,10 @@
     <dependency>
       <groupId>org.springdoc</groupId><artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
     </dependency>
+    <!-- XLSX 导出。只在装配层需要,不污染各 Space。 -->
+    <dependency>
+      <groupId>org.apache.poi</groupId><artifactId>poi-ooxml</artifactId><version>5.3.0</version>
+    </dependency>
     <!-- 分页插件所在的 artifact(MyBatis-Plus 3.5.9 起单独发布)。
          只有装配层需要它 —— 各 Space 的服务用 selectPage,但注册插件是 app 的事。 -->
     <dependency>

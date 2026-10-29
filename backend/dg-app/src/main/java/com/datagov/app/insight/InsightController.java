@@ -66,6 +66,22 @@ public class InsightController {
                 .body(file.content());
     }
 
+    @PostMapping("/export/xlsx")
+    @RequirePermission("insight:export")
+    @Operation(summary = "导出问数结果为 XLSX")
+    public ResponseEntity<byte[]> exportXlsx(@RequestBody AskRequest request) {
+        var file = queryService.exportXlsx(request);
+        String encodedName = java.net.URLEncoder.encode(file.filename(),
+                StandardCharsets.UTF_8);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + file.filename()
+                                + "\"; filename*=UTF-8''" + encodedName)
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(file.content());
+    }
+
     @GetMapping("/datasets")
     @RequirePermission("insight:ask")
     @Operation(summary = "可选数据集", description = "来自 SuperSonic 的主题域/数据集树")
