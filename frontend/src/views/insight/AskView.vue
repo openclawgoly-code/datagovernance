@@ -7,7 +7,7 @@ import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { insightApi } from '@/api/insight'
 import { useAuthStore } from '@/stores/auth'
-import type { InsightAnswer, InsightDataset, InsightQueryLog } from '@/types/insight'
+import type { InsightAnswer, InsightDashboard, InsightDataset, InsightQueryLog } from '@/types/insight'
 import { formatDateTime } from '@/utils/format'
 
 const auth = useAuthStore()
@@ -20,6 +20,10 @@ const answer = ref<InsightAnswer | null>(null)
 const lastAsked = ref<{ question: string; dataSetId?: number } | null>(null)
 const history = ref<InsightQueryLog[]>([])
 const historyLoading = ref(false)
+const saveDialogVisible = ref(false)
+const saveDashboards = ref<InsightDashboard[]>([])
+const saveDashboardId = ref('')
+const saveNewName = ref('')
 const chartEl = ref<HTMLDivElement>()
 let chart: ReturnType<typeof echarts.init> | null = null
 
@@ -110,6 +114,34 @@ async function ask() {
   } finally {
     asking.value = false
   }
+}
+
+async function openSaveDialog() {
+  saveDashboards.value = await insightApi.dashboards()
+  saveDashboardId.value = saveDashboards.value[0]?.id ?? ''
+  saveNewName.value = ''
+  saveDialogVisible.value = true
+}
+
+async function saveToDashboard() {
+  if (!lastAsked.value) {
+    return
+  }
+  let dashboardId = saveDashboardId.value
+  if (!dashboardId) {
+    if (!saveNewName.value.trim()) {
+      ElMessage.warning('请选择看板或输入新看板名称')
+      return
+    }
+    const created = await insightApi.createDashboard({ name: saveNewName.value.trim() })
+    dashboardId = created.id
+  }
+  await insightApi.addDashboardItem(dashboardId, {
+    question: lastAsked.value.question,
+    datasetId: lastAsked.value.dataSetId,
+  })
+  ElMessage.success('已保存到看板')
+  saveDialogVisible.value = false
 }
 
 async function exportCsv() {
@@ -247,6 +279,13 @@ onBeforeUnmount(() => {
             </el-tag>
             <span class="text-muted">{{ answer.elapsedMs }} ms</span>
             <el-button
+              v-if="auth.hasPermission('insight:dashboard:manage')"
+              size="small"
+              @click="openSaveDialog"
+            >
+              保存到看板
+            </el-button>
+            <el-button
               v-if="auth.hasPermission('insight:export')"
               size="small"
               :loading="exporting"
@@ -323,6 +362,27 @@ onBeforeUnmount(() => {
         </el-table-column>
       </el-table>
     </el-card>
+    <el-dialog v-model="saveDialogVisible" title="保存到看板" width="460px">
+      <el-form label-position="top">
+        <el-form-item label="已有看板">
+          <el-select v-model="saveDashboardId" clearable placeholder="选择已有看板" style="width: 100%">
+            <el-option
+              v-for="item in saveDashboards"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="或新建看板">
+          <el-input v-model="saveNewName" maxlength="128" placeholder="例如：销售日看板" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="saveDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveToDashboard">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 

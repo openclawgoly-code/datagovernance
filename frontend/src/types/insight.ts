@@ -37,6 +37,32 @@ export interface InsightQueryLog {
   createdAt: string
 }
 
+export interface InsightDashboard {
+  id: string
+  name: string
+  description?: string
+  itemCount: number
+  createdBy?: string
+  updatedAt: string
+}
+
+export interface InsightDashboardItem {
+  id: string
+  question: string
+  datasetId?: number
+  chartType: string
+  sortOrder: number
+}
+
+export interface InsightDashboardDetail {
+  id: string
+  name: string
+  description?: string
+  createdBy?: string
+  updatedAt: string
+  items: InsightDashboardItem[]
+}
+
 export interface InsightPage<T> {
   records: T[]
   total: number
