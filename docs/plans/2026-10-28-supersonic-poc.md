@@ -178,19 +178,33 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
 - 审计至少记录：用户、问题、生成 SQL、数据源、行数、耗时、是否导出；
 - 不在 Prompt 中发送整表数据，只发送 schema、语义模型和聚合结果。
 
-## 8. Phase 2：平台化（POC 通过后）
+## 8. Phase 2：平台化
 
-1. **入口**：原生 `/insight/ask` 页面，或先嵌 SuperSonic UI；
-2. **身份**：平台 JWT → SuperSonic SSO/账号映射，按 workspace 隔离；
-3. **查询网关**：
-   - 只读白名单、禁用 DDL/DML；
-   - maxRows、timeout、并发限流；
-   - 敏感列 mask；
-   - 全量审计。
-4. **数据源**：ClickHouse POC → StarRocks/Doris External Catalog；
-5. **看板**：POC 存 SuperSonic；生产评估是否迁到平台统一权限/版本；
-6. **导出**：平台统一导出服务 + 审批/审计；
-7. **评测回归**：50 问变成回归集，语义模型变更必须跑。
+### 8.1 已完成：问数网关（V17）
+
+- **入口**：`POST /api/v1/insight/ask`；前端不直连 SuperSonic。
+- **身份**：平台 JWT + `WorkspaceContext`；权限码 `insight:ask` / `insight:read`。
+- **网关**：
+  - 行数上限 `DG_INSIGHT_MAX_ROWS`（默认 200），超出标记 `truncated`；
+  - 上游超时 `DG_INSIGHT_TIMEOUT_SECONDS`（默认 120s）；
+  - 结果按 `md_column_sensitivity` 的未拒绝标签做兜底脱敏；
+  - SQL 别名（如 `phone AS _手机号_`）也能识别并脱敏；
+  - 查询事实写 `ig_query_log`，同时写 `gv_audit_record`（`INSIGHT_QUERY` / `EXECUTE`）。
+- **配置**：`DG_SUPERSONIC_URL`、`DG_SUPERSONIC_USER`、`DG_SUPERSONIC_PASSWORD`、`DG_SUPERSONIC_AGENT_ID`、`DG_SUPERSONIC_DATASET_ID`。
+- **历史**：`GET /api/v1/insight/queries` 返回当前空间的问数记录。
+- **已验证**：
+  - 登录、权限种子、`/insight/ask` 返回 SuperSonic SQL/结果；
+  - 临时给 `status` 打 L2 标签后，结果中的 `status` 和中文别名均被替换为 `***`；
+  - 查询历史与治理审计各新增记录。
+
+### 8.2 待完成
+
+1. **数据源**：ClickHouse POC → StarRocks/Doris External Catalog（需要部署/连接真实集群）；
+2. **入口 UI**：原生 `/insight/ask` 页面或嵌 SuperSonic UI；
+3. **身份细化**：平台用户 → SuperSonic 账号映射；当前网关用单一服务账号，workspace 隔离只在平台侧；
+4. **查询策略**：并发限流、按用户配额、更完整的 SQL 只读校验；
+5. **看板/导出**：POC 存 SuperSonic；生产接平台统一权限/版本/审批；
+6. **评测回归**：50 问变成回归集，语义模型变更必须跑。
 
 ## 9. Phase 3：PI（可选）
 
@@ -235,7 +249,8 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
 | ClickHouse 类型名不被 SuperSonic 分类器识别 | 数值列默认成普通字段 | 建模型时手动设为度量；Phase 2 换 StarRocks 后复核 |
 | 语义建模工作量被低估 | 准确率上不去 | 先 20–30 表，业务方参与定义同义词 |
 | DeepSeek 生成 SQL 不稳定 | 结果错误 | 语义层约束 + few-shot + 回归集 |
-| SuperSonic 账号与平台割裂 | 生产权限不一致 | Phase 2 接 SSO/workspace |
+| SuperSonic 账号与平台割裂 | 生产权限不一致 | 当前 V17 用单一服务账号；Phase 2 再接 SSO/workspace 映射 |
+| 结果脱敏按列名/别名匹配 | 复杂表达式可能漏匹配 | 语义模型不暴露原始 PII 是第一道防线;上线前用敏感列回归集验证 |
 | 导出泄露 PII | 合规风险 | 默认脱敏 + 单独授权 + 审计 |
 | 看板归属不清 | 后续迁移成本 | POC 放 SuperSonic，Phase 2 决策 |
 

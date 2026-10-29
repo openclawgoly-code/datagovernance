@@ -78,6 +78,16 @@ dg:
     # 结构浏览的快照有效期;超过则重新探测目标库(功能 5)
     snapshot-ttl-minutes: 30
 
+  insight:
+    # Phase 2 问数网关。SuperSonic 是独立服务,平台不把它的 admin 口令写进代码。
+    base-url: ${DG_SUPERSONIC_URL:http://localhost:9080}
+    username: ${DG_SUPERSONIC_USER:admin}
+    password: ${DG_SUPERSONIC_PASSWORD:}
+    agent-id: ${DG_SUPERSONIC_AGENT_ID:5}
+    default-dataset-id: ${DG_SUPERSONIC_DATASET_ID:4}
+    max-rows: ${DG_INSIGHT_MAX_ROWS:200}
+    timeout-seconds: ${DG_INSIGHT_TIMEOUT_SECONDS:120}
+
 logging:
   level:
     root: INFO

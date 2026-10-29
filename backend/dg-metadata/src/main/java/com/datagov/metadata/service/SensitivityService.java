@@ -109,6 +109,14 @@ public class SensitivityService {
         }
     }
 
+    /**
+     * 供查询网关做结果脱敏的轻量视图:只给字段名和级别,不暴露数据集/列 ID。
+     * 同名跨表字段取最高级别,避免“订单表叫 phone 是 L3、客户表叫 phone 是 L4”
+     * 时按较低级别放行。
+     */
+    public record SensitiveColumnView(String columnName, String level) {
+    }
+
     // ── 扫描 ────────────────────────────────────────────────────────────
 
     /**
@@ -291,6 +299,53 @@ public class SensitivityService {
                                 columnNames.getOrDefault(value.getColumnId(), value.getColumnId())))
                         .toList(),
                 result.getTotal(), page, size);
+    }
+
+    /**
+     * 当前空间所有未被人为拒绝的敏感字段名。问数网关用它做结果兜底脱敏。
+     *
+     * <p>不按 datasetId 过滤:SuperSonic 的 dataset 与平台 catalog 资产 ID 不是
+     * 同一套标识,首期由 BFF 在结果列名/别名层面匹配。同名跨表取最高级别。
+     */
+    public List<SensitiveColumnView> sensitiveColumnNames() {
+        String workspaceId = WorkspaceContext.requireWorkspaceId();
+        List<ColumnSensitivity> labels = sensitivityMapper.selectList(
+                new LambdaQueryWrapper<ColumnSensitivity>()
+                        .eq(ColumnSensitivity::getWorkspaceId, workspaceId)
+                        .ne(ColumnSensitivity::getStatus, "REJECTED"));
+        if (labels.isEmpty()) {
+            return List.of();
+        }
+        Map<String, String> levelByColumnId = new HashMap<>();
+        for (ColumnSensitivity label : labels) {
+            levelByColumnId.merge(label.getColumnId(), label.getLevel(),
+                    (left, right) -> levelRank(right) > levelRank(left) ? right : left);
+        }
+        List<CatalogColumn> columns = columnMapper.selectList(
+                new LambdaQueryWrapper<CatalogColumn>()
+                        .in(CatalogColumn::getId, levelByColumnId.keySet()));
+        Map<String, String> levelByColumnName = new LinkedHashMap<>();
+        for (CatalogColumn column : columns) {
+            String level = levelByColumnId.get(column.getId());
+            if (level == null) {
+                continue;
+            }
+            levelByColumnName.merge(column.getName(), level,
+                    (left, right) -> levelRank(right) > levelRank(left) ? right : left);
+        }
+        return levelByColumnName.entrySet().stream()
+                .map(entry -> new SensitiveColumnView(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    private static int levelRank(String level) {
+        return switch (level == null ? "" : level.toUpperCase()) {
+            case "L4" -> 4;
+            case "L3" -> 3;
+            case "L2" -> 2;
+            case "L1" -> 1;
+            default -> 0;
+        };
     }
 
     public List<RuleView> rules() {

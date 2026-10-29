@@ -271,3 +271,34 @@ docker compose down
 `scripts/build-supersonic-duckdb.py` 可以生成 DuckDB 视图文件，连接本身可用，但当前 SuperSonic 的 DuckDB 元数据适配不完整，**不要用它做 UI POC**。
 
 如果未来 SuperSonic 修复了 DuckDB 适配，再按脚本顶部说明使用；注意 DuckDB 存储格式不向后兼容，生成版本要与镜像内置 JDBC 版本一致。
+
+## 13. 平台问数网关（Phase 2）
+
+平台后端已提供受治理的 `/api/v1/insight/ask`，前端不应直连 SuperSonic。启动平台时配置：
+
+```bash
+DG_SUPERSONIC_URL=http://localhost:9080 \
+DG_SUPERSONIC_USER=admin \
+DG_SUPERSONIC_PASSWORD=admin123 \
+DG_SUPERSONIC_AGENT_ID=5 \
+DG_SUPERSONIC_DATASET_ID=4 \
+java -jar backend/dg-app/target/dg-app-0.1.0-SNAPSHOT.jar
+```
+
+调用：
+
+```bash
+curl -X POST http://localhost:8080/api/v1/insight/ask \
+  -H "Authorization: Bearer <平台令牌>" \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"按状态统计订单数","dataSetId":4}'
+```
+
+网关会：
+
+- 用平台 JWT/workspace 鉴权（权限码 `insight:ask`）；
+- 限制返回行数（`DG_INSIGHT_MAX_ROWS`，默认 200）；
+- 按平台敏感标签兜底脱敏，并返回 `maskedColumns`；
+- 把问题、SQL、耗时、脱敏列写入 `ig_query_log`，同时写治理审计。
+
+> 当前是单一 SuperSonic 服务账号；生产需要把平台用户映射到 SuperSonic 账号/角色，或由网关统一做列级权限。

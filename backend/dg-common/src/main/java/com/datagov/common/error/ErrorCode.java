@@ -72,6 +72,11 @@ public enum ErrorCode {
     // 跨空间读取也用 404:与 SYS_NOT_FOUND 不同,这个码让"报告不存在"与
     // "报告在别的空间"对调用方呈现为同一个答案,不泄露存在性。
     GOV_REPORT_NOT_FOUND("GOV_REPORT_NOT_FOUND", 404, "分析报告不存在"),
+    // 智能问数的上游是独立进程(SuperSonic/LLM),失败归 502:平台自身没坏,
+    // 坏的是它依赖的问数引擎。配置缺失同归这一类,因为对调用方来说都是
+    // “现在用不了问数”,而不是请求参数错。
+    GOV_INSIGHT_FAILED("GOV_INSIGHT_FAILED", 502, "智能问数失败"),
+    GOV_INSIGHT_NOT_CONFIGURED("GOV_INSIGHT_NOT_CONFIGURED", 503, "智能问数服务未配置"),
 
     // ── Metadata ───────────────────────────────────────────────
     MTD_DATASOURCE_NOT_FOUND("MTD_DATASOURCE_NOT_FOUND", 404, "数据源不存在"),

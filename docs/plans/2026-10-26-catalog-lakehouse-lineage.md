@@ -1045,3 +1045,42 @@ python3 scripts/seed-synthetic-warehouse.py \
 1. Phase 2：切 StarRocks/Doris External Catalog，接平台权限/查询网关/审计/脱敏；
 2. 用真实业务问题扩充评测集，覆盖多轮、归因、同义词歧义；
 3. 评估图表/看板/导出。
+
+---
+
+## 21. P11.2 · 问数网关（2026-10-28）
+
+### 已完成
+
+- 迁移 `V17__insight_gateway.sql`：
+  - `ig_query_log` 问数事实表（问题、SQL、行数、耗时、脱敏列、成功/失败）；
+  - 权限 `insight:ask` / `insight:read`，授予内置管理员/开发者/只读角色。
+- `POST /api/v1/insight/ask`：
+  - 平台 JWT + workspace；
+  - 服务端调用 SuperSonic（单一服务账号），不把 SuperSonic 登录态暴露给前端；
+  - 默认数据集/助手可配置；
+  - 返回 SQL、列、行、摘要、是否截断、脱敏列。
+- `GET /api/v1/insight/queries`：当前空间问数记录。
+- `InsightMasking`：
+  - 按 `md_column_sensitivity` 未拒绝标签做兜底脱敏；
+  - 支持结果列名与 `expr AS alias` 的别名映射；
+  - 单元测试覆盖直接列、中文别名、相似字段名不误伤。
+- `InsightQueryService`：
+  - 行数上限、耗时、失败记录；
+  - 同时写 `ig_query_log` 与 `gv_audit_record`。
+- 配置：`dg.insight.*` / `DG_SUPERSONIC_*`。
+
+### 验证
+
+- 平台应用启动并跑 Flyway V17；
+- 登录后权限集包含 `insight:ask` / `insight:read`；
+- `/api/v1/insight/ask` 对“按状态统计订单数”返回 SuperSonic 生成 SQL 和 3 行结果；
+- 临时给 `status` 打 L2 敏感标签后，返回 `status=***`，`maskedColumns=["status","状态"]`；
+- `/api/v1/insight/queries` 与审计接口均出现 `INSIGHT_QUERY` 记录；
+- `mvn -pl backend/dg-app -am -Dtest=InsightMaskingTest test` 通过。
+
+### 限制
+
+- 当前是单一 SuperSonic 服务账号，workspace 隔离只在平台侧；尚未做用户级 SuperSonic 映射。
+- 脱敏依赖列名/别名匹配；语义模型不暴露原始 PII 仍是第一道防线。
+- 尚未切 StarRocks/Doris External Catalog，也尚未做前端 `/insight/ask` 页面。
