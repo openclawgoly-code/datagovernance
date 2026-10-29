@@ -1036,7 +1036,7 @@ python3 scripts/seed-synthetic-warehouse.py \
 - DuckDB 对照：`testConnect=true`，但 `getCatalogs`/`getTables` 元数据接口失败，确认不适合 UI POC；
 - DeepSeek `deepseek-chat` 已配置并通过连通测试；
 - 已建 **20 个语义模型 / 20 个数据集**（12 DWD + 6 DWS + 2 无 PII ODS），助手绑定 DeepSeek；
-- 50 问评测：**50 PASS / 0 FAIL**，见 `docs/plans/2026-10-28-supersonic-50-eval.md`；
+- 50 问评测：**49 PASS / 1 FAIL**，见 `docs/plans/2026-10-28-supersonic-50-eval.md`；
 - 修复了中文 CTE 别名、指标被 `COUNT(*)` 替代、TopN 不带金额三个问题；
 - 尚未验证图表/看板/导出、多模型 join、真实业务问题。
 
@@ -1092,3 +1092,30 @@ python3 scripts/seed-synthetic-warehouse.py \
 - 当前是单一 SuperSonic 服务账号，workspace 隔离只在平台侧；尚未做用户级 SuperSonic 映射。
 - 脱敏依赖列名/别名匹配；语义模型不暴露原始 PII 仍是第一道防线。
 - 尚未切 StarRocks/Doris External Catalog，也尚未做前端 `/insight/ask` 页面。
+
+---
+
+## 22. P11.3 · StarRocks + MinIO 本地验证（2026-10-29）
+
+### 已完成
+
+- `deploy/starrocks/docker-compose.yml`：MinIO + StarRocks allin1 3.2.9。
+- `scripts/upload-minio.sh`：把 `data/synthetic-warehouse` 上传到 MinIO `s3://lake/synthetic-warehouse`。
+- `scripts/load-starrocks.py`：
+  - 为 30 张表建 StarRocks 内表；
+  - 用 `FILES()` 从 MinIO 读 Parquet；
+  - `columns_from_path="dt"` 还原分区日期；
+  - 实测 93 行 DWS 汇总表、31 个区域、2 天数据均正确。
+- SuperSonic：
+  - 数据源 `synthetic_starrocks`（id=4）连接成功；
+  - 主题域 `销售分析-StarRocks`（id=5）；
+  - 20 个模型/数据集；
+  - 助手 id=6；
+  - 50 问评测 **49/50 PASS**，见 `docs/plans/2026-10-29-supersonic-starrocks-50-eval.md`。
+- 平台网关切到 StarRocks 助手/数据集，`/insight/ask`、CSV 导出验证通过。
+
+### 限制
+
+- 当前用 `FILES()` 装载到 StarRocks **内表**,不是 External Catalog；
+- MinIO 与 StarRocks 的 root 无密码只限本地 POC；
+- 还没有用户级 SuperSonic 映射、限流、看板。

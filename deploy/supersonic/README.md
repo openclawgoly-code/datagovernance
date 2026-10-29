@@ -274,6 +274,9 @@ docker compose down
 
 ## 13. 平台问数网关（Phase 2）
 
+> 生产方向验证（MinIO + StarRocks）见 `deploy/starrocks/README.md`。
+
+
 平台后端已提供受治理的 `/api/v1/insight/ask`，前端不应直连 SuperSonic。启动平台时配置：
 
 ```bash

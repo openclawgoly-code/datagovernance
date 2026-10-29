@@ -14,6 +14,7 @@ import base64
 import csv
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.error
@@ -54,9 +55,15 @@ def parse_args():
     parser.add_argument("--agent-id", type=int, default=5)
     parser.add_argument("--chat-id", type=int, default=0, help="0 表示新建/复用 POC-50 会话")
     parser.add_argument("--map", default="tmp/supersonic-model-map.json")
+    parser.add_argument("--expected-engine", choices=["clickhouse", "starrocks"],
+                        default="clickhouse")
     parser.add_argument("--clickhouse-url", default="http://localhost:18123")
     parser.add_argument("--clickhouse-user", default="default")
     parser.add_argument("--clickhouse-password", default="clickhouse")
+    parser.add_argument("--starrocks-host", default="127.0.0.1")
+    parser.add_argument("--starrocks-port", default="19030")
+    parser.add_argument("--starrocks-user", default="root")
+    parser.add_argument("--starrocks-password", default="")
     parser.add_argument("--out-csv", default="tmp/supersonic-50-results.csv")
     parser.add_argument("--out-json", default="tmp/supersonic-50-results.json")
     parser.add_argument("--out-md", default="docs/plans/2026-10-28-supersonic-50-eval.md")
@@ -98,6 +105,27 @@ def clickhouse_query(base, user, password, sql):
     with urllib.request.urlopen(req, timeout=120) as resp:
         text = resp.read().decode("utf-8")
     return [line.split("\t") for line in text.splitlines() if line.strip()]
+
+
+def starrocks_query(args, sql):
+    command = [
+        "mysql", "-h", args.starrocks_host, "-P", str(args.starrocks_port),
+        "-u", args.starrocks_user, "-N", "-B", "--default-character-set=utf8mb4",
+        "-e", sql,
+    ]
+    if args.starrocks_password:
+        command.insert(5, f"-p{args.starrocks_password}")
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError("StarRocks 标准查询失败: " + result.stderr[-1000:])
+    return [line.split("\t") for line in result.stdout.splitlines() if line.strip()]
+
+
+def expected_query(args, sql):
+    if args.expected_engine == "starrocks":
+        return starrocks_query(args, sql)
+    return clickhouse_query(args.clickhouse_url, args.clickhouse_user,
+                            args.clickhouse_password, sql)
 
 
 def question_bank(map_data):
@@ -282,9 +310,7 @@ def main():
 
     results = []
     for q in questions:
-        expected_rows = clickhouse_query(
-            args.clickhouse_url, args.clickhouse_user, args.clickhouse_password, q["expected_sql"]
-        )
+        expected_rows = expected_query(args, q["expected_sql"])
         payload = {
             "queryText": q["question"],
             "agentId": args.agent_id,

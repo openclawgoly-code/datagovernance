@@ -1,7 +1,7 @@
 # SuperSonic AI 问数 POC（Phase 1）
 
 - 日期：2026-10-28
-- 状态：POC 50 问 50/50 PASS；Phase 2 问数网关、前端入口、CSV 导出已落地；待 StarRocks/Doris 与用户级映射
+- 状态：ClickHouse 50/50、StarRocks 49/50 PASS；Phase 2 问数网关、前端入口、CSV 导出已落地；待真正 External Catalog、用户级映射和看板
 - 关联：`docs/plans/2026-10-26-catalog-lakehouse-lineage.md` §20
 - 部署说明：`deploy/supersonic/README.md`
 
@@ -203,14 +203,31 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
   - `POST /api/v1/insight/export` 导出 CSV，需 `insight:export` 权限，导出同样脱敏并写 `INSIGHT_EXPORT` 审计；
   - 前端 `pnpm type-check`、`pnpm build` 通过，页面路由 `/insight/ask` 已注册，页面含“导出 CSV”按钮。
 
-### 8.2 待完成
+### 8.2 已完成：StarRocks + MinIO 本地验证
 
-1. **数据源**：ClickHouse POC → StarRocks/Doris External Catalog（需要部署/连接真实集群）；
-2. **入口 UI**：原生 `/insight/ask` 页面或嵌 SuperSonic UI；
-3. **身份细化**：平台用户 → SuperSonic 账号映射；当前网关用单一服务账号，workspace 隔离只在平台侧；
-4. **查询策略**：并发限流、按用户配额、更完整的 SQL 只读校验；
-5. **看板/导出**：POC 存 SuperSonic；生产接平台统一权限/版本/审批；
-6. **评测回归**：50 问变成回归集，语义模型变更必须跑。
+- `deploy/starrocks/docker-compose.yml`：MinIO + StarRocks allin1；
+- `scripts/upload-minio.sh`：把合成湖上传到 `s3://lake/synthetic-warehouse`；
+- `scripts/load-starrocks.py`：
+  - 30 张表装入 StarRocks `synthetic` 库；
+  - 用 `FILES()` 读 MinIO Parquet；
+  - `columns_from_path="dt"` 还原 `dt` 分区列；
+- SuperSonic 数据源 `synthetic_starrocks`（id=4）`testConnect=true`；
+- StarRocks 主题域 `销售分析-StarRocks`（id=5），20 个模型/数据集，助手 id=6；
+- StarRocks 50 问评测：**49 PASS / 1 FAIL**，见
+  `docs/plans/2026-10-29-supersonic-starrocks-50-eval.md`；
+- 平台已切到助手 6 / 数据集 36，`/insight/ask` 和 CSV 导出均验证通过。
+
+> 这是 **FILES() 内表装载**，还不是 External Catalog；但它验证了
+> SuperSonic → StarRocks 的查询、语义模型和 50 问链路。
+
+### 8.3 待完成
+
+1. **真正 External Catalog**：HMS/Glue 或 S3 文件外表，替换 `FILES()` 内表；
+2. **身份细化**：平台用户 → SuperSonic 账号映射；当前网关用单一服务账号，workspace 隔离只在平台侧；
+3. **查询策略**：并发限流、按用户配额、更完整的 SQL 只读校验；
+4. **看板**：ECharts/看板保存、权限与版本；
+5. **导出**：XLSX/PDF、审批流；
+6. **评测回归**：50 问变成回归集，语义模型变更必须跑；用真实业务问题替换合成题库。
 
 ## 9. Phase 3：PI（可选）
 
