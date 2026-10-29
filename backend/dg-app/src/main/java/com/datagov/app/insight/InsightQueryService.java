@@ -95,6 +95,11 @@ public class InsightQueryService {
         }
     }
 
+    public List<SuperSonicClient.DatasetOption> datasets() {
+        WorkspaceContext.requireWorkspaceId();
+        return client.datasets();
+    }
+
     public Answer ask(AskRequest request) {
         Caller caller = WorkspaceContext.require();
         // 问数事实必须落在某个空间里;平台管理员在未选空间时也不能匿名查业务数据。

@@ -180,9 +180,13 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
 
 ## 8. Phase 2：平台化
 
-### 8.1 已完成：问数网关（V17）
+### 8.1 已完成：问数网关（V17）+ 前端入口（V18）
 
-- **入口**：`POST /api/v1/insight/ask`；前端不直连 SuperSonic。
+- **入口**：
+  - 后端 `POST /api/v1/insight/ask`，前端不直连 SuperSonic；
+  - 前端 `/insight/ask` 页面：数据集下拉、问题输入、结果表格、生成 SQL、脱敏提示、最近问数；
+  - V18 菜单 `menu:insight`，权限 `insight:ask` / `insight:read`。
+- **数据集列表**：`GET /api/v1/insight/datasets`，从 SuperSonic 主题域/数据集树拍平。
 - **身份**：平台 JWT + `WorkspaceContext`；权限码 `insight:ask` / `insight:read`。
 - **网关**：
   - 行数上限 `DG_INSIGHT_MAX_ROWS`（默认 200），超出标记 `truncated`；
@@ -195,7 +199,8 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
 - **已验证**：
   - 登录、权限种子、`/insight/ask` 返回 SuperSonic SQL/结果；
   - 临时给 `status` 打 L2 标签后，结果中的 `status` 和中文别名均被替换为 `***`；
-  - 查询历史与治理审计各新增记录。
+  - 查询历史与治理审计各新增记录；
+  - 前端 `pnpm type-check`、`pnpm build` 通过，页面路由 `/insight/ask` 已注册。
 
 ### 8.2 待完成
 

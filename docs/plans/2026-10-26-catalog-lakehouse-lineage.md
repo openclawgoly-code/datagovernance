@@ -1069,6 +1069,10 @@ python3 scripts/seed-synthetic-warehouse.py \
   - 行数上限、耗时、失败记录；
   - 同时写 `ig_query_log` 与 `gv_audit_record`。
 - 配置：`dg.insight.*` / `DG_SUPERSONIC_*`。
+- `V18__insight_menu.sql` + 前端 `/insight/ask` 页面：
+  - 数据集下拉来自 `GET /api/v1/insight/datasets`；
+  - 展示结果表格、生成 SQL、脱敏列、最近问数；
+  - 前端 `pnpm type-check` / `pnpm build` 通过。
 
 ### 验证
 

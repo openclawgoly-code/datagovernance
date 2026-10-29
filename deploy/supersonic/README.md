@@ -297,6 +297,7 @@ curl -X POST http://localhost:8080/api/v1/insight/ask \
 网关会：
 
 - 用平台 JWT/workspace 鉴权（权限码 `insight:ask`）；
+- 前端登录后可从侧边栏「智能问数」进入 `/insight/ask`；
 - 限制返回行数（`DG_INSIGHT_MAX_ROWS`，默认 200）；
 - 按平台敏感标签兜底脱敏，并返回 `maskedColumns`；
 - 把问题、SQL、耗时、脱敏列写入 `ig_query_log`，同时写治理审计。

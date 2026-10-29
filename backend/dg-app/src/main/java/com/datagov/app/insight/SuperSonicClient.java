@@ -56,6 +56,44 @@ public class SuperSonicClient {
                             String summary, String error) {
     }
 
+    public record DatasetOption(long id, String name, String domain) {
+    }
+
+    /**
+     * 数据集树拍平成下拉选项。SuperSonic 的树是“主题域 → 数据集”,前端只需要
+     * 一个可选列表;把树结构原样透出会让 UI 额外实现一次展开逻辑。
+     */
+    public List<DatasetOption> datasets() {
+        requireConfigured();
+        Map<String, Object> response = get("/api/chat/conf/getDomainDataSetTree", token());
+        if (!Integer.valueOf(200).equals(response.get("code"))
+                || !(response.get("data") instanceof List<?> roots)) {
+            throw new BizException(ErrorCode.GOV_INSIGHT_FAILED,
+                    "读取数据集失败: " + response.get("msg"));
+        }
+        List<DatasetOption> options = new java.util.ArrayList<>();
+        for (Object root : roots) {
+            if (root instanceof Map<?, ?> domain) {
+                collectDatasets(domain, string(domain.get("name")), options);
+            }
+        }
+        return options;
+    }
+
+    private void collectDatasets(Map<?, ?> node, String domain, List<DatasetOption> options) {
+        if ("DATASET".equals(string(node.get("type"))) && node.get("id") instanceof Number id) {
+            options.add(new DatasetOption(id.longValue(), string(node.get("name")), domain));
+            return;
+        }
+        if (node.get("children") instanceof List<?> children) {
+            for (Object child : children) {
+                if (child instanceof Map<?, ?> childMap) {
+                    collectDatasets(childMap, domain, options);
+                }
+            }
+        }
+    }
+
     public AskResult ask(String question, int agentId, long datasetId) {
         requireConfigured();
         String accessToken = token();

@@ -30,6 +30,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '工作台' },
       },
       {
+        path: 'insight/ask',
+        name: 'insight-ask',
+        component: () => import('@/views/insight/AskView.vue'),
+        meta: { title: '智能问数', permission: 'insight:ask' },
+      },
+      {
         path: 'metadata/datasources',
         name: 'datasources',
         component: () => import('@/views/metadata/DataSourceListView.vue'),

@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -42,6 +43,13 @@ public class InsightController {
             description = "转发 SuperSonic,按平台敏感标签脱敏,并记录查询事实")
     public ApiResponse<Answer> ask(@RequestBody AskRequest request) {
         return ApiResponse.ok(queryService.ask(request));
+    }
+
+    @GetMapping("/datasets")
+    @RequirePermission("insight:ask")
+    @Operation(summary = "可选数据集", description = "来自 SuperSonic 的主题域/数据集树")
+    public ApiResponse<List<SuperSonicClient.DatasetOption>> datasets() {
+        return ApiResponse.ok(queryService.datasets());
     }
 
     @GetMapping("/queries")
