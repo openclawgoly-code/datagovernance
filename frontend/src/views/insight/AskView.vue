@@ -2,14 +2,18 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { insightApi } from '@/api/insight'
+import { useAuthStore } from '@/stores/auth'
 import type { InsightAnswer, InsightDataset, InsightQueryLog } from '@/types/insight'
 import { formatDateTime } from '@/utils/format'
 
+const auth = useAuthStore()
 const question = ref('')
 const datasetId = ref<number>()
 const datasets = ref<InsightDataset[]>([])
 const asking = ref(false)
+const exporting = ref(false)
 const answer = ref<InsightAnswer | null>(null)
+const lastAsked = ref<{ question: string; dataSetId?: number } | null>(null)
 const history = ref<InsightQueryLog[]>([])
 const historyLoading = ref(false)
 
@@ -58,14 +62,34 @@ async function ask() {
     return
   }
   asking.value = true
+  const payload = {
+    question: question.value.trim(),
+    dataSetId: datasetId.value,
+  }
   try {
-    answer.value = await insightApi.ask({
-      question: question.value.trim(),
-      dataSetId: datasetId.value,
-    })
+    answer.value = await insightApi.ask(payload)
+    lastAsked.value = payload
     await loadHistory()
   } finally {
     asking.value = false
+  }
+}
+
+async function exportCsv() {
+  if (!answer.value || !lastAsked.value || exporting.value) {
+    return
+  }
+  exporting.value = true
+  try {
+    const blob = await insightApi.exportCsv(lastAsked.value)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `insight-${Date.now()}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  } finally {
+    exporting.value = false
   }
 }
 
@@ -139,6 +163,14 @@ onMounted(async () => {
               已脱敏 {{ answer.maskedColumns.length }} 列
             </el-tag>
             <span class="text-muted">{{ answer.elapsedMs }} ms</span>
+            <el-button
+              v-if="auth.hasPermission('insight:export')"
+              size="small"
+              :loading="exporting"
+              @click="exportCsv"
+            >
+              导出 CSV
+            </el-button>
           </div>
         </div>
       </template>

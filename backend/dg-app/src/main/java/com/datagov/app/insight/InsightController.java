@@ -15,6 +15,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -43,6 +48,22 @@ public class InsightController {
             description = "转发 SuperSonic,按平台敏感标签脱敏,并记录查询事实")
     public ApiResponse<Answer> ask(@RequestBody AskRequest request) {
         return ApiResponse.ok(queryService.ask(request));
+    }
+
+    @PostMapping("/export")
+    @RequirePermission("insight:export")
+    @Operation(summary = "导出问数结果",
+            description = "重新执行同一问题并输出 CSV;导出单独授权,结果同样经过脱敏和审计")
+    public ResponseEntity<byte[]> export(@RequestBody AskRequest request) {
+        var file = queryService.export(request);
+        String encodedName = java.net.URLEncoder.encode(file.filename(),
+                StandardCharsets.UTF_8);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + file.filename()
+                                + "\"; filename*=UTF-8''" + encodedName)
+                .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
+                .body(file.content());
     }
 
     @GetMapping("/datasets")

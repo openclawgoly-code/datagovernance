@@ -180,7 +180,7 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
 
 ## 8. Phase 2：平台化
 
-### 8.1 已完成：问数网关（V17）+ 前端入口（V18）
+### 8.1 已完成：问数网关（V17）+ 前端入口（V18）+ 导出（V19）
 
 - **入口**：
   - 后端 `POST /api/v1/insight/ask`，前端不直连 SuperSonic；
@@ -200,7 +200,8 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
   - 登录、权限种子、`/insight/ask` 返回 SuperSonic SQL/结果；
   - 临时给 `status` 打 L2 标签后，结果中的 `status` 和中文别名均被替换为 `***`；
   - 查询历史与治理审计各新增记录；
-  - 前端 `pnpm type-check`、`pnpm build` 通过，页面路由 `/insight/ask` 已注册。
+  - `POST /api/v1/insight/export` 导出 CSV，需 `insight:export` 权限，导出同样脱敏并写 `INSIGHT_EXPORT` 审计；
+  - 前端 `pnpm type-check`、`pnpm build` 通过，页面路由 `/insight/ask` 已注册，页面含“导出 CSV”按钮。
 
 ### 8.2 待完成
 

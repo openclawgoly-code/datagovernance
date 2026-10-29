@@ -73,6 +73,10 @@ public class InsightQueryService {
     ) {
     }
 
+    public record ExportFile(String filename, byte[] content, int rowCount,
+                             List<String> maskedColumns) {
+    }
+
     public record QueryLogView(
             String id,
             String username,
@@ -182,6 +186,62 @@ public class InsightQueryService {
             throw new BizException(ErrorCode.GOV_INSIGHT_FAILED,
                     "智能问数失败: " + ex.getMessage(), null, ex);
         }
+    }
+
+    public ExportFile export(AskRequest request) {
+        WorkspaceContext.require();
+        WorkspaceContext.requireWorkspaceId();
+        Answer answer = ask(request);
+        List<String> keys = answer.columns().isEmpty()
+                ? (answer.rows().isEmpty() ? List.of() : List.copyOf(answer.rows().get(0).keySet()))
+                : answer.columns().stream()
+                        .map(column -> column.bizName() == null ? column.name() : column.bizName())
+                        .toList();
+        List<String> labels = answer.columns().isEmpty()
+                ? keys
+                : answer.columns().stream().map(SuperSonicClient.Column::name).toList();
+
+        StringBuilder csv = new StringBuilder("\uFEFF");
+        // 表头用业务名(状态/订单数),值仍按 key 取值;下游导入时列名可读。
+        csv.append(labels.stream().map(InsightQueryService::csvCell)
+                .collect(java.util.stream.Collectors.joining(","))).append("\r\n");
+        for (Map<String, Object> row : answer.rows()) {
+            for (int i = 0; i < keys.size(); i++) {
+                if (i > 0) {
+                    csv.append(',');
+                }
+                csv.append(csvCell(row.get(keys.get(i))));
+            }
+            csv.append("\r\n");
+        }
+        // labels 目前只用于审计/未来加表头别名;CSV 表头用真实 key,避免
+        // “中文表头 + 英文值”在下游导入时对不上列。
+        auditService.record(new AuditEntry(
+                AuditService.EXPORT,
+                "INSIGHT_EXPORT",
+                Ids.of("inx"),
+                truncate(request == null ? null : request.question(), 256),
+                "GOVERNANCE",
+                true,
+                null,
+                "POST /api/v1/insight/export",
+                "rows=" + answer.rowCount() + "; masked=" + answer.maskedColumns()
+                        + "; labels=" + labels));
+        return new ExportFile("insight-" + System.currentTimeMillis() + ".csv",
+                csv.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                answer.rowCount(), answer.maskedColumns());
+    }
+
+    private static String csvCell(Object value) {
+        if (value == null) {
+            return "";
+        }
+        String text = String.valueOf(value);
+        if (text.contains(",") || text.contains("\"") || text.contains("\n")
+                || text.contains("\r")) {
+            return "\"" + text.replace("\"", "\"\"") + "\"";
+        }
+        return text;
     }
 
     public PageResult<QueryLogView> history(long page, long size) {

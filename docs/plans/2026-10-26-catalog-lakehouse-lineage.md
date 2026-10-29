@@ -1073,6 +1073,10 @@ python3 scripts/seed-synthetic-warehouse.py \
   - 数据集下拉来自 `GET /api/v1/insight/datasets`；
   - 展示结果表格、生成 SQL、脱敏列、最近问数；
   - 前端 `pnpm type-check` / `pnpm build` 通过。
+- `V19__insight_export.sql` + `POST /api/v1/insight/export`：
+  - `insight:export` 单独授权(管理员/开发者,只读角色不给)；
+  - 复用同一问数链路,CSV 结果同样脱敏；
+  - 写 `INSIGHT_EXPORT` 审计。
 
 ### 验证
 

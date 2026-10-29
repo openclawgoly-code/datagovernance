@@ -90,6 +90,10 @@ export const http = {
   post<T>(url: string, data?: unknown): Promise<T> {
     return request<T>({ url, method: 'POST', data })
   },
+  /** 文件下载:响应拦截器会把非 ApiResponse 的 Blob 原样返回。 */
+  postBlob(url: string, data?: unknown): Promise<Blob> {
+    return request<Blob>({ url, method: 'POST', data, responseType: 'blob' })
+  },
   put<T>(url: string, data?: unknown): Promise<T> {
     return request<T>({ url, method: 'PUT', data })
   },

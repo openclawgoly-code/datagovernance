@@ -300,6 +300,7 @@ curl -X POST http://localhost:8080/api/v1/insight/ask \
 - 前端登录后可从侧边栏「智能问数」进入 `/insight/ask`；
 - 限制返回行数（`DG_INSIGHT_MAX_ROWS`，默认 200）；
 - 按平台敏感标签兜底脱敏，并返回 `maskedColumns`；
-- 把问题、SQL、耗时、脱敏列写入 `ig_query_log`，同时写治理审计。
+- 把问题、SQL、耗时、脱敏列写入 `ig_query_log`，同时写治理审计；
+- `POST /api/v1/insight/export` 导出 CSV，需要 `insight:export` 权限，导出结果同样脱敏并写 `INSIGHT_EXPORT` 审计。
 
 > 当前是单一 SuperSonic 服务账号；生产需要把平台用户映射到 SuperSonic 账号/角色，或由网关统一做列级权限。
