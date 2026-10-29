@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import * as echarts from 'echarts/core'
+import { BarChart, LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import { insightApi } from '@/api/insight'
 import { useAuthStore } from '@/stores/auth'
 import type { InsightAnswer, InsightDataset, InsightQueryLog } from '@/types/insight'
@@ -16,8 +20,41 @@ const answer = ref<InsightAnswer | null>(null)
 const lastAsked = ref<{ question: string; dataSetId?: number } | null>(null)
 const history = ref<InsightQueryLog[]>([])
 const historyLoading = ref(false)
+const chartEl = ref<HTMLDivElement>()
+let chart: ReturnType<typeof echarts.init> | null = null
+
+echarts.use([BarChart, LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 
 const canAsk = computed(() => question.value.trim().length > 0 && !asking.value)
+
+const chartData = computed(() => {
+  const rows = answer.value?.rows ?? []
+  if (!rows.length || !columns.value.length) {
+    return null
+  }
+  const numeric = columns.value.filter((column) =>
+    rows.some((row) => isNumeric(row[column.key])),
+  )
+  const dimensions = columns.value.filter(
+    (column) => !numeric.some((item) => item.key === column.key),
+  )
+  if (!numeric.length) {
+    return null
+  }
+  const axis = dimensions[0]?.key
+  const metric = numeric[0]
+  const labels = rows.map((row, index) =>
+    axis ? String(row[axis] ?? index + 1) : String(index + 1),
+  )
+  const values = rows.map((row) => Number(row[metric.key] ?? 0))
+  const isTime = labels.every((label) => /^\d{4}-\d{2}(-\d{2})?/.test(label))
+  return {
+    labels,
+    values,
+    name: metric.label,
+    type: isTime ? ('line' as const) : ('bar' as const),
+  }
+})
 
 const columns = computed(() => {
   if (answer.value?.columns?.length) {
@@ -93,12 +130,58 @@ async function exportCsv() {
   }
 }
 
+function isNumeric(value: unknown) {
+  if (value === null || value === undefined || value === '') {
+    return false
+  }
+  return !Number.isNaN(Number(value))
+}
+
+function renderChart() {
+  if (!chartData.value || !chartEl.value) {
+    chart?.dispose()
+    chart = null
+    return
+  }
+  if (!chart) {
+    chart = echarts.init(chartEl.value)
+  }
+  chart.setOption({
+    tooltip: { trigger: 'axis' },
+    grid: { left: 48, right: 24, top: 32, bottom: 48 },
+    xAxis: { type: 'category', data: chartData.value.labels, axisLabel: { rotate: 30 } },
+    yAxis: { type: 'value' },
+    series: [{
+      name: chartData.value.name,
+      type: chartData.value.type,
+      data: chartData.value.values,
+      smooth: true,
+      areaStyle: chartData.value.type === 'line' ? {} : undefined,
+    }],
+  })
+}
+
+watch(answer, async () => {
+  await nextTick()
+  renderChart()
+})
+
+function onResize() {
+  chart?.resize()
+}
+
 function sqlOf(row: Pick<InsightQueryLog, 'generatedSql'>) {
   return row.generatedSql || ''
 }
 
 onMounted(async () => {
+  window.addEventListener('resize', onResize)
   await Promise.all([loadDatasets(), loadHistory()])
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onResize)
+  chart?.dispose()
 })
 </script>
 
@@ -185,6 +268,10 @@ onMounted(async () => {
       />
 
       <div v-if="answer.summary" class="insight__summary">{{ answer.summary }}</div>
+
+      <el-card v-if="chartData" shadow="never" class="insight__chart-card">
+        <div ref="chartEl" class="insight__chart" />
+      </el-card>
 
       <el-table :data="answer.rows" size="small" border max-height="460">
         <el-table-column
@@ -273,6 +360,15 @@ onMounted(async () => {
   line-height: 1.7;
   margin-bottom: 12px;
   white-space: pre-wrap;
+}
+
+.insight__chart-card {
+  margin-bottom: 12px;
+}
+
+.insight__chart {
+  height: 300px;
+  width: 100%;
 }
 
 .insight__sql {

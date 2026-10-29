@@ -1072,7 +1072,7 @@ python3 scripts/seed-synthetic-warehouse.py \
 - `V18__insight_menu.sql` + 前端 `/insight/ask` 页面：
   - 数据集下拉来自 `GET /api/v1/insight/datasets`；
   - 展示结果表格、生成 SQL、脱敏列、最近问数；
-  - 前端 `pnpm type-check` / `pnpm build` 通过。
+  - 前端 `pnpm type-check` / `pnpm build` 通过；结果自动渲染 ECharts 折线/柱状图。
 - `V19__insight_export.sql` + `POST /api/v1/insight/export`：
   - `insight:export` 单独授权(管理员/开发者,只读角色不给)；
   - 复用同一问数链路,CSV 结果同样脱敏；
@@ -1117,5 +1117,6 @@ python3 scripts/seed-synthetic-warehouse.py \
 ### 限制
 
 - 当前用 `FILES()` 装载到 StarRocks **内表**,不是 External Catalog；
+- 尝试 file external table(不支持 `columns_from_path` 且目录/通配符路径失败)与 view over FILES()(凭据不持久化,报 `InvalidAccessKeyId`)均未通过；真正外部 Catalog 需要 HMS/Glue；
 - MinIO 与 StarRocks 的 root 无密码只限本地 POC；
 - 还没有用户级 SuperSonic 映射、限流、看板。

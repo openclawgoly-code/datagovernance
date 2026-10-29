@@ -184,7 +184,7 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
 
 - **入口**：
   - 后端 `POST /api/v1/insight/ask`，前端不直连 SuperSonic；
-  - 前端 `/insight/ask` 页面：数据集下拉、问题输入、结果表格、生成 SQL、脱敏提示、最近问数；
+  - 前端 `/insight/ask` 页面：数据集下拉、问题输入、ECharts 图表、结果表格、生成 SQL、脱敏提示、最近问数；
   - V18 菜单 `menu:insight`，权限 `insight:ask` / `insight:read`。
 - **数据集列表**：`GET /api/v1/insight/datasets`，从 SuperSonic 主题域/数据集树拍平。
 - **身份**：平台 JWT + `WorkspaceContext`；权限码 `insight:ask` / `insight:read`。
@@ -201,7 +201,8 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
   - 临时给 `status` 打 L2 标签后，结果中的 `status` 和中文别名均被替换为 `***`；
   - 查询历史与治理审计各新增记录；
   - `POST /api/v1/insight/export` 导出 CSV，需 `insight:export` 权限，导出同样脱敏并写 `INSIGHT_EXPORT` 审计；
-  - 前端 `pnpm type-check`、`pnpm build` 通过，页面路由 `/insight/ask` 已注册，页面含“导出 CSV”按钮。
+  - 前端 `pnpm type-check`、`pnpm build` 通过，页面路由 `/insight/ask` 已注册，页面含“导出 CSV”按钮；
+  - 前端按结果自动选图：日期维度用折线图，其余维度用柱状图（ECharts 6，按需引入）。
 
 ### 8.2 已完成：StarRocks + MinIO 本地验证
 
@@ -220,7 +221,23 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
 > 这是 **FILES() 内表装载**，还不是 External Catalog；但它验证了
 > SuperSonic → StarRocks 的查询、语义模型和 50 问链路。
 
-### 8.3 待完成
+### 8.3 External Catalog 尝试（未通过）
+
+尝试过两条更接近生产的路，但当前 StarRocks/MinIO 组合不满足：
+
+1. **File External Table**
+   `CREATE EXTERNAL TABLE ... ENGINE=file` 能读取单个 Parquet 文件，但：
+   - 不支持 `columns_from_path`，`dt` 分区列取不到；
+   - 目录/通配符路径报 `No file exists for FileTable`。
+
+2. **View over FILES()**
+   `CREATE VIEW ... AS SELECT ... FROM FILES(...)` 建视图成功，但视图不持久化 S3 凭据；
+   查询时报 `InvalidAccessKeyId`。这是 StarRocks 的安全行为，不是配置笔误。
+
+结论：真正的 External Catalog 需要 **HMS/Glue 元数据服务**，或让 StarRocks 通过
+Catalog 访问对象存储；当前 POC 保留 `FILES()` 内表装载作为链路验证。
+
+### 8.4 待完成
 
 1. **真正 External Catalog**：HMS/Glue 或 S3 文件外表，替换 `FILES()` 内表；
 2. **身份细化**：平台用户 → SuperSonic 账号映射；当前网关用单一服务账号，workspace 隔离只在平台侧；
