@@ -1,7 +1,7 @@
 # SuperSonic AI 问数 POC（Phase 1）
 
 - 日期：2026-10-28
-- 状态：SuperSonic + ClickHouse + DeepSeek 已跑通 20 个语义模型和 50 问评测（50/50 PASS）
+- 状态：POC 50 问 50/50 PASS；Phase 2 问数网关、前端入口、CSV 导出已落地；待 StarRocks/Doris 与用户级映射
 - 关联：`docs/plans/2026-10-26-catalog-lakehouse-lineage.md` §20
 - 部署说明：`deploy/supersonic/README.md`
 
