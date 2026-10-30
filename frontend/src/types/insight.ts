@@ -14,6 +14,7 @@ export interface InsightAnswer {
   truncated: boolean
   elapsedMs: number
   maskedColumns: string[]
+  grantIds?: string[]
   summary?: string
 }
 
@@ -32,6 +33,7 @@ export interface InsightQueryLog {
   rowCount?: number
   elapsedMs?: number
   maskedColumns?: string
+  grantIds?: string
   succeeded: boolean
   errorMessage?: string
   createdAt: string

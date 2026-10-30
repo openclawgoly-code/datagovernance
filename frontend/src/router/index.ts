@@ -84,6 +84,24 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '敏感数据', permission: 'metadata:sensitivity:read' },
       },
       {
+        path: 'metadata/glossary',
+        name: 'metadata-glossary',
+        component: () => import('@/views/metadata/GlossaryView.vue'),
+        meta: { title: '业务术语', permission: 'metadata:glossary:read' },
+      },
+      {
+        path: 'metadata/quality',
+        name: 'metadata-quality',
+        component: () => import('@/views/metadata/QualityView.vue'),
+        meta: { title: '资产质量', permission: 'metadata:quality:read' },
+      },
+      {
+        path: 'governance/access-requests',
+        name: 'governance-access-requests',
+        component: () => import('@/views/security/AccessRequestView.vue'),
+        meta: { title: '敏感访问', permission: 'metadata:access:request' },
+      },
+      {
         path: 'metadata/catalog',
         name: 'catalog-assets',
         component: () => import('@/views/metadata/CatalogAssetView.vue'),

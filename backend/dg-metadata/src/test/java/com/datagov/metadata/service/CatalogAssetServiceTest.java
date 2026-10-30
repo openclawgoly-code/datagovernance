@@ -38,6 +38,7 @@ import com.datagov.metadata.service.CatalogAssetService.DatasetDetail;
 import com.datagov.metadata.service.CatalogAssetService.RefreshResult;
 import com.datagov.metadata.service.CatalogAssetService.SourceRequest;
 import com.datagov.metadata.service.CatalogAssetService.SourceView;
+import com.datagov.metadata.spi.CredentialResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -77,6 +78,7 @@ class CatalogAssetServiceTest {
     private DataAccessGateway gateway;
     private CatalogGateway catalogGateway;
     private ConnectionConfigAssembler assembler;
+    private CredentialResolver credentialResolver;
     private CatalogAssetService service;
 
     @BeforeEach
@@ -92,10 +94,11 @@ class CatalogAssetServiceTest {
         gateway = mock(DataAccessGateway.class);
         catalogGateway = mock(CatalogGateway.class);
         assembler = mock(ConnectionConfigAssembler.class);
+        credentialResolver = mock(CredentialResolver.class);
 
         service = new CatalogAssetService(sourceMapper, namespaceMapper, datasetMapper,
                 columnMapper, schemaVersionMapper, partitionMapper, runMapper, dataSourceService,
-                gateway, catalogGateway, assembler, new ObjectMapper());
+                gateway, catalogGateway, assembler, credentialResolver, new ObjectMapper());
 
         WorkspaceContext.set(new Caller(USER, "alice", WORKSPACE, false, Set.of()));
         when(assembler.assemble(any(), eq(WORKSPACE))).thenReturn(
@@ -104,6 +107,7 @@ class CatalogAssetServiceTest {
         when(datasetMapper.insert(any(CatalogDataset.class))).thenReturn(1);
         when(columnMapper.insert(any(CatalogColumn.class))).thenReturn(1);
         when(columnMapper.delete(any())).thenReturn(0);
+        when(columnMapper.selectList(any())).thenReturn(List.of());
         when(schemaVersionMapper.insert(any(CatalogSchemaVersion.class))).thenReturn(1);
         when(partitionMapper.insert(any(CatalogPartition.class))).thenReturn(1);
         when(partitionMapper.delete(any())).thenReturn(0);
@@ -170,9 +174,53 @@ class CatalogAssetServiceTest {
         @DisplayName("未知来源类型被拒")
         void unsupportedSourceTypeRejected() {
             assertThatThrownBy(() -> service.createSource(
-                    new SourceRequest("HMS", "HIVE_METASTORE", "ds_1", null)))
+                    new SourceRequest("Iceberg", "ICEBERG_REST", "ds_1", null)))
                     .isInstanceOf(BizException.class)
                     .hasMessageContaining("暂不支持的数据目录来源");
+        }
+
+        @Test
+        @DisplayName("HMS 来源不需要 dataSourceId，配置 uris 后创建成功")
+        void createsHmsSource() {
+            when(sourceMapper.selectCount(any())).thenReturn(0L);
+
+            SourceView view = service.createSource(new SourceRequest("HMS 湖",
+                    "HIVE_METASTORE", null,
+                    "{\"uris\":[\"thrift://hms.internal:9083\"]}", null));
+
+            assertThat(view.sourceType()).isEqualTo("HIVE_METASTORE");
+            assertThat(view.dataSourceId()).isNull();
+            verify(sourceMapper).insert(any(CatalogSource.class));
+        }
+
+        @Test
+        @DisplayName("HMS 缺少 uris —— 400")
+        void hmsRequiresUris() {
+            assertThatThrownBy(() -> service.createSource(new SourceRequest("HMS 湖",
+                    "HIVE_METASTORE", null, "{}", null)))
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("uris");
+            verify(sourceMapper, never()).insert(any(CatalogSource.class));
+        }
+
+        @Test
+        @DisplayName("HMS 提交 dataSourceId —— 400")
+        void externalRejectsDataSourceId() {
+            assertThatThrownBy(() -> service.createSource(new SourceRequest("HMS 湖",
+                    "HIVE_METASTORE", "ds_1",
+                    "{\"uris\":[\"thrift://hms:9083\"]}", null)))
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("不能指定 dataSourceId");
+        }
+
+        @Test
+        @DisplayName("Glue 配置不能包含 secretKey")
+        void glueRejectsInlineSecret() {
+            assertThatThrownBy(() -> service.createSource(new SourceRequest("Glue",
+                    "GLUE", null,
+                    "{\"region\":\"cn-north-1\",\"secretKey\":\"x\"}", null)))
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("平台凭据");
         }
 
         @Test
@@ -263,6 +311,103 @@ class CatalogAssetServiceTest {
                     .satisfies(ex -> assertThat(((BizException) ex).errorCode())
                             .isEqualTo(ErrorCode.MTD_DATASOURCE_NOT_ACTIVE));
         }
+
+        @Test
+        @DisplayName("刷新时保持列 ID 稳定，不删除被敏感/术语/质量引用的列")
+        void refreshPreservesColumnIds() {
+            CatalogSource source = source();
+            DataSourceEntity dataSource = mysqlDataSource();
+            when(sourceMapper.selectOne(any())).thenReturn(source);
+            when(dataSourceService.requireInWorkspace("ds_1")).thenReturn(dataSource);
+            when(gateway.capabilities(DataSourceType.MYSQL))
+                    .thenReturn(ConnectorCapabilities.relationalWithoutSchema());
+            when(gateway.browse(eq(DataSourceType.MYSQL), any(), any(CatalogPath.class)))
+                    .thenAnswer(invocation -> catalogPage(invocation.getArgument(2)));
+            when(namespaceMapper.selectOne(any())).thenReturn(null);
+            when(datasetMapper.selectOne(any())).thenReturn(null);
+            CatalogColumn existingId = column();
+            CatalogColumn existingName = new CatalogColumn();
+            existingName.setId("catcol_name");
+            existingName.setDatasetId("catds_1");
+            existingName.setName("name");
+            when(columnMapper.selectList(any())).thenReturn(List.of(existingId, existingName));
+
+            service.refresh("cat_1");
+
+            verify(columnMapper, never()).insert(any(CatalogColumn.class));
+            verify(columnMapper, times(2)).updateById(any(CatalogColumn.class));
+            verify(columnMapper, never()).deleteById(any(String.class));
+        }
+
+        @Test
+        @DisplayName("HMS 采集 database/table/column/partition，并带回 warnings")
+        void collectsHmsCatalog() {
+            CatalogSource source = hmsSource();
+            when(sourceMapper.selectOne(any())).thenReturn(source);
+            when(catalogGateway.readExternalCatalog(any())).thenReturn(
+                    new CatalogAssets.Snapshot(
+                            List.of(new CatalogAssets.Namespace("dwd", "dwd", "DATABASE", null)),
+                            List.of(new CatalogAssets.Dataset("dwd", "orders",
+                                    "dwd.orders", "EXTERNAL_TABLE", "HIVE",
+                                    "s3://lake/dwd/orders", null, null, null,
+                                    List.of("dt"),
+                                    List.of(new CatalogAssets.Column("id", 1, "bigint",
+                                                    CanonicalType.BIGINT, null, null,
+                                                    true, false, false, null),
+                                            new CatalogAssets.Column("dt", 2, "string",
+                                                    CanonicalType.TEXT, null, null,
+                                                    true, false, true, null)),
+                                    List.of(new CatalogAssets.Partition(
+                                            "s3://lake/dwd/orders/dt=2026-10-30",
+                                            "{\"dt\":\"2026-10-30\"}", 1L, 100L, null)))),
+                            List.of("读取表 dwd.broken 失败")));
+            when(namespaceMapper.selectOne(any())).thenReturn(null);
+            when(datasetMapper.selectOne(any())).thenReturn(null);
+
+            RefreshResult result = service.refresh("cat_hms");
+
+            assertThat(result.status()).isEqualTo("SUCCESS");
+            assertThat(result.datasets()).isEqualTo(1);
+            assertThat(result.columns()).isEqualTo(2);
+            assertThat(result.warnings()).hasSize(1);
+            verify(partitionMapper).insert(any(CatalogPartition.class));
+        }
+
+        @Test
+        @DisplayName("HMS 认证失败 —— refresh 失败且不写任何资产")
+        void hmsAuthFailureKeepsOldSnapshot() {
+            CatalogSource source = hmsSource();
+            when(sourceMapper.selectOne(any())).thenReturn(source);
+            when(catalogGateway.readExternalCatalog(any()))
+                    .thenThrow(new BizException(ErrorCode.DAT_AUTH_FAILED,
+                            "Hive Metastore 认证失败"));
+
+            assertThatThrownBy(() -> service.refresh("cat_hms"))
+                    .isInstanceOf(BizException.class)
+                    .satisfies(ex -> assertThat(((BizException) ex).errorCode())
+                            .isEqualTo(ErrorCode.DAT_AUTH_FAILED));
+            verify(namespaceMapper, never()).insert(any(CatalogNamespace.class));
+            verify(datasetMapper, never()).insert(any(CatalogDataset.class));
+            verify(runMapper).updateById(any(CatalogSnapshotRun.class));
+        }
+
+        @Test
+        @DisplayName("Glue 配置了凭据但 accessKey/secretKey 为空 —— 明确失败，不回退匿名")
+        void glueEmptyCredentialFails() {
+            CatalogSource source = glueSource();
+            source.setCredentialId("cred_empty");
+            when(sourceMapper.selectOne(any())).thenReturn(source);
+            when(credentialResolver.resolve(WORKSPACE, "cred_empty"))
+                    .thenReturn(new com.datagov.metadata.spi.ResolvedSecret(
+                            com.datagov.metadata.spi.ResolvedSecret.AuthType.BASIC,
+                            null, null));
+
+            assertThatThrownBy(() -> service.refresh("cat_glue"))
+                    .isInstanceOf(BizException.class)
+                    .satisfies(ex -> assertThat(((BizException) ex).errorCode())
+                            .isEqualTo(ErrorCode.DAT_AUTH_FAILED));
+            verify(catalogGateway, never()).readExternalCatalog(any());
+        }
     }
 
     @Nested
@@ -300,17 +445,28 @@ class CatalogAssetServiceTest {
         @DisplayName("分页查询只返回当前空间的数据集")
         void listDatasetsScopedToWorkspace() {
             when(sourceMapper.selectOne(any())).thenReturn(source());
-            var page = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<CatalogDataset>(
-                    1, 20);
-            page.setRecords(List.of(dataset()));
+            var page = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<
+                    com.datagov.metadata.entity.CatalogDatasetGovernanceRow>(1, 20);
+            var row = new com.datagov.metadata.entity.CatalogDatasetGovernanceRow();
+            row.setId("catds_1");
+            row.setWorkspaceId(WORKSPACE);
+            row.setSourceId("cat_1");
+            row.setName("oa_user");
+            row.setQualifiedName("ecology.oa_user");
+            row.setKind("TABLE");
+            row.setFormat("JDBC");
+            row.setCertificationStatus("NONE");
+            page.setRecords(List.of(row));
             page.setTotal(1);
-            when(datasetMapper.selectPage(any(), any())).thenReturn(page);
+            when(datasetMapper.selectGovernancePage(any(), any(), any(), any(), any(), any(), any()))
+                    .thenReturn(page);
 
             PageResult<CatalogAssetService.DatasetView> result =
                     service.listDatasets("cat_1", 1, 20, "oa");
 
             assertThat(result.total()).isEqualTo(1);
             assertThat(result.records()).hasSize(1);
+            assertThat(result.records().get(0).certificationStatus()).isEqualTo("NONE");
         }
     }
 
@@ -323,6 +479,38 @@ class CatalogAssetServiceTest {
         source.setName("泛微 OA 目录");
         source.setSourceType("JDBC");
         source.setDataSourceId("ds_1");
+        source.setStatus("ACTIVE");
+        source.setCreatedAt(Instant.now());
+        source.setCreatedBy(USER);
+        source.setUpdatedAt(Instant.now());
+        source.setUpdatedBy(USER);
+        source.setDeleted(false);
+        return source;
+    }
+
+    private static CatalogSource hmsSource() {
+        CatalogSource source = new CatalogSource();
+        source.setId("cat_hms");
+        source.setWorkspaceId(WORKSPACE);
+        source.setName("HMS 湖");
+        source.setSourceType("HIVE_METASTORE");
+        source.setConfigJson("{\"uris\":[\"thrift://hms:9083\"]}");
+        source.setStatus("ACTIVE");
+        source.setCreatedAt(Instant.now());
+        source.setCreatedBy(USER);
+        source.setUpdatedAt(Instant.now());
+        source.setUpdatedBy(USER);
+        source.setDeleted(false);
+        return source;
+    }
+
+    private static CatalogSource glueSource() {
+        CatalogSource source = new CatalogSource();
+        source.setId("cat_glue");
+        source.setWorkspaceId(WORKSPACE);
+        source.setName("Glue 目录");
+        source.setSourceType("GLUE");
+        source.setConfigJson("{\"region\":\"cn-north-1\"}");
         source.setStatus("ACTIVE");
         source.setCreatedAt(Instant.now());
         source.setCreatedBy(USER);

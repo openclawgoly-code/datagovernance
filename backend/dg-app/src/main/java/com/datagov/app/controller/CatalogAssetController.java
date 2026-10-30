@@ -52,7 +52,7 @@ public class CatalogAssetController {
     @PostMapping("/sources")
     @RequirePermission("metadata:asset:manage")
     @Operation(summary = "新建数据目录来源",
-            description = "P10.1 仅支持 JDBC;dataSourceId 必须指向当前空间已通过测试的数据源")
+            description = "JDBC/Parquet 必须指定 dataSourceId；HMS/Glue 使用 credentialId 且不指定 dataSourceId")
     public ApiResponse<SourceView> createSource(@RequestBody SourceRequest request) {
         return ApiResponse.ok(catalogService.createSource(request));
     }
@@ -82,13 +82,18 @@ public class CatalogAssetController {
 
     @GetMapping("/sources/{id}/datasets")
     @RequirePermission("metadata:asset:read")
-    @Operation(summary = "目录来源下的表/数据集")
+    @Operation(summary = "目录来源下的表/数据集",
+            description = "可选按业务域、负责人、认证状态筛选;分页总数与筛选一致")
     public ApiResponse<PageResult<DatasetView>> listDatasets(
             @PathVariable String id,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long size,
-            @RequestParam(required = false) String keyword) {
-        return ApiResponse.ok(catalogService.listDatasets(id, page, size, keyword));
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String domainId,
+            @RequestParam(required = false) String owner,
+            @RequestParam(required = false) String certificationStatus) {
+        return ApiResponse.ok(catalogService.listDatasets(id, page, size, keyword,
+                domainId, owner, certificationStatus));
     }
 
     @GetMapping("/datasets/{id}")

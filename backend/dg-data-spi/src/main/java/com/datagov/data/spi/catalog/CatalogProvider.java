@@ -26,4 +26,15 @@ public interface CatalogProvider {
     CatalogAssets.Snapshot readCatalog(DataSourceType dataSourceType,
                                        ConnectionConfig config,
                                        String rootPath);
+
+    /**
+     * 读取外部目录（HMS/Glue）。
+     *
+     * <p>默认实现明确失败：只有真正实现外部目录的 Provider 才覆盖它，
+     * 避免 JDBC/Parquet Provider 被误当成外部目录。
+     */
+    default CatalogAssets.Snapshot readExternalCatalog(ExternalCatalogConfig config) {
+        throw new UnsupportedOperationException(
+                "Catalog Provider 不支持外部目录: " + getClass().getName());
+    }
 }

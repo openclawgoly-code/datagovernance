@@ -6,7 +6,9 @@ export interface CatalogSource {
   id: string
   name: string
   sourceType: CatalogSourceType
-  dataSourceId: string
+  dataSourceId: string | null
+  credentialId?: string | null
+  configJson?: string | null
   status: string
   lastRefreshedAt: string | null
   createdAt: string
@@ -30,6 +32,10 @@ export interface CatalogDataset {
   propertiesJson?: string | null
   lastModifiedAt?: string | null
   updatedAt: string
+  domainId?: string | null
+  domainName?: string | null
+  ownerUsername?: string | null
+  certificationStatus?: 'NONE' | 'CERTIFIED' | 'DEPRECATED'
 }
 
 export interface CatalogColumn {
@@ -69,11 +75,13 @@ export interface CatalogRefreshResult {
   datasets: number
   columns: number
   durationMillis: number
+  warnings?: string[]
 }
 
 export interface CreateCatalogSourceRequest {
   name: string
   sourceType: CatalogSourceType
-  dataSourceId: string
+  dataSourceId?: string | null
+  credentialId?: string | null
   configJson?: string
 }

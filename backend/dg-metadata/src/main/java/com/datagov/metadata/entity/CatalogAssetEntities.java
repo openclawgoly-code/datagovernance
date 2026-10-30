@@ -32,6 +32,8 @@ public final class CatalogAssetEntities {
         private String sourceType;
         /** JDBC 来源指向 md_datasource */
         private String dataSourceId;
+        /** HMS/Glue 使用的平台凭据引用；secret 不落 config_json */
+        private String credentialId;
         /** JSON:端点是对象存储/HMS/Glue 时使用 */
         private String configJson;
         private String status;

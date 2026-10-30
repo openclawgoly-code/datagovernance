@@ -16,4 +16,7 @@ public interface CatalogGateway {
                                         DataSourceType dataSourceType,
                                         ConnectionConfig config,
                                         String rootPath);
+
+    /** 外部目录（HMS/Glue）读取；与数据查询完全分离。 */
+    CatalogAssets.Snapshot readExternalCatalog(ExternalCatalogConfig config);
 }

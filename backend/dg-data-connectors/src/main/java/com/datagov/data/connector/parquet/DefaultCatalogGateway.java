@@ -7,6 +7,7 @@ import com.datagov.data.spi.DataSourceType;
 import com.datagov.data.spi.catalog.CatalogAssets;
 import com.datagov.data.spi.catalog.CatalogGateway;
 import com.datagov.data.spi.catalog.CatalogProvider;
+import com.datagov.data.spi.catalog.ExternalCatalogConfig;
 import org.springframework.stereotype.Component;
 
 import java.util.EnumMap;
@@ -44,11 +45,20 @@ public class DefaultCatalogGateway implements CatalogGateway {
                                                DataSourceType dataSourceType,
                                                ConnectionConfig config,
                                                String rootPath) {
+        return provider(sourceType).readCatalog(dataSourceType, config, rootPath);
+    }
+
+    @Override
+    public CatalogAssets.Snapshot readExternalCatalog(ExternalCatalogConfig config) {
+        return provider(config.sourceType()).readExternalCatalog(config);
+    }
+
+    private CatalogProvider provider(CatalogAssets.CatalogSourceType sourceType) {
         CatalogProvider provider = providers.get(sourceType);
         if (provider == null) {
             throw new BizException(ErrorCode.DAT_CONNECTOR_NOT_FOUND,
                     "没有可用的 Catalog Provider: " + sourceType);
         }
-        return provider.readCatalog(dataSourceType, config, rootPath);
+        return provider;
     }
 }

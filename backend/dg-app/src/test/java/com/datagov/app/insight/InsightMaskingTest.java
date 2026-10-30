@@ -18,7 +18,7 @@ class InsightMaskingTest {
                 List.of(new SuperSonicClient.Column("email", "email", "String"),
                         new SuperSonicClient.Column("cnt", "cnt", "Int64")),
                 "SELECT email, count() AS cnt FROM users GROUP BY email",
-                List.of(new SensitiveColumnView("email", "L2")));
+                List.of(new SensitiveColumnView("email", "PII", "L2")));
 
         assertThat(masked.maskedColumns()).containsExactly("email");
         assertThat(masked.rows().get(0).get("email")).isEqualTo("***");
@@ -32,7 +32,7 @@ class InsightMaskingTest {
                 rows,
                 List.of(new SuperSonicClient.Column("_phone_", "_phone_", "String")),
                 "SELECT phone AS `_phone_` FROM users",
-                List.of(new SensitiveColumnView("phone", "L3")));
+                List.of(new SensitiveColumnView("phone", "PII", "L3")));
 
         assertThat(masked.maskedColumns()).contains("_phone_");
         assertThat(masked.rows().get(0).get("_phone_")).isEqualTo("***");
@@ -46,7 +46,7 @@ class InsightMaskingTest {
                 List.of(new SuperSonicClient.Column("username", "username", "String"),
                         new SuperSonicClient.Column("amount", "amount", "Decimal")),
                 "SELECT username, amount FROM t",
-                List.of(new SensitiveColumnView("name", "L2")));
+                List.of(new SensitiveColumnView("name", "PII", "L2")));
 
         assertThat(masked.maskedColumns()).isEmpty();
         assertThat(masked.rows().get(0).get("username")).isEqualTo("alice");

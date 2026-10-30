@@ -12,6 +12,8 @@ import com.datagov.common.tenant.Caller;
 import com.datagov.common.tenant.WorkspaceContext;
 import com.datagov.governance.service.AuditService;
 import com.datagov.governance.service.AuditService.AuditEntry;
+import com.datagov.governance.service.AccessRequestService;
+import com.datagov.governance.service.AccessRequestService.GrantCoverage;
 import com.datagov.metadata.service.SensitivityService;
 import com.datagov.platform.dto.CredentialSecret;
 import com.datagov.platform.service.CredentialService;
@@ -44,6 +46,7 @@ public class InsightQueryService {
     private final InsightProperties properties;
     private final InsightQueryLogMapper logMapper;
     private final SensitivityService sensitivityService;
+    private final AccessRequestService accessRequestService;
     private final AuditService auditService;
     private final InsightSupersonicMappingService mappingService;
     private final CredentialService credentialService;
@@ -52,6 +55,7 @@ public class InsightQueryService {
                                InsightProperties properties,
                                InsightQueryLogMapper logMapper,
                                SensitivityService sensitivityService,
+                               AccessRequestService accessRequestService,
                                AuditService auditService,
                                InsightSupersonicMappingService mappingService,
                                CredentialService credentialService) {
@@ -59,6 +63,7 @@ public class InsightQueryService {
         this.properties = properties;
         this.logMapper = logMapper;
         this.sensitivityService = sensitivityService;
+        this.accessRequestService = accessRequestService;
         this.auditService = auditService;
         this.mappingService = mappingService;
         this.credentialService = credentialService;
@@ -80,6 +85,7 @@ public class InsightQueryService {
             boolean truncated,
             long elapsedMs,
             List<String> maskedColumns,
+            List<String> grantIds,
             String summary
     ) {
     }
@@ -97,6 +103,7 @@ public class InsightQueryService {
             Integer rowCount,
             Long elapsedMs,
             String maskedColumns,
+            String grantIds,
             boolean succeeded,
             String errorMessage,
             Instant createdAt,
@@ -105,7 +112,7 @@ public class InsightQueryService {
         static QueryLogView from(InsightQueryLog value) {
             return new QueryLogView(value.getId(), value.getUsername(), value.getQuestion(),
                     value.getQueryState(), value.getGeneratedSql(), value.getRowCount(),
-                    value.getElapsedMs(), value.getMaskedColumns(),
+                    value.getElapsedMs(), value.getMaskedColumns(), value.getGrantIds(),
                     Boolean.TRUE.equals(value.getSucceeded()), value.getErrorMessage(),
                     value.getCreatedAt(), value.getDatasetId());
         }
@@ -146,8 +153,21 @@ public class InsightQueryService {
                         "问数未成功: " + nullSafe(result.error(), result.state()));
             }
             List<SensitiveColumnView> sensitive = sensitivityService.sensitiveColumnNames();
+            List<GrantCoverage> grants = accessRequestService.activeGrants(
+                    caller.workspaceId(), caller.username());
+            List<SensitiveColumnView> remaining = new java.util.ArrayList<>();
+            java.util.Set<String> usedGrants = new java.util.LinkedHashSet<>();
+            for (SensitiveColumnView column : sensitive) {
+                List<GrantCoverage> covering = grants.stream()
+                        .filter(grant -> covers(grant, column)).toList();
+                if (covering.isEmpty()) {
+                    remaining.add(column);
+                } else {
+                    covering.forEach(grant -> usedGrants.add(grant.id()));
+                }
+            }
             InsightMasking.Masked masked = InsightMasking.mask(result.rows(),
-                    result.columns(), result.sql(), sensitive);
+                    result.columns(), result.sql(), remaining);
 
             boolean truncated = masked.rows().size() > properties.getMaxRows();
             List<Map<String, Object>> rows = truncated
@@ -160,6 +180,8 @@ public class InsightQueryService {
             fact.setRowCount(rows.size());
             fact.setElapsedMs(elapsed);
             fact.setMaskedColumns(truncate(String.join(",", masked.maskedColumns()), 1000));
+            fact.setGrantIds(usedGrants.isEmpty() ? null
+                    : truncate(String.join(",", usedGrants), 1000));
             fact.setSucceeded(true);
             logMapper.insert(fact);
 
@@ -173,11 +195,12 @@ public class InsightQueryService {
                     null,
                     "POST /api/v1/insight/ask",
                     "dataset=" + datasetId + "; masked=" + masked.maskedColumns()
+                            + "; grants=" + usedGrants
                             + "; rows=" + rows.size() + "; elapsedMs=" + elapsed));
 
             return new Answer(result.queryId(), result.state(), result.sql(),
                     result.columns(), rows, rows.size(), truncated, elapsed,
-                    masked.maskedColumns(), result.summary());
+                    masked.maskedColumns(), List.copyOf(usedGrants), result.summary());
         } catch (RuntimeException ex) {
             long elapsed = System.currentTimeMillis() - started;
             fact.setSucceeded(false);
@@ -242,7 +265,7 @@ public class InsightQueryService {
                 null,
                 "POST /api/v1/insight/export",
                 "rows=" + answer.rowCount() + "; masked=" + answer.maskedColumns()
-                        + "; labels=" + labels));
+                        + "; grants=" + answer.grantIds() + "; labels=" + labels));
         return new ExportFile("insight-" + System.currentTimeMillis() + ".csv",
                 csv.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8),
                 answer.rowCount(), answer.maskedColumns());
@@ -295,7 +318,8 @@ public class InsightQueryService {
                     null,
                     "POST /api/v1/insight/export/xlsx",
                     "format=xlsx; rows=" + answer.rowCount()
-                            + "; masked=" + answer.maskedColumns()));
+                            + "; masked=" + answer.maskedColumns()
+                            + "; grants=" + answer.grantIds()));
             return new ExportFile("insight-" + System.currentTimeMillis() + ".xlsx",
                     output.toByteArray(), answer.rowCount(), answer.maskedColumns());
         } catch (java.io.IOException e) {
@@ -372,6 +396,28 @@ public class InsightQueryService {
 
     private static String nullSafe(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    /**
+     * grant 是否覆盖一列：类别必须相同，且列级别不高于 grant 的最高级别。
+     * 没有 category 的历史标签不参与放行 —— 宁可按原策略脱敏。
+     */
+    private static boolean covers(GrantCoverage grant, SensitiveColumnView column) {
+        if (grant.category() == null || column.category() == null) {
+            return false;
+        }
+        return grant.category().equalsIgnoreCase(column.category())
+                && levelRank(column.level()) <= levelRank(grant.maxLevel());
+    }
+
+    private static int levelRank(String level) {
+        return switch (level == null ? "" : level.toUpperCase()) {
+            case "L4" -> 4;
+            case "L3" -> 3;
+            case "L2" -> 2;
+            case "L1" -> 1;
+            default -> 0;
+        };
     }
 
     private static String truncate(String value, int max) {

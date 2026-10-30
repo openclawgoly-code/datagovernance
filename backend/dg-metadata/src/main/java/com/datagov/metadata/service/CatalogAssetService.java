@@ -19,6 +19,7 @@ import com.datagov.data.spi.catalog.CatalogAssets;
 import com.datagov.data.spi.catalog.CatalogModel.TableInfo;
 import com.datagov.data.spi.catalog.CatalogGateway;
 import com.datagov.data.spi.catalog.CatalogPath;
+import com.datagov.data.spi.catalog.ExternalCatalogConfig;
 import com.datagov.metadata.domain.DataSourceStatus;
 import com.datagov.metadata.entity.CatalogAssetEntities.CatalogColumn;
 import com.datagov.metadata.entity.CatalogAssetEntities.CatalogDataset;
@@ -27,6 +28,7 @@ import com.datagov.metadata.entity.CatalogAssetEntities.CatalogPartition;
 import com.datagov.metadata.entity.CatalogAssetEntities.CatalogSchemaVersion;
 import com.datagov.metadata.entity.CatalogAssetEntities.CatalogSnapshotRun;
 import com.datagov.metadata.entity.CatalogAssetEntities.CatalogSource;
+import com.datagov.metadata.entity.CatalogDatasetGovernanceRow;
 import com.datagov.metadata.entity.DataSourceEntity;
 import com.datagov.metadata.mapper.CatalogColumnMapper;
 import com.datagov.metadata.mapper.CatalogDatasetMapper;
@@ -35,6 +37,8 @@ import com.datagov.metadata.mapper.CatalogPartitionMapper;
 import com.datagov.metadata.mapper.CatalogSchemaVersionMapper;
 import com.datagov.metadata.mapper.CatalogSnapshotRunMapper;
 import com.datagov.metadata.mapper.CatalogSourceMapper;
+import com.datagov.metadata.spi.CredentialResolver;
+import com.datagov.metadata.spi.ResolvedSecret;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,6 +70,8 @@ public class CatalogAssetService {
 
     private static final String SOURCE_JDBC = "JDBC";
     private static final String SOURCE_PARQUET = "PARQUET_DIRECTORY";
+    private static final String SOURCE_HMS = "HIVE_METASTORE";
+    private static final String SOURCE_GLUE = "GLUE";
     private static final String STATUS_ACTIVE = "ACTIVE";
 
     private final CatalogSourceMapper sourceMapper;
@@ -79,6 +85,7 @@ public class CatalogAssetService {
     private final DataAccessGateway gateway;
     private final CatalogGateway catalogGateway;
     private final ConnectionConfigAssembler assembler;
+    private final CredentialResolver credentialResolver;
     private final ObjectMapper objectMapper;
 
     public CatalogAssetService(CatalogSourceMapper sourceMapper,
@@ -92,6 +99,7 @@ public class CatalogAssetService {
                                DataAccessGateway gateway,
                                CatalogGateway catalogGateway,
                                ConnectionConfigAssembler assembler,
+                               CredentialResolver credentialResolver,
                                ObjectMapper objectMapper) {
         this.sourceMapper = sourceMapper;
         this.namespaceMapper = namespaceMapper;
@@ -104,21 +112,28 @@ public class CatalogAssetService {
         this.gateway = gateway;
         this.catalogGateway = catalogGateway;
         this.assembler = assembler;
+        this.credentialResolver = credentialResolver;
         this.objectMapper = objectMapper;
     }
 
     // ── DTO ─────────────────────────────────────────────────────────────
 
     public record SourceRequest(String name, String sourceType, String dataSourceId,
-                                String configJson) {
+                                String configJson, String credentialId) {
+        /** 兼容旧调用方：无 credentialId。 */
+        public SourceRequest(String name, String sourceType, String dataSourceId,
+                             String configJson) {
+            this(name, sourceType, dataSourceId, configJson, null);
+        }
     }
 
     public record SourceView(String id, String name, String sourceType, String dataSourceId,
-                             String status, Instant lastRefreshedAt, Instant createdAt,
-                             String createdBy) {
+                             String credentialId, String configJson, String status,
+                             Instant lastRefreshedAt, Instant createdAt, String createdBy) {
         static SourceView from(CatalogSource source) {
             return new SourceView(source.getId(), source.getName(), source.getSourceType(),
-                    source.getDataSourceId(), source.getStatus(), source.getLastRefreshedAt(),
+                    source.getDataSourceId(), source.getCredentialId(),
+                    source.getConfigJson(), source.getStatus(), source.getLastRefreshedAt(),
                     source.getCreatedAt(), source.getCreatedBy());
         }
     }
@@ -127,14 +142,30 @@ public class CatalogAssetService {
                               String qualifiedName, String kind, String format,
                               String comment, String schemaHash, Integer columnCount,
                               Long rowCount, Long sizeBytes, String location,
-                              String propertiesJson, Instant lastModifiedAt, Instant updatedAt) {
+                              String propertiesJson, Instant lastModifiedAt, Instant updatedAt,
+                              String domainId, String domainName, String ownerUsername,
+                              String certificationStatus) {
         static DatasetView from(CatalogDataset dataset) {
             return new DatasetView(dataset.getId(), dataset.getSourceId(),
                     dataset.getNamespaceId(), dataset.getName(), dataset.getQualifiedName(),
                     dataset.getKind(), dataset.getFormat(), dataset.getComment(),
                     dataset.getSchemaHash(), dataset.getColumnCount(), dataset.getRowCount(),
                     dataset.getSizeBytes(), dataset.getLocation(), dataset.getPropertiesJson(),
-                    dataset.getLastModifiedAt(), dataset.getUpdatedAt());
+                    dataset.getLastModifiedAt(), dataset.getUpdatedAt(),
+                    null, null, null, "NONE");
+        }
+
+        static DatasetView from(CatalogDatasetGovernanceRow row) {
+            return new DatasetView(row.getId(), row.getSourceId(),
+                    row.getNamespaceId(), row.getName(), row.getQualifiedName(),
+                    row.getKind(), row.getFormat(), row.getComment(),
+                    row.getSchemaHash(), row.getColumnCount(), row.getRowCount(),
+                    row.getSizeBytes(), row.getLocation(), row.getPropertiesJson(),
+                    row.getLastModifiedAt(), row.getUpdatedAt(),
+                    row.getGovernanceDomainId(), row.getDomainName(),
+                    row.getOwnerUsername(),
+                    row.getCertificationStatus() == null
+                            ? "NONE" : row.getCertificationStatus());
         }
     }
 
@@ -166,7 +197,12 @@ public class CatalogAssetService {
     }
 
     public record RefreshResult(String runId, String status, int namespaces, int datasets,
-                                int columns, long durationMillis) {
+                                int columns, long durationMillis, List<String> warnings) {
+        /** 兼容旧调用方。 */
+        public RefreshResult(String runId, String status, int namespaces, int datasets,
+                             int columns, long durationMillis) {
+            this(runId, status, namespaces, datasets, columns, durationMillis, List.of());
+        }
     }
 
     // ── 来源管理 ────────────────────────────────────────────────────────
@@ -179,31 +215,53 @@ public class CatalogAssetService {
         String sourceType = request.sourceType() == null || request.sourceType().isBlank()
                 ? SOURCE_JDBC
                 : request.sourceType().trim().toUpperCase();
-        if (!SOURCE_JDBC.equals(sourceType) && !SOURCE_PARQUET.equals(sourceType)) {
+        boolean external = SOURCE_HMS.equals(sourceType) || SOURCE_GLUE.equals(sourceType);
+        if (!SOURCE_JDBC.equals(sourceType) && !SOURCE_PARQUET.equals(sourceType) && !external) {
             throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
                     "暂不支持的数据目录来源: " + sourceType
-                            + ";当前支持 JDBC / PARQUET_DIRECTORY");
+                            + ";当前支持 JDBC / PARQUET_DIRECTORY / HIVE_METASTORE / GLUE");
         }
-        if (request.dataSourceId() == null || request.dataSourceId().isBlank()) {
-            throw new BizException(ErrorCode.SYS_VALIDATION_FAILED, "数据目录必须指定数据源");
+        String dataSourceId = blankToNull(request.dataSourceId());
+        String credentialId = blankToNull(request.credentialId());
+        if (external) {
+            if (dataSourceId != null) {
+                throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                        "HMS/Glue 是外部元数据目录，不能指定 dataSourceId");
+            }
+            validateExternalConfig(sourceType, request.configJson());
+        } else {
+            if (dataSourceId == null) {
+                throw new BizException(ErrorCode.SYS_VALIDATION_FAILED, "数据目录必须指定数据源");
+            }
+            if (credentialId != null) {
+                throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                        "JDBC/Parquet 来源的凭据由 dataSource 管理，不能单独指定 credentialId");
+            }
         }
 
         String workspaceId = WorkspaceContext.requireWorkspaceId();
         String operator = WorkspaceContext.require().userId();
-        // 越权校验:数据源必须属于当前空间
-        DataSourceEntity dataSource = dataSourceService.requireInWorkspace(request.dataSourceId());
-        if (SOURCE_JDBC.equals(sourceType)
-                && dataSource.getFamily() != DataSourceType.Family.RELATIONAL
-                && dataSource.getFamily() != DataSourceType.Family.MPP) {
-            throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
-                    "JDBC 数据目录只能指向关系型/MPP 数据源,当前为 %s"
-                            .formatted(dataSource.getFamily()));
-        }
-        if (SOURCE_PARQUET.equals(sourceType)
-                && dataSource.getFamily() != DataSourceType.Family.OBJECT_STORAGE) {
-            throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
-                    "Parquet 数据目录只能指向对象存储/本地目录,当前为 %s"
-                            .formatted(dataSource.getFamily()));
+        if (external) {
+            if (credentialId != null) {
+                // 解析一次以校验凭据存在且属于当前空间；结果立即丢弃，不落库。
+                credentialResolver.resolve(workspaceId, credentialId);
+            }
+        } else {
+            // 越权校验:数据源必须属于当前空间
+            DataSourceEntity dataSource = dataSourceService.requireInWorkspace(dataSourceId);
+            if (SOURCE_JDBC.equals(sourceType)
+                    && dataSource.getFamily() != DataSourceType.Family.RELATIONAL
+                    && dataSource.getFamily() != DataSourceType.Family.MPP) {
+                throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                        "JDBC 数据目录只能指向关系型/MPP 数据源,当前为 %s"
+                                .formatted(dataSource.getFamily()));
+            }
+            if (SOURCE_PARQUET.equals(sourceType)
+                    && dataSource.getFamily() != DataSourceType.Family.OBJECT_STORAGE) {
+                throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                        "Parquet 数据目录只能指向对象存储/本地目录,当前为 %s"
+                                .formatted(dataSource.getFamily()));
+            }
         }
 
         String name = request.name().trim();
@@ -220,7 +278,8 @@ public class CatalogAssetService {
         source.setWorkspaceId(workspaceId);
         source.setName(name);
         source.setSourceType(sourceType);
-        source.setDataSourceId(request.dataSourceId());
+        source.setDataSourceId(dataSourceId);
+        source.setCredentialId(credentialId);
         source.setConfigJson(request.configJson() == null || request.configJson().isBlank()
                 ? "{}" : request.configJson());
         source.setStatus(STATUS_ACTIVE);
@@ -266,23 +325,32 @@ public class CatalogAssetService {
         if (!STATUS_ACTIVE.equals(source.getStatus())) {
             throw new BizException(ErrorCode.MTD_CATALOG_REFRESH_FAILED, "数据目录已停用");
         }
+        boolean external = SOURCE_HMS.equals(source.getSourceType())
+                || SOURCE_GLUE.equals(source.getSourceType());
         if (!SOURCE_JDBC.equals(source.getSourceType())
-                && !SOURCE_PARQUET.equals(source.getSourceType())) {
+                && !SOURCE_PARQUET.equals(source.getSourceType()) && !external) {
             throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
                     "暂不支持的数据目录来源: " + source.getSourceType());
         }
 
-        DataSourceEntity dataSource = dataSourceService.requireInWorkspace(source.getDataSourceId());
-        if (dataSource.getStatus() != DataSourceStatus.AVAILABLE) {
-            throw new BizException(ErrorCode.MTD_DATASOURCE_NOT_ACTIVE,
-                    "数据源当前状态为 %s,需先通过连通性测试才能采集目录"
-                            .formatted(dataSource.getStatus()));
-        }
-        if (SOURCE_PARQUET.equals(source.getSourceType())
-                && dataSource.getFamily() != DataSourceType.Family.OBJECT_STORAGE) {
-            throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
-                    "Parquet 数据目录只能指向对象存储/本地目录,当前为 %s"
-                            .formatted(dataSource.getFamily()));
+        DataSourceEntity dataSource = null;
+        if (!external) {
+            if (source.getDataSourceId() == null || source.getDataSourceId().isBlank()) {
+                throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                        "该目录来源没有绑定数据源");
+            }
+            dataSource = dataSourceService.requireInWorkspace(source.getDataSourceId());
+            if (dataSource.getStatus() != DataSourceStatus.AVAILABLE) {
+                throw new BizException(ErrorCode.MTD_DATASOURCE_NOT_ACTIVE,
+                        "数据源当前状态为 %s,需先通过连通性测试才能采集目录"
+                                .formatted(dataSource.getStatus()));
+            }
+            if (SOURCE_PARQUET.equals(source.getSourceType())
+                    && dataSource.getFamily() != DataSourceType.Family.OBJECT_STORAGE) {
+                throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                        "Parquet 数据目录只能指向对象存储/本地目录,当前为 %s"
+                                .formatted(dataSource.getFamily()));
+            }
         }
 
         Instant startedAt = Instant.now();
@@ -294,16 +362,25 @@ public class CatalogAssetService {
         runMapper.insert(run);
 
         try {
-            Counts counts = SOURCE_JDBC.equals(source.getSourceType())
-                    ? collectJdbc(source, dataSource)
-                    : collectParquet(source, dataSource);
+            Counts counts;
+            if (external) {
+                counts = collectExternal(source);
+            } else if (SOURCE_JDBC.equals(source.getSourceType())) {
+                counts = collectJdbc(source, dataSource);
+            } else {
+                counts = collectParquet(source, dataSource);
+            }
             Instant finishedAt = Instant.now();
             run.setFinishedAt(finishedAt);
             run.setStatus("SUCCESS");
-            run.setStatsJson(writeJson(Map.of(
-                    "namespaces", counts.namespaces,
-                    "datasets", counts.datasets,
-                    "columns", counts.columns)));
+            Map<String, Object> stats = new java.util.LinkedHashMap<>();
+            stats.put("namespaces", counts.namespaces);
+            stats.put("datasets", counts.datasets);
+            stats.put("columns", counts.columns);
+            if (!counts.warnings.isEmpty()) {
+                stats.put("warnings", counts.warnings);
+            }
+            run.setStatsJson(writeJson(stats));
             runMapper.updateById(run);
 
             source.setLastRefreshedAt(finishedAt);
@@ -313,7 +390,7 @@ public class CatalogAssetService {
 
             long duration = Math.max(0, finishedAt.toEpochMilli() - startedAt.toEpochMilli());
             return new RefreshResult(run.getId(), "SUCCESS", counts.namespaces,
-                    counts.datasets, counts.columns, duration);
+                    counts.datasets, counts.columns, duration, List.copyOf(counts.warnings));
         } catch (RuntimeException ex) {
             run.setFinishedAt(Instant.now());
             run.setStatus("FAILED");
@@ -395,8 +472,34 @@ public class CatalogAssetService {
         return persistSnapshot(source, snapshot);
     }
 
+    /**
+     * HMS/Glue：数据源不是 md_datasource，凭据来自平台 credentialId。
+     *
+     * <p>Provider 只读元数据；连接/认证失败会直接抛出，refresh 记 FAILED，
+     * 上一次成功采集的 namespace/dataset/column/partition 行保持不动。
+     */
+    private Counts collectExternal(CatalogSource source) {
+        ResolvedSecret secret = source.getCredentialId() == null
+                ? ResolvedSecret.none()
+                : credentialResolver.resolve(source.getWorkspaceId(), source.getCredentialId());
+        if (SOURCE_GLUE.equals(source.getSourceType()) && source.getCredentialId() != null
+                && (secret.username() == null || secret.username().isBlank()
+                || secret.secret() == null || secret.secret().isBlank())) {
+            throw new BizException(ErrorCode.DAT_AUTH_FAILED,
+                    "Glue 平台凭据缺少 accessKey/secretKey，不能回退为匿名访问");
+        }
+        ExternalCatalogConfig config = new ExternalCatalogConfig(
+                CatalogAssets.CatalogSourceType.valueOf(source.getSourceType()),
+                source.getConfigJson(),
+                secret.username(),
+                secret.secret());
+        CatalogAssets.Snapshot snapshot = catalogGateway.readExternalCatalog(config);
+        return persistSnapshot(source, snapshot);
+    }
+
     private Counts persistSnapshot(CatalogSource source, CatalogAssets.Snapshot snapshot) {
         Counts counts = new Counts();
+        counts.warnings.addAll(snapshot.warnings());
         Map<String, CatalogNamespace> namespaces = new LinkedHashMap<>();
         int ordinal = 0;
         for (CatalogAssets.Namespace namespace : snapshot.namespaces()) {
@@ -422,6 +525,50 @@ public class CatalogAssetService {
             counts.columns += dataset.columns().size();
         }
         return counts;
+    }
+
+    /**
+     * 外部目录配置校验。
+     *
+     * <p>secret 只能来自 credential；configJson 出现 accessKey/secretKey
+     * 一律拒绝，避免“配置里塞了密钥”再被响应/日志带出去。
+     */
+    private void validateExternalConfig(String sourceType, String configJson) {
+        if (configJson == null || configJson.isBlank()) {
+            throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                    "外部目录来源必须提供连接配置 JSON");
+        }
+        Map<?, ?> config;
+        try {
+            config = objectMapper.readValue(configJson, Map.class);
+        } catch (Exception e) {
+            throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                    "外部目录配置不是合法 JSON", e.getMessage(), e);
+        }
+        for (String secretKey : List.of("accessKey", "secretKey", "secret", "password")) {
+            if (config.containsKey(secretKey)) {
+                throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                        "配置不能包含 " + secretKey + "，请使用平台凭据 credentialId");
+            }
+        }
+        if (SOURCE_HMS.equals(sourceType) && valueMissing(config.get("uris"))) {
+            throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                    "Hive Metastore 配置缺少 uris（如 thrift://hms:9083）");
+        }
+        if (SOURCE_GLUE.equals(sourceType) && valueMissing(config.get("region"))) {
+            throw new BizException(ErrorCode.MTD_CONFIG_INVALID,
+                    "Glue 配置缺少 region（如 cn-north-1）");
+        }
+    }
+
+    private static boolean valueMissing(Object value) {
+        if (value == null) {
+            return true;
+        }
+        if (value instanceof List<?> list) {
+            return list.isEmpty();
+        }
+        return value.toString().isBlank();
     }
 
     private String parquetRootPath(CatalogSource source) {
@@ -457,16 +604,28 @@ public class CatalogAssetService {
 
     public PageResult<DatasetView> listDatasets(String sourceId, long page, long size,
                                                 String keyword) {
+        return listDatasets(sourceId, page, size, keyword, null, null, null);
+    }
+
+    /**
+     * Catalog 列表（含治理筛选）。
+     *
+     * <p>治理字段来自左连接：未配置治理的资产仍然返回，认证状态按 NONE 处理，
+     * 旧调用方不传筛选参数时行为与 P0 一致。
+     */
+    public PageResult<DatasetView> listDatasets(String sourceId, long page, long size,
+                                                String keyword, String domainId,
+                                                String owner, String certificationStatus) {
         requireSource(sourceId);
         String workspaceId = WorkspaceContext.requireWorkspaceId();
-        LambdaQueryWrapper<CatalogDataset> query = new LambdaQueryWrapper<CatalogDataset>()
-                .eq(CatalogDataset::getWorkspaceId, workspaceId)
-                .eq(CatalogDataset::getSourceId, sourceId)
-                .and(keyword != null && !keyword.isBlank(),
-                        w -> w.like(CatalogDataset::getName, keyword.trim())
-                                .or().like(CatalogDataset::getQualifiedName, keyword.trim()))
-                .orderByAsc(CatalogDataset::getQualifiedName);
-        Page<CatalogDataset> result = datasetMapper.selectPage(Page.of(page, size), query);
+        String term = keyword == null || keyword.isBlank() ? null : keyword.trim();
+        String domain = domainId == null || domainId.isBlank() ? null : domainId.trim();
+        String ownerFilter = owner == null || owner.isBlank() ? null : owner.trim();
+        String cert = certificationStatus == null || certificationStatus.isBlank()
+                ? null : certificationStatus.trim().toUpperCase();
+        Page<CatalogDatasetGovernanceRow> result = (Page<CatalogDatasetGovernanceRow>)
+                datasetMapper.selectGovernancePage(Page.of(page, size), workspaceId,
+                        sourceId, term, domain, ownerFilter, cert);
         return PageResult.of(result.getRecords().stream().map(DatasetView::from).toList(),
                 result.getTotal(), page, size);
     }
@@ -630,13 +789,18 @@ public class CatalogAssetService {
     }
 
     private void replaceParquetColumns(String datasetId, List<CatalogAssets.Column> columns) {
-        columnMapper.delete(new LambdaQueryWrapper<CatalogColumn>()
-                .eq(CatalogColumn::getDatasetId, datasetId));
+        Map<String, CatalogColumn> existing = existingColumns(datasetId);
+        java.util.Set<String> seen = new java.util.HashSet<>();
         Instant now = Instant.now();
         for (CatalogAssets.Column column : columns) {
-            CatalogColumn entity = new CatalogColumn();
-            entity.setId(Ids.of("catcol"));
-            entity.setDatasetId(datasetId);
+            CatalogColumn entity = existing.get(column.name());
+            boolean insert = entity == null;
+            if (insert) {
+                entity = new CatalogColumn();
+                entity.setId(Ids.of("catcol"));
+                entity.setDatasetId(datasetId);
+                entity.setCreatedAt(now);
+            }
             entity.setName(column.name());
             entity.setOrdinal(column.ordinal());
             entity.setRawType(column.rawType());
@@ -649,10 +813,15 @@ public class CatalogAssetService {
             entity.setPartitionKey(column.partitionKey());
             entity.setDefaultValue(null);
             entity.setComment(column.comment());
-            entity.setCreatedAt(now);
             entity.setUpdatedAt(now);
-            columnMapper.insert(entity);
+            if (insert) {
+                columnMapper.insert(entity);
+            } else {
+                columnMapper.updateById(entity);
+            }
+            seen.add(column.name());
         }
+        removeMissingColumns(existing, seen);
     }
 
     private void replacePartitions(String datasetId, List<CatalogAssets.Partition> partitions) {
@@ -690,13 +859,18 @@ public class CatalogAssetService {
     }
 
     private void replaceColumns(String datasetId, List<ColumnInfo> columns) {
-        columnMapper.delete(new LambdaQueryWrapper<CatalogColumn>()
-                .eq(CatalogColumn::getDatasetId, datasetId));
+        Map<String, CatalogColumn> existing = existingColumns(datasetId);
+        java.util.Set<String> seen = new java.util.HashSet<>();
         Instant now = Instant.now();
         for (ColumnInfo column : columns) {
-            CatalogColumn entity = new CatalogColumn();
-            entity.setId(Ids.of("catcol"));
-            entity.setDatasetId(datasetId);
+            CatalogColumn entity = existing.get(column.name());
+            boolean insert = entity == null;
+            if (insert) {
+                entity = new CatalogColumn();
+                entity.setId(Ids.of("catcol"));
+                entity.setDatasetId(datasetId);
+                entity.setCreatedAt(now);
+            }
             entity.setName(column.name());
             entity.setOrdinal(column.ordinalPosition());
             entity.setRawType(column.rawType());
@@ -709,9 +883,47 @@ public class CatalogAssetService {
             entity.setPartitionKey(false);
             entity.setDefaultValue(column.defaultValue());
             entity.setComment(column.comment());
-            entity.setCreatedAt(now);
             entity.setUpdatedAt(now);
-            columnMapper.insert(entity);
+            if (insert) {
+                columnMapper.insert(entity);
+            } else {
+                columnMapper.updateById(entity);
+            }
+            seen.add(column.name());
+        }
+        removeMissingColumns(existing, seen);
+    }
+
+    /**
+     * 刷新时保持列 ID 稳定。
+     *
+     * <p>列 ID 被敏感标签、术语绑定、质量规则引用；删掉重插会让这些治理数据
+     * 全部指向不存在的列，刷新直接撞外键。源端已删除的列才尝试删除；
+     * 若仍被引用则保留并记 warning —— 宁可暂时多一列，也不能让整次采集失败。
+     */
+    private Map<String, CatalogColumn> existingColumns(String datasetId) {
+        Map<String, CatalogColumn> existing = new java.util.LinkedHashMap<>();
+        for (CatalogColumn column : columnMapper.selectList(
+                new LambdaQueryWrapper<CatalogColumn>()
+                        .eq(CatalogColumn::getDatasetId, datasetId))) {
+            existing.put(column.getName(), column);
+        }
+        return existing;
+    }
+
+    private void removeMissingColumns(Map<String, CatalogColumn> existing,
+                                      java.util.Set<String> seen) {
+        for (Map.Entry<String, CatalogColumn> entry : existing.entrySet()) {
+            if (seen.contains(entry.getKey())) {
+                continue;
+            }
+            try {
+                columnMapper.deleteById(entry.getValue().getId());
+            } catch (RuntimeException ex) {
+                log.warn("源端已删除的列仍被治理/敏感/质量数据引用，保留列: dataset={} column={} id={}",
+                        entry.getValue().getDatasetId(), entry.getKey(),
+                        entry.getValue().getId());
+            }
         }
     }
 
@@ -793,9 +1005,14 @@ public class CatalogAssetService {
         return value.length() <= 2000 ? value : value.substring(0, 2000) + "…";
     }
 
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
     private static final class Counts {
         private int namespaces;
         private int datasets;
         private int columns;
+        private final List<String> warnings = new java.util.ArrayList<>();
     }
 }

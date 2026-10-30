@@ -3,10 +3,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { catalogAssetApi } from '@/api/catalog-assets'
+import { credentialApi } from '@/api/credential'
+import { governanceApi } from '@/api/catalog-governance'
 import { dataSourceApi } from '@/api/datasource'
 import { confirmDanger } from '@/utils/confirm'
 import { formatBytes, formatDateTime } from '@/utils/format'
+import type { Credential } from '@/types/credential'
 import type { DataSource } from '@/types/datasource'
+import type { BusinessDomain } from '@/types/catalog-governance'
 import type {
   CatalogDataset,
   CatalogDatasetDetail,
@@ -27,7 +31,21 @@ const selected = ref<CatalogSource | null>(null)
 const datasets = ref<CatalogDataset[]>([])
 const total = ref(0)
 const loading = ref(false)
-const query = reactive({ page: 1, size: 20, keyword: '' })
+const query = reactive({
+  page: 1,
+  size: 20,
+  keyword: '',
+  domainId: '',
+  owner: '',
+  certificationStatus: '',
+})
+const domains = ref<BusinessDomain[]>([])
+
+const certificationOptions = [
+  { value: 'CERTIFIED', label: '已认证' },
+  { value: 'DEPRECATED', label: '已废弃' },
+  { value: 'NONE', label: '未认证' },
+]
 
 const dataSources = ref<DataSource[]>([])
 const sourceDialogVisible = ref(false)
@@ -37,7 +55,15 @@ const sourceForm = reactive({
   sourceType: 'JDBC' as CatalogSourceType,
   dataSourceId: '',
   rootPath: '',
+  credentialId: '',
+  uris: '',
+  warehouse: '',
+  region: '',
+  catalogId: '',
+  includeDatabases: '',
+  excludeDatabases: '',
 })
+const credentials = ref<Credential[]>([])
 
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -54,7 +80,21 @@ const sourceTypes = [
     label: 'Parquet 目录',
     hint: '本地/NFS 或 S3/MinIO/OSS 上的 Parquet 湖',
   },
+  {
+    value: 'HIVE_METASTORE' as CatalogSourceType,
+    label: 'Hive Metastore（External）',
+    hint: '只读采集 database/table/view/column/partition，不查询表数据',
+  },
+  {
+    value: 'GLUE' as CatalogSourceType,
+    label: 'AWS Glue（External）',
+    hint: '只读采集 Glue Catalog；凭据可选，默认使用 AWS provider chain',
+  },
 ]
+
+const isExternalType = computed(() =>
+  sourceForm.sourceType === 'HIVE_METASTORE' || sourceForm.sourceType === 'GLUE',
+)
 
 const compatibleDataSources = computed(() =>
   dataSources.value.filter((ds) =>
@@ -64,9 +104,18 @@ const compatibleDataSources = computed(() =>
   ),
 )
 
-const canCreate = computed(
-  () => !!sourceForm.name.trim() && !!sourceForm.sourceType && !!sourceForm.dataSourceId,
-)
+const canCreate = computed(() => {
+  if (!sourceForm.name.trim() || !sourceForm.sourceType) {
+    return false
+  }
+  if (sourceForm.sourceType === 'HIVE_METASTORE') {
+    return !!sourceForm.uris.trim()
+  }
+  if (sourceForm.sourceType === 'GLUE') {
+    return !!sourceForm.region.trim()
+  }
+  return !!sourceForm.dataSourceId
+})
 
 async function loadSources() {
   sources.value = await catalogAssetApi.listSources()
@@ -94,6 +143,9 @@ async function loadDatasets() {
       page: query.page,
       size: query.size,
       keyword: query.keyword || undefined,
+      domainId: query.domainId || undefined,
+      owner: query.owner.trim() || undefined,
+      certificationStatus: query.certificationStatus || undefined,
     })
     datasets.value = page.records
     total.value = page.total
@@ -117,33 +169,95 @@ async function loadAllDataSources() {
   dataSources.value = page.records
 }
 
+async function loadCredentials() {
+  if (credentials.value.length > 0) {
+    return
+  }
+  try {
+    credentials.value = await credentialApi.list()
+  } catch {
+    credentials.value = []
+  }
+}
+
 async function openCreate() {
   Object.assign(sourceForm, {
     name: '',
     sourceType: 'JDBC',
     dataSourceId: '',
     rootPath: '',
+    credentialId: '',
+    uris: '',
+    warehouse: '',
+    region: '',
+    catalogId: '',
+    includeDatabases: '',
+    excludeDatabases: '',
   })
   await loadAllDataSources()
+  await loadCredentials()
   sourceDialogVisible.value = true
+}
+
+function splitList(value: string): string[] {
+  return value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function buildConfigJson(): string | undefined {
+  switch (sourceForm.sourceType) {
+    case 'PARQUET_DIRECTORY':
+      return sourceForm.rootPath.trim()
+        ? JSON.stringify({ rootPath: sourceForm.rootPath.trim() })
+        : undefined
+    case 'HIVE_METASTORE': {
+      const config: Record<string, unknown> = { uris: splitList(sourceForm.uris) }
+      if (sourceForm.warehouse.trim()) {
+        config.warehouse = sourceForm.warehouse.trim()
+      }
+      if (splitList(sourceForm.includeDatabases).length) {
+        config.includeDatabases = splitList(sourceForm.includeDatabases)
+      }
+      if (splitList(sourceForm.excludeDatabases).length) {
+        config.excludeDatabases = splitList(sourceForm.excludeDatabases)
+      }
+      return JSON.stringify(config)
+    }
+    case 'GLUE': {
+      const config: Record<string, unknown> = { region: sourceForm.region.trim() }
+      if (sourceForm.catalogId.trim()) {
+        config.catalogId = sourceForm.catalogId.trim()
+      }
+      if (splitList(sourceForm.includeDatabases).length) {
+        config.includeDatabases = splitList(sourceForm.includeDatabases)
+      }
+      if (splitList(sourceForm.excludeDatabases).length) {
+        config.excludeDatabases = splitList(sourceForm.excludeDatabases)
+      }
+      return JSON.stringify(config)
+    }
+    default:
+      return undefined
+  }
 }
 
 async function submitSource() {
   if (!canCreate.value) {
-    ElMessage.warning('请填写名称并选择数据源')
+    ElMessage.warning(isExternalType.value
+      ? '请填写名称与外部目录连接配置'
+      : '请填写名称并选择数据源')
     return
   }
   sourceSubmitting.value = true
   try {
-    const rootPath = sourceForm.rootPath.trim()
     await catalogAssetApi.createSource({
       name: sourceForm.name.trim(),
       sourceType: sourceForm.sourceType,
-      dataSourceId: sourceForm.dataSourceId,
-      configJson:
-        sourceForm.sourceType === 'PARQUET_DIRECTORY' && rootPath
-          ? JSON.stringify({ rootPath })
-          : undefined,
+      dataSourceId: isExternalType.value ? null : sourceForm.dataSourceId,
+      credentialId: isExternalType.value ? sourceForm.credentialId || null : null,
+      configJson: buildConfigJson(),
     })
     ElMessage.success('目录来源已创建。点击“采集”开始读取元数据')
     sourceDialogVisible.value = false
@@ -161,6 +275,9 @@ async function refreshSource() {
   ElMessage.success(
     `采集完成:${result.datasets} 个数据集 / ${result.columns} 个字段(耗时 ${result.durationMillis} ms)`,
   )
+  if (result.warnings?.length) {
+    ElMessage.warning(`采集完成但有 ${result.warnings.length} 条警告：${result.warnings[0]}`)
+  }
   await loadSources()
 }
 
@@ -211,7 +328,58 @@ function formatPartitionValues(valuesJson: string | null): string {
   }
 }
 
-onMounted(loadSources)
+function sourceConfigHint(source: CatalogSource): string {
+  if (!source.configJson) {
+    return ''
+  }
+  try {
+    const config = JSON.parse(source.configJson) as Record<string, unknown>
+    if (source.sourceType === 'HIVE_METASTORE') {
+      const uris = config.uris
+      return Array.isArray(uris) ? uris.join(', ') : String(uris || '')
+    }
+    if (source.sourceType === 'GLUE') {
+      return config.region ? `region=${config.region}` : ''
+    }
+    if (source.sourceType === 'PARQUET_DIRECTORY') {
+      return config.rootPath ? `rootPath=${config.rootPath}` : ''
+    }
+  } catch {
+    return ''
+  }
+  return ''
+}
+
+function certificationMeta(status?: string | null): {
+  label: string
+  type: 'success' | 'warning' | 'danger' | 'info'
+} {
+  return {
+    CERTIFIED: { label: '已认证', type: 'success' as const },
+    DEPRECATED: { label: '已废弃', type: 'danger' as const },
+    NONE: { label: '未认证', type: 'info' as const },
+  }[status || 'NONE'] || { label: '未认证', type: 'info' as const }
+}
+
+function resetGovernanceFilters() {
+  query.domainId = ''
+  query.owner = ''
+  query.certificationStatus = ''
+  onFilterChange()
+}
+
+async function loadDomains() {
+  try {
+    domains.value = await governanceApi.listDomains()
+  } catch {
+    domains.value = []
+  }
+}
+
+onMounted(async () => {
+  await loadDomains()
+  await loadSources()
+})
 </script>
 
 <template>
@@ -250,9 +418,19 @@ onMounted(loadSources)
               <el-tag size="small" :type="source.sourceType === 'JDBC' ? 'primary' : 'success'">
                 {{ source.sourceType }}
               </el-tag>
+              <el-tag
+                v-if="source.sourceType === 'HIVE_METASTORE' || source.sourceType === 'GLUE'"
+                size="small"
+                type="warning"
+              >
+                External
+              </el-tag>
             </div>
             <div class="text-muted">
               最近采集:{{ formatDateTime(source.lastRefreshedAt) }}
+            </div>
+            <div v-if="sourceConfigHint(source)" class="text-muted source-item__config">
+              {{ sourceConfigHint(source) }}
             </div>
           </div>
         </el-card>
@@ -297,26 +475,82 @@ onMounted(loadSources)
                 v-model="query.keyword"
                 clearable
                 placeholder="搜索表 / 数据集"
-                style="width: 280px"
+                style="width: 240px"
                 @keyup.enter="onFilterChange"
                 @clear="onFilterChange"
               />
+              <el-select
+                v-model="query.domainId"
+                clearable
+                placeholder="业务域"
+                style="width: 150px"
+                @change="onFilterChange"
+              >
+                <el-option
+                  v-for="domain in domains"
+                  :key="domain.id"
+                  :label="domain.name"
+                  :value="domain.id"
+                />
+              </el-select>
+              <el-input
+                v-model="query.owner"
+                clearable
+                placeholder="负责人"
+                style="width: 140px"
+                @keyup.enter="onFilterChange"
+                @clear="onFilterChange"
+              />
+              <el-select
+                v-model="query.certificationStatus"
+                clearable
+                placeholder="认证状态"
+                style="width: 130px"
+                @change="onFilterChange"
+              >
+                <el-option
+                  v-for="item in certificationOptions"
+                  :key="item.value"
+                  :label="item.label"
+                  :value="item.value"
+                />
+              </el-select>
               <el-button @click="onFilterChange">搜索</el-button>
+              <el-button
+                v-if="query.domainId || query.owner || query.certificationStatus"
+                link
+                @click="resetGovernanceFilters"
+              >
+                清除治理筛选
+              </el-button>
             </div>
 
             <el-table v-loading="loading" :data="datasets" @row-click="openDetail">
-              <el-table-column prop="qualifiedName" label="数据集" min-width="240">
+              <el-table-column prop="qualifiedName" label="数据集" min-width="220">
                 <template #default="{ row }">
                   <span>{{ row.qualifiedName }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="kind" label="类型" width="150" />
-              <el-table-column prop="format" label="格式" width="100" />
-              <el-table-column prop="columnCount" label="字段数" width="90" align="right" />
-              <el-table-column label="更新于" width="180">
+              <el-table-column prop="kind" label="类型" width="120" />
+              <el-table-column label="业务域" width="120">
+                <template #default="{ row }">{{ row.domainName || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="负责人" width="120">
+                <template #default="{ row }">{{ row.ownerUsername || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="认证" width="96">
+                <template #default="{ row }">
+                  <el-tag :type="certificationMeta(row.certificationStatus).type" size="small">
+                    {{ certificationMeta(row.certificationStatus).label }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="format" label="格式" width="90" />
+              <el-table-column prop="columnCount" label="字段数" width="86" align="right" />
+              <el-table-column label="更新于" width="170">
                 <template #default="{ row }">{{ formatDateTime(row.updatedAt) }}</template>
               </el-table-column>
-              <el-table-column label="操作" width="110" fixed="right">
+              <el-table-column label="操作" width="100" fixed="right">
                 <template #default="{ row }">
                   <el-button link type="primary" @click.stop="openAssetDetail(row)">打开详情</el-button>
                 </template>
@@ -361,7 +595,7 @@ onMounted(loadSources)
             {{ sourceTypes.find((t) => t.value === sourceForm.sourceType)?.hint }}
           </div>
         </el-form-item>
-        <el-form-item label="数据源" required>
+        <el-form-item v-if="!isExternalType" label="数据源" required>
           <el-select
             v-model="sourceForm.dataSourceId"
             filterable
@@ -380,7 +614,10 @@ onMounted(loadSources)
             LOCAL/S3/MinIO/OSS 数据源。
           </div>
         </el-form-item>
-        <el-form-item v-if="sourceForm.sourceType === 'PARQUET_DIRECTORY'" label="rootPath">
+        <el-form-item
+          v-if="sourceForm.sourceType === 'PARQUET_DIRECTORY'"
+          label="rootPath"
+        >
           <el-input
             v-model="sourceForm.rootPath"
             placeholder="如 s3://bucket/warehouse 或 /data/lakehouse"
@@ -389,6 +626,73 @@ onMounted(loadSources)
             留空表示使用数据源自身的 Bucket/根目录。LOCAL 数据源的根目录就是扫描起点。
           </div>
         </el-form-item>
+
+        <template v-if="isExternalType">
+          <el-alert
+            type="info"
+            show-icon
+            :closable="false"
+            class="external-hint"
+            title="External Catalog 只采集元数据，不复制数据，也不支持通过 StarRocks 直查。"
+          />
+          <el-form-item label="平台凭据">
+            <el-select
+              v-model="sourceForm.credentialId"
+              clearable
+              filterable
+              placeholder="Glue 可留空使用 AWS provider chain"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="credential in credentials"
+                :key="credential.id"
+                :label="`${credential.name}（${credential.authType}）`"
+                :value="credential.id"
+              />
+            </el-select>
+            <div class="text-muted">
+              accessKey/secretKey 只存平台凭据，不写入 config_json。HMS 无凭据时可留空。
+            </div>
+          </el-form-item>
+          <el-form-item
+            v-if="sourceForm.sourceType === 'HIVE_METASTORE'"
+            label="Metastore URIs"
+            required
+          >
+            <el-input
+              v-model="sourceForm.uris"
+              type="textarea"
+              :rows="2"
+              placeholder="thrift://hms.internal:9083（多个用逗号/换行分隔）"
+            />
+          </el-form-item>
+          <el-form-item
+            v-if="sourceForm.sourceType === 'HIVE_METASTORE'"
+            label="Warehouse"
+          >
+            <el-input v-model="sourceForm.warehouse" placeholder="可选，如 s3://lake/warehouse" />
+          </el-form-item>
+          <template v-if="sourceForm.sourceType === 'GLUE'">
+            <el-form-item label="Region" required>
+              <el-input v-model="sourceForm.region" placeholder="如 cn-north-1" />
+            </el-form-item>
+            <el-form-item label="Catalog ID">
+              <el-input v-model="sourceForm.catalogId" placeholder="可选，AWS 账号 ID" />
+            </el-form-item>
+          </template>
+          <el-form-item label="包含数据库">
+            <el-input
+              v-model="sourceForm.includeDatabases"
+              placeholder="可选，逗号分隔；留空表示全部"
+            />
+          </el-form-item>
+          <el-form-item label="排除数据库">
+            <el-input
+              v-model="sourceForm.excludeDatabases"
+              placeholder="可选，逗号分隔，如 tmp"
+            />
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="sourceDialogVisible = false">取消</el-button>
@@ -513,6 +817,11 @@ onMounted(loadSources)
   margin-bottom: 4px;
 }
 
+.source-item__config {
+  font-size: 11px;
+  word-break: break-all;
+}
+
 .toolbar {
   display: flex;
   gap: 8px;
@@ -534,5 +843,9 @@ onMounted(loadSources)
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
+}
+
+.external-hint {
+  margin-bottom: var(--dg-space-md);
 }
 </style>

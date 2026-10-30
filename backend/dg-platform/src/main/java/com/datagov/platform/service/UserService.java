@@ -51,6 +51,21 @@ public class UserService {
         return AuthService.toView(require(id));
     }
 
+    /**
+     * 按 ID 批量取用户视图。
+     *
+     * <p>供空间成员选择器使用：调用方已经拿到成员 ID 列表，
+     * 这里只负责补 username/displayName，不暴露口令散列。
+     */
+    public List<UserView> listByIds(java.util.Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return userMapper.selectBatchIds(ids).stream()
+                .map(AuthService::toView)
+                .toList();
+    }
+
     public User require(String id) {
         User user = userMapper.selectById(id);
         if (user == null) {

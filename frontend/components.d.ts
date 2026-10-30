@@ -7,6 +7,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AssetGovernancePanel: typeof import('./src/components/metadata/AssetGovernancePanel.vue')['default']
     DatasetSearchSelect: typeof import('./src/components/metadata/DatasetSearchSelect.vue')['default']
     DetailTabs: typeof import('./src/components/insight/DetailTabs.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
@@ -21,6 +22,7 @@ declare module 'vue' {
     ElCollapse: typeof import('element-plus/es')['ElCollapse']
     ElCollapseItem: typeof import('element-plus/es')['ElCollapseItem']
     ElContainer: typeof import('element-plus/es')['ElContainer']
+    ElDatePicker: typeof import('element-plus/es')['ElDatePicker']
     ElDescriptions: typeof import('element-plus/es')['ElDescriptions']
     ElDescriptionsItem: typeof import('element-plus/es')['ElDescriptionsItem']
     ElDialog: typeof import('element-plus/es')['ElDialog']

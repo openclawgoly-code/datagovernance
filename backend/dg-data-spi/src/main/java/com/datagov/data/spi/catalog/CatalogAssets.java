@@ -49,10 +49,17 @@ public final class CatalogAssets {
         }
     }
 
-    public record Snapshot(List<Namespace> namespaces, List<Dataset> datasets) {
+    public record Snapshot(List<Namespace> namespaces, List<Dataset> datasets,
+                           List<String> warnings) {
         public Snapshot {
             namespaces = namespaces == null ? List.of() : List.copyOf(namespaces);
             datasets = datasets == null ? List.of() : List.copyOf(datasets);
+            warnings = warnings == null ? List.of() : List.copyOf(warnings);
+        }
+
+        /** 兼容 JDBC/Parquet 等没有警告的 Provider。 */
+        public Snapshot(List<Namespace> namespaces, List<Dataset> datasets) {
+            this(namespaces, datasets, List.of());
         }
     }
 }

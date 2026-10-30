@@ -47,7 +47,15 @@ public class AuditInterceptor implements HandlerInterceptor {
             Map.entry("/datasources", new String[]{"DATASOURCE", "METADATA"}),
             Map.entry("/inbox", new String[]{"INBOX", "GOVERNANCE"}),
             Map.entry("/sensitivity", new String[]{"SENSITIVITY", "METADATA"}),
+            Map.entry("/glossary", new String[]{"GLOSSARY", "GOVERNANCE"}),
+            Map.entry("/quality", new String[]{"QUALITY", "GOVERNANCE"}),
+            Map.entry("/access-requests", new String[]{"ACCESS_REQUEST", "GOVERNANCE"}),
+            Map.entry("/access-grants", new String[]{"ACCESS_REQUEST", "GOVERNANCE"}),
             Map.entry("/rules", new String[]{"RULE", "METADATA"}),
+            // 外部目录来源：比下面的 /catalog 更具体，必须排在前面
+            Map.entry("/catalog/sources", new String[]{"CATALOG_SOURCE", "METADATA"}),
+            Map.entry("/catalog", new String[]{"ASSET_GOVERNANCE", "METADATA"}),
+            Map.entry("/domains", new String[]{"BUSINESS_DOMAIN", "METADATA"}),
             Map.entry("/governance/alert-rules", new String[]{"ALERT_RULE", "GOVERNANCE"}),
             Map.entry("/governance/alerts", new String[]{"ALERT", "GOVERNANCE"}),
             Map.entry("/governance/analysis-reports", new String[]{"ANALYSIS_REPORT", "GOVERNANCE"}),
@@ -126,9 +134,19 @@ public class AuditInterceptor implements HandlerInterceptor {
      */
     private static String actionOf(String method, String path) {
         String last = lastSegment(path);
+        // 术语发布/废弃只改状态，记 UPDATE；与任务发布（产生新版本）语义不同。
+        if (path.contains("/glossary/") && ("publish".equals(last) || "deprecate".equals(last))) {
+            return AuditService.UPDATE;
+        }
+        if ((path.contains("/access-requests/") || path.contains("/access-grants/"))
+                && ("approve".equals(last) || "reject".equals(last)
+                || "cancel".equals(last) || "revoke".equals(last))) {
+            return AuditService.UPDATE;
+        }
         if ("run".equals(last) || "start".equals(last) || "stop".equals(last)
                 || "test".equals(last) || "cancel".equals(last) || "retry".equals(last)
-                || "compile".equals(last) || "publish".equals(last)) {
+                || "compile".equals(last) || "publish".equals(last)
+                || "refresh".equals(last)) {
             return AuditService.EXECUTE;
         }
         if ("login".equals(last)) {

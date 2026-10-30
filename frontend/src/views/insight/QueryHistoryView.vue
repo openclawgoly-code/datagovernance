@@ -47,7 +47,9 @@ const hasFilter = computed(() =>
   !!query.keyword.trim() || !!query.status || !!query.username.trim(),
 )
 const selectedMaskedColumns = computed(() => maskedColumns(selectedLog.value))
+const selectedGrantIds = computed(() => grantIds(selectedLog.value))
 const resultMaskedColumns = computed(() => resultAnswer.value?.maskedColumns ?? [])
+const resultGrantIds = computed(() => resultAnswer.value?.grantIds ?? [])
 const resultColumns = computed(() => {
   const answer = resultAnswer.value
   if (!answer) {
@@ -84,6 +86,16 @@ function maskedColumns(log: InsightQueryLog | null): string[] {
     return []
   }
   return log.maskedColumns
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function grantIds(log: InsightQueryLog | null): string[] {
+  if (!log?.grantIds) {
+    return []
+  }
+  return log.grantIds
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean)
@@ -479,6 +491,23 @@ onBeforeUnmount(() => {
           <span v-else class="text-muted">无脱敏列</span>
         </section>
 
+        <section v-if="selectedGrantIds.length" class="detail-section">
+          <div class="detail-section__title">本次使用的临时授权</div>
+          <div class="detail-tags">
+            <el-tag
+              v-for="grant in selectedGrantIds"
+              :key="grant"
+              size="small"
+              type="success"
+            >
+              {{ grant }}
+            </el-tag>
+          </div>
+          <div class="text-muted">
+            这些 grant 覆盖的类别/级别列未脱敏；其余敏感列仍按原策略脱敏。
+          </div>
+        </section>
+
         <QuerySqlBlock :sql="selectedLog.generatedSql" title="生成的 SQL" />
       </template>
 
@@ -518,6 +547,14 @@ onBeforeUnmount(() => {
           show-icon
           :closable="false"
           :title="`已脱敏：${resultAnswer.maskedColumns.join('、')}`"
+          class="result-alert"
+        />
+        <el-alert
+          v-if="resultGrantIds.length"
+          type="success"
+          show-icon
+          :closable="false"
+          :title="`本次使用临时授权：${resultGrantIds.join('、')}`"
           class="result-alert"
         />
 

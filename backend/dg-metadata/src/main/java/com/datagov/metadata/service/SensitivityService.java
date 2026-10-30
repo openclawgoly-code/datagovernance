@@ -126,7 +126,10 @@ public class SensitivityService {
      * 同名跨表字段取最高级别,避免“订单表叫 phone 是 L3、客户表叫 phone 是 L4”
      * 时按较低级别放行。
      */
-    public record SensitiveColumnView(String columnName, String level) {
+    public record SensitiveColumnView(String columnName, String category, String level) {
+    }
+
+    private record CategoryLevel(String category, String level) {
     }
 
     // ── 扫描 ────────────────────────────────────────────────────────────
@@ -345,25 +348,29 @@ public class SensitivityService {
         if (labels.isEmpty()) {
             return List.of();
         }
-        Map<String, String> levelByColumnId = new HashMap<>();
+        Map<String, CategoryLevel> byColumnId = new HashMap<>();
         for (ColumnSensitivity label : labels) {
-            levelByColumnId.merge(label.getColumnId(), label.getLevel(),
-                    (left, right) -> levelRank(right) > levelRank(left) ? right : left);
+            byColumnId.merge(label.getColumnId(),
+                    new CategoryLevel(label.getCategory(), label.getLevel()),
+                    (left, right) -> levelRank(right.level()) > levelRank(left.level())
+                            ? right : left);
         }
         List<CatalogColumn> columns = columnMapper.selectList(
                 new LambdaQueryWrapper<CatalogColumn>()
-                        .in(CatalogColumn::getId, levelByColumnId.keySet()));
-        Map<String, String> levelByColumnName = new LinkedHashMap<>();
+                        .in(CatalogColumn::getId, byColumnId.keySet()));
+        Map<String, CategoryLevel> byColumnName = new LinkedHashMap<>();
         for (CatalogColumn column : columns) {
-            String level = levelByColumnId.get(column.getId());
-            if (level == null) {
+            CategoryLevel value = byColumnId.get(column.getId());
+            if (value == null) {
                 continue;
             }
-            levelByColumnName.merge(column.getName(), level,
-                    (left, right) -> levelRank(right) > levelRank(left) ? right : left);
+            byColumnName.merge(column.getName(), value,
+                    (left, right) -> levelRank(right.level()) > levelRank(left.level())
+                            ? right : left);
         }
-        return levelByColumnName.entrySet().stream()
-                .map(entry -> new SensitiveColumnView(entry.getKey(), entry.getValue()))
+        return byColumnName.entrySet().stream()
+                .map(entry -> new SensitiveColumnView(entry.getKey(),
+                        entry.getValue().category(), entry.getValue().level()))
                 .toList();
     }
 

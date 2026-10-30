@@ -30,7 +30,14 @@ export const catalogAssetApi = {
 
   listDatasets(
     sourceId: string,
-    params: { page: number; size: number; keyword?: string },
+    params: {
+      page: number
+      size: number
+      keyword?: string
+      domainId?: string
+      owner?: string
+      certificationStatus?: string
+    },
   ): Promise<PageResult<CatalogDataset>> {
     return http.get<PageResult<CatalogDataset>>(
       `/metadata/catalog/sources/${sourceId}/datasets`,

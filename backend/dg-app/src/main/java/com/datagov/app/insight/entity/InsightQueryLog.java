@@ -26,6 +26,7 @@ public class InsightQueryLog {
     private Integer rowCount;
     private Long elapsedMs;
     private String maskedColumns;
+    private String grantIds;
     private Boolean succeeded;
     private String errorMessage;
     private Instant createdAt;

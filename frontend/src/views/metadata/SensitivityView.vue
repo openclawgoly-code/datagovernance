@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { sensitivityApi } from '@/api/sensitivity'
 import { useAuthStore } from '@/stores/auth'
 import type {
@@ -26,6 +26,7 @@ type ReviewStatus = 'CONFIRMED' | 'REJECTED'
 type ScanMode = 'workspace' | 'dataset'
 
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 
 const tabs: DetailTab[] = [
@@ -79,6 +80,7 @@ let pendingReviewHandled = false
 
 const canScan = computed(() => auth.hasPermission('metadata:sensitivity:scan'))
 const canReview = computed(() => auth.hasPermission('metadata:sensitivity:review'))
+const canRequestAccess = computed(() => auth.hasPermission('metadata:access:request'))
 const scanResultText = computed(() => {
   if (!scanResult.value) {
     return ''
@@ -373,6 +375,27 @@ function openReview(label: any) {
   reviewDrawerVisible.value = true
 }
 
+/**
+ * 从标签发起临时访问申请。
+ *
+ * 预填类别与级别，但不自动提交 —— grant 是 workspace 内同类数据的权限，
+ * 用户必须在申请页填写原因和时长后才算提交。
+ */
+function applyAccess(label: any) {
+  if (!label?.category || !label?.level) {
+    ElMessage.warning('标签缺少类别或级别，无法发起申请')
+    return
+  }
+  router.push({
+    path: '/governance/access-requests',
+    query: {
+      apply: '1',
+      category: label.category,
+      level: label.level,
+    },
+  })
+}
+
 async function submitReview() {
   const label = currentLabel.value
   if (!label) {
@@ -592,10 +615,19 @@ onMounted(async () => {
                 <span v-else class="text-muted">-</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="86" fixed="right">
+            <el-table-column label="操作" width="160" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openReview(row)">
                   {{ canReview ? '复核' : '查看' }}
+                </el-button>
+                <el-button
+                  v-if="canRequestAccess"
+                  link
+                  type="warning"
+                  :disabled="!row.category || !row.level"
+                  @click="applyAccess(row)"
+                >
+                  申请访问
                 </el-button>
               </template>
             </el-table-column>
@@ -846,6 +878,15 @@ onMounted(async () => {
 
       <template #footer>
         <el-button @click="reviewDrawerVisible = false">关闭</el-button>
+        <el-button
+          v-if="canRequestAccess && currentLabel"
+          type="warning"
+          plain
+          :disabled="!currentLabel.category || !currentLabel.level"
+          @click="applyAccess(currentLabel)"
+        >
+          申请临时访问
+        </el-button>
         <el-button
           v-if="canReview"
           type="primary"
