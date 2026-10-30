@@ -309,3 +309,26 @@ curl -X POST http://localhost:8080/api/v1/insight/ask \
 > V23 支持平台用户 → SuperSonic 账号映射（`/insight/mappings`），口令通过平台凭据托管；无映射时回退服务账号。
 >
 > **DG_SECRET_KEY 必须固定**：凭据用它加密，换 key 后旧 credential 会解密失败。
+
+## 14. 前后端同源访问
+
+前端构建后，`dg-app` 的 Maven profile `frontend-dist` 会把 `frontend/dist` 打进
+jar 的 `static/`；启动后直接访问：
+
+```text
+http://localhost:18080/
+http://localhost:18080/insight/ask
+```
+
+构建顺序：
+
+```bash
+cd frontend
+npx pnpm@9.15.9 install --frozen-lockfile
+npx pnpm@9.15.9 build
+
+cd ..
+JAVA_HOME=<jdk21> mvn -pl backend/dg-app -am -DskipTests package
+```
+
+> `DG_SECRET_KEY` 必须固定保存；换 key 后已托管的 SuperSonic / 数据源凭据会解密失败。

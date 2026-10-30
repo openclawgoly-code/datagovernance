@@ -185,6 +185,7 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
 - **入口**：
   - 后端 `POST /api/v1/insight/ask`，前端不直连 SuperSonic；
   - 前端 `/insight/ask` 页面：数据集下拉、问题输入、ECharts 图表、结果表格、生成 SQL、脱敏提示、最近问数；
+  - 前端由 `dg-app` 同源托管（`frontend/dist` 打进 jar）；根路径 `/` 和 `/insight/**` 回退到 SPA；
   - 前端 `/insight/dashboards` 页面：看板列表、创建看板、保存问题项、删除、手动刷新、60 秒自动刷新、版本查看；
   - V18 菜单 `menu:insight`，权限 `insight:ask` / `insight:read`。
 - **数据集列表**：`GET /api/v1/insight/datasets`，从 SuperSonic 主题域/数据集树拍平。

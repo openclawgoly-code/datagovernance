@@ -88,4 +88,42 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!-- 前端已构建时把 dist 打进 jar,让 / 直接提供 SPA;未构建时跳过。 -->
+    <profile>
+      <id>frontend-dist</id>
+      <activation>
+        <file>
+          <exists>${project.basedir}/../../frontend/dist/index.html</exists>
+        </file>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-resources-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>copy-frontend-dist</id>
+                <phase>process-resources</phase>
+                <goals>
+                  <goal>copy-resources</goal>
+                </goals>
+                <configuration>
+                  <outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
+                  <resources>
+                    <resource>
+                      <directory>${project.basedir}/../../frontend/dist</directory>
+                      <filtering>false</filtering>
+                    </resource>
+                  </resources>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

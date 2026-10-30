@@ -1079,6 +1079,7 @@ python3 scripts/seed-synthetic-warehouse.py \
   - 复用同一问数链路,CSV 结果同样脱敏；
   - 写 `INSIGHT_EXPORT` 审计；
 - `POST /api/v1/insight/export/xlsx`：基于 Apache POI 生成 XLSX，同样脱敏/审计。
+- 前端同源托管：Maven profile `frontend-dist` 打包 `frontend/dist`，`SpaForwardController` 回退 SPA；
 - `V20/V21` + `/insight/dashboards`：
   - 看板列表、创建、保存问题项、删除；
   - V21 修正 `menu:insight` 父菜单与问数叶子的层级；
