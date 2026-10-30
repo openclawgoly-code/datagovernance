@@ -7,7 +7,6 @@ import com.datagov.common.error.ErrorCode;
 import com.datagov.common.id.Ids;
 import com.datagov.common.tenant.Caller;
 import com.datagov.common.tenant.WorkspaceContext;
-import com.datagov.governance.domain.AlertStatus;
 import com.datagov.governance.entity.GovernanceEntities.InboxState;
 import com.datagov.governance.mapper.InboxStateMapper;
 import com.datagov.governance.service.AlertService;
@@ -77,7 +76,7 @@ public class InboxService {
         String workspaceId = WorkspaceContext.requireWorkspaceId();
         long safePage = Math.max(1, page);
         long safeSize = Math.min(100, Math.max(1, size));
-        String sourceFilter = normalizeSource(sourceType, false);
+        String sourceFilter = normalizeSourceFilter(sourceType);
         String stateFilter = normalizeState(state);
         String severityFilter = normalizeSeverity(severity);
         String term = keyword == null ? null : keyword.trim().toLowerCase(Locale.ROOT);
@@ -105,13 +104,9 @@ public class InboxService {
 
         if ((sourceFilter == null || ALERT.equals(sourceFilter))
                 && caller.hasPermission("governance:alert:read")) {
-            PageResult<AlertView> result = alertService.list(1, SOURCE_LIMIT, null, null, null);
+            PageResult<AlertView> result = alertService.listOpen(1, SOURCE_LIMIT);
             truncated |= result.total() > result.records().size();
             for (AlertView alert : result.records()) {
-                if (alert.status() == AlertStatus.RESOLVED
-                        || alert.status() == AlertStatus.ACKNOWLEDGED) {
-                    continue;
-                }
                 items.add(alertItem(workspaceId, alert, stateMap));
             }
         }
@@ -239,6 +234,19 @@ public class InboxService {
 
     private static String key(String sourceType, String sourceId) {
         return sourceType + ":" + sourceId;
+    }
+
+    private static String normalizeSourceFilter(String value) {
+        if (value == null || value.isBlank() || "ALL".equalsIgnoreCase(value.trim())) {
+            return null;
+        }
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        if (EXECUTION.equals(normalized) || ALERT.equals(normalized)
+                || SENSITIVITY.equals(normalized)) {
+            return normalized;
+        }
+        throw new BizException(ErrorCode.SYS_VALIDATION_FAILED,
+                "来源类型只能是 EXECUTION / ALERT / SENSITIVITY");
     }
 
     private static String normalizeSource(String value, boolean strict) {

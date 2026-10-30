@@ -71,7 +71,7 @@ class InboxServiceTest {
         when(executionService.list(anyLong(), anyLong(), isNull(),
                 eq(ExecutionStatus.TIMEOUT), isNull()))
                 .thenReturn(PageResult.empty(1, 200));
-        when(alertService.list(anyLong(), anyLong(), isNull(), isNull(), isNull()))
+        when(alertService.listOpen(anyLong(), anyLong()))
                 .thenReturn(PageResult.of(List.of(alert("alt_1")), 1, 1, 200));
         when(sensitivityService.list(anyLong(), anyLong(), isNull(), eq("SUGGESTED"), isNull()))
                 .thenReturn(PageResult.of(List.of(sensitivity("sens_1")), 1, 1, 200));

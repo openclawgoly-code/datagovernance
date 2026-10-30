@@ -312,8 +312,21 @@ public class InsightDashboardService {
         if (request == null || request.username() == null || request.username().isBlank()) {
             throw new BizException(ErrorCode.SYS_VALIDATION_FAILED, "用户名不能为空");
         }
+        String username = request.username().trim();
+        String workspaceId = WorkspaceContext.requireWorkspaceId();
+        // 选择器只返回成员，但直接调 API 仍必须拒绝非成员/已禁用账号；
+        // 否则 ACL 会变成一条永远不会生效、却看起来已授权的脏记录。
+        List<String> memberIds = workspaceService.listMemberIds(workspaceId);
+        UserView target = memberIds.isEmpty() ? null
+                : userService.listByIds(memberIds).stream()
+                        .filter(user -> username.equals(user.username()))
+                        .findFirst().orElse(null);
+        if (target == null || !"ACTIVE".equalsIgnoreCase(target.status())) {
+            throw new BizException(ErrorCode.SYS_VALIDATION_FAILED,
+                    "只能授权当前空间的 ACTIVE 成员: " + username);
+        }
         String permission = request.permission() == null
-                ? "READ" : request.permission().toUpperCase();
+                ? "READ" : request.permission().trim().toUpperCase();
         if (!permission.equals("READ") && !permission.equals("MANAGE")) {
             throw new BizException(ErrorCode.SYS_VALIDATION_FAILED,
                     "看板权限只能是 READ / MANAGE");
@@ -321,12 +334,12 @@ public class InsightDashboardService {
         InsightDashboardAcl existing = aclMapper.selectOne(
                 new LambdaQueryWrapper<InsightDashboardAcl>()
                         .eq(InsightDashboardAcl::getDashboardId, dashboardId)
-                        .eq(InsightDashboardAcl::getUsername, request.username()));
+                        .eq(InsightDashboardAcl::getUsername, username));
         if (existing == null) {
             existing = new InsightDashboardAcl();
             existing.setId(Ids.of("dashacl"));
             existing.setDashboardId(dashboardId);
-            existing.setUsername(request.username());
+            existing.setUsername(username);
             existing.setCreatedAt(Instant.now());
             existing.setCreatedBy(caller.username());
         }

@@ -217,6 +217,24 @@ public class AlertService {
                 result.getTotal(), page, size);
     }
 
+    /**
+     * 仍需关注的告警（收件箱用）。
+     *
+     * <p>不能先取 200 条再在内存里过滤 ACK/RESOLVED——如果最近 200 条里有大量
+     * 已认领/已解决告警，真正的未处理告警会被挤出窗口。过滤必须在 SQL 里。
+     */
+    public PageResult<AlertView> listOpen(long page, long size) {
+        String workspaceId = WorkspaceContext.requireWorkspaceId();
+        LambdaQueryWrapper<Alert> wrapper = new LambdaQueryWrapper<Alert>()
+                .eq(Alert::getWorkspaceId, workspaceId)
+                .notIn(Alert::getStatus, List.of(AlertStatus.ACKNOWLEDGED,
+                        AlertStatus.RESOLVED))
+                .orderByDesc(Alert::getTriggeredAt);
+        Page<Alert> result = alertMapper.selectPage(Page.of(page, size), wrapper);
+        return PageResult.of(result.getRecords().stream().map(AlertView::from).toList(),
+                result.getTotal(), page, size);
+    }
+
     public AlertView get(String id) {
         return AlertView.from(requireAlert(id));
     }

@@ -177,10 +177,17 @@ public class AuditInterceptor implements HandlerInterceptor {
      * 这让 {@code /jobs/job_01.../run} 记的是任务 ID 而不是字面量 "run"。
      */
     private static String resourceIdOf(String path) {
-        String[] parts = path.split("/");
-        for (int i = parts.length - 1; i >= 0; i--) {
-            if (parts[i].matches("[a-z_]{2,10}_[0-9A-HJKMNP-TV-Z]{26}")) {
-                return parts[i];
+        // 收件箱的路径是 /inbox/{sourceType}/{sourceId}/dismiss|reopen；
+        // 审计需要能回答“移出的是哪一条”，所以用 sourceType:sourceId。
+        String[] segments = path.split("/");
+        for (int i = 0; i < segments.length; i++) {
+            if ("inbox".equals(segments[i]) && i + 2 < segments.length) {
+                return segments[i + 1].toUpperCase() + ":" + segments[i + 2];
+            }
+        }
+        for (int i = segments.length - 1; i >= 0; i--) {
+            if (segments[i].matches("[a-z_]{2,10}_[0-9A-HJKMNP-TV-Z]{26}")) {
+                return segments[i];
             }
         }
         return null;
