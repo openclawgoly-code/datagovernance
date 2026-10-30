@@ -5,7 +5,7 @@ context: |
   架构边界见 SPACE-MODEL.md / ARCHITECTURE.md；前端设计元语见 frontend/DESIGN.md；
   设计 token 在 frontend/src/styles/tokens.css；前端只消费 /api/v1，不直连 SuperSonic。
   AI 问数经 Query Gateway；StarRocks + MinIO 为当前 POC 服务层。
-  前端 P0 计划见 docs/plans/2026-10-30-frontend-p0.md；P1 计划见 docs/plans/2026-10-30-frontend-p1.md。
+  前端 P0/P1/P2 计划见 docs/plans/2026-10-30-frontend-p0.md、2026-10-30-frontend-p1.md、2026-10-30-frontend-p2.md。
 
 rules:
   proposal:
