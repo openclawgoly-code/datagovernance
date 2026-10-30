@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { insightApi } from '@/api/insight'
 import type {
@@ -18,6 +18,8 @@ const dialogVisible = ref(false)
 const draft = ref({ name: '', description: '' })
 const running = ref(false)
 const runResult = ref<InsightDashboardRun | null>(null)
+const autoRefresh = ref(false)
+let refreshTimer: number | undefined
 
 async function loadDashboards() {
   loading.value = true
@@ -54,14 +56,16 @@ async function createDashboard() {
   await loadDetail(created.id)
 }
 
-async function runDashboard() {
+async function runDashboard(silent = false) {
   if (!detail.value || running.value) {
     return
   }
   running.value = true
   try {
     runResult.value = await insightApi.runDashboard(detail.value.id)
-    ElMessage.success('看板已刷新')
+    if (!silent) {
+      ElMessage.success('看板已刷新')
+    }
   } finally {
     running.value = false
   }
@@ -101,7 +105,24 @@ async function removeItem(itemId: string) {
   await loadDetail(detail.value.id)
 }
 
+watch(autoRefresh, (enabled) => {
+  if (refreshTimer) {
+    window.clearInterval(refreshTimer)
+    refreshTimer = undefined
+  }
+  if (enabled) {
+    runDashboard(true)
+    refreshTimer = window.setInterval(() => runDashboard(true), 60_000)
+  }
+})
+
 onMounted(loadDashboards)
+
+onBeforeUnmount(() => {
+  if (refreshTimer) {
+    window.clearInterval(refreshTimer)
+  }
+})
 </script>
 
 <template>
@@ -146,12 +167,13 @@ onMounted(loadDashboards)
               </div>
               <div class="dashboard__actions">
                 <span class="text-muted">{{ detail.items.length }} 个问题</span>
+                <el-switch v-model="autoRefresh" active-text="自动刷新 60s" />
                 <el-button
                   size="small"
                   type="primary"
                   :loading="running"
                   :disabled="!detail.items.length"
-                  @click="runDashboard"
+                  @click="runDashboard()"
                 >
                   刷新看板
                 </el-button>

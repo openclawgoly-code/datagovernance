@@ -185,7 +185,7 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
 - **入口**：
   - 后端 `POST /api/v1/insight/ask`，前端不直连 SuperSonic；
   - 前端 `/insight/ask` 页面：数据集下拉、问题输入、ECharts 图表、结果表格、生成 SQL、脱敏提示、最近问数；
-  - 前端 `/insight/dashboards` 页面：看板列表、创建看板、保存问题项、删除、刷新执行；
+  - 前端 `/insight/dashboards` 页面：看板列表、创建看板、保存问题项、删除、手动刷新、60 秒自动刷新；
   - V18 菜单 `menu:insight`，权限 `insight:ask` / `insight:read`。
 - **数据集列表**：`GET /api/v1/insight/datasets`，从 SuperSonic 主题域/数据集树拍平。
 - **身份**：平台 JWT + `WorkspaceContext`；权限码 `insight:ask` / `insight:read`。
@@ -244,7 +244,7 @@ Catalog 访问对象存储；当前 POC 保留 `FILES()` 内表装载作为链�
 1. **真正 External Catalog**：HMS/Glue 或 S3 文件外表，替换 `FILES()` 内表；
 2. **身份细化**：平台用户 → SuperSonic 账号映射；当前网关用单一服务账号，workspace 隔离只在平台侧；
 3. **查询策略**：并发限流、按用户配额、更完整的 SQL 只读校验；
-4. **看板**：当前可手动刷新；定时自动刷新、布局、版本和权限细化待做；
+4. **看板**：已支持手动/60 秒自动刷新；布局、版本和权限细化待做；
 5. **导出**：PDF、审批流；CSV/XLSX 已做；
 6. **评测回归**：50 问变成回归集，语义模型变更必须跑；用真实业务问题替换合成题库。
 
