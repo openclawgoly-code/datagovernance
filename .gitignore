@@ -58,3 +58,4 @@ secrets/
 deploy/supersonic/.env
 deploy/supersonic/supersonic_pg/
 deploy/supersonic/supersonic_db/
+.gstack/
