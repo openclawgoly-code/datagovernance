@@ -10,16 +10,14 @@ body,
 }
 
 body {
-  font-family:
-    'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial,
-    'Noto Sans CJK SC', sans-serif;
-  background-color: #f5f7fa;
-  color: #303133;
+  font-family: var(--dg-font-sans);
+  background-color: var(--dg-canvas);
+  color: var(--dg-text);
 }
 
 /* 页面内容区的统一留白,让各视图不必各自定义 */
 .page-container {
-  padding: 16px;
+  padding: var(--dg-page-padding);
 }
 
 .page-toolbar {
@@ -40,11 +38,11 @@ body {
 
 /* 表格里的次要说明文字 */
 .text-muted {
-  color: #909399;
+  color: var(--dg-text-muted);
   font-size: 12px;
 }
 
 .text-mono {
-  font-family: 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-family: var(--dg-font-mono);
   font-size: 12px;
 }

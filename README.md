@@ -29,6 +29,9 @@
 完整推导见 [`SPACE-MODEL.md`](./SPACE-MODEL.md),35 项功能的归属见
 [`docs/function-space-matrix.md`](./docs/function-space-matrix.md)。
 
+架构术语与模块边界索引见 [`ARCHITECTURE.md`](./ARCHITECTURE.md)；
+前端设计元语见 [`frontend/DESIGN.md`](./frontend/DESIGN.md)。
+
 **面向使用者的操作手册**在 [`docs/user-manual.html`](./docs/user-manual.html) ——
 从建数据源到跑任务、看告警,含三台状态机速查、错误码归因表,以及可直接下载的
 公开测试数据集清单(与 `scripts/seed-public-datasets.sh` 对应)。

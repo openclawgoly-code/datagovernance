@@ -8,6 +8,7 @@ import 'element-plus/dist/index.css'
 import App from './App.vue'
 import router from './router'
 import { registerDirectives } from './directives/permission'
+import './styles/tokens.css'
 import './styles/main.css'
 
 const app = createApp(App)

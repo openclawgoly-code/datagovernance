@@ -23,7 +23,7 @@
 | [L](#l-technology-selection) | **L.0 语言选型(Java 为主)**、技术选型(开源 + 国产化双列)、连接器矩阵 | 技术负责人、采购 |
 | [M](#m-mvp--evolution-path) | 5 阶段演进路线与完成判据 | 项目经理 |
 | [N](#n-architecture-risks) | **10 条架构风险与优先级** | 项目经理、甲方沟通 |
-| [O](#o-核心元语闭环) · [P](#p-最终判定) | 核心闭环与最终判定 | 架构 |
+| [O](#o-核心元语闭环) · [P](#p-最终判定) | 核心闭环、前端/问数元语与最终判定 | 架构、前端 |
 | [Q](#q-模型自检) | 端到端走查、反例检查、自动化校验 | 评审 |
 
 **只有 15 分钟的话**:读 0 → B.1 → N → M。这四节包含了全部会影响排期与合同的结论。
@@ -1184,6 +1184,22 @@ E(t+1) = Execute( P(t), Data(t) )        执行产生事件
 其中 `M`=元数据状态,`D`=定义,`C`=治理约束,`R`=运行时能力,`P`=物理计划,`E`=执行事件。
 
 **这个闭环里 Governance 出现在 `C` 的位置** —— 治理约束是编译的输入,不是执行后的检查。这是「治理横切」在数学上的含义:如果治理只在事后检查,它就退化成了一个报表模块。
+
+### O.1 前端与问数元语(2026-10 增补)
+
+`SPACE-MODEL.md` 描述后端边界;前端与 AI 问数不新增 Space,而是在 UI / Governance 之上的一组稳定词汇:
+
+| 元语 | 边界 | 落点 |
+|---|---|---|
+| UI | 只消费 `/api/v1`,不直连数据库/SuperSonic | `frontend/` |
+| Insight | 受治理的 AI 问数产品面,不是新的 Space | `/api/v1/insight/*` |
+| Semantic Model | SuperSonic 内的指标/维度/数据集定义 | 外部服务 |
+| Query Gateway | 平台身份、限流、脱敏、审计的唯一入口 | `InsightQueryService` |
+| Design Token | 前端颜色/间距/字体的稳定变量 | `frontend/src/styles/tokens.css` |
+
+因此 `Insight` 不是第 9 个 Space;它是 Governance 约束下的一个产品入口。外部语义引擎(SuperSonic)可以被替换,但 Query Gateway 的身份、脱敏和审计契约不变。
+
+完整索引见 [`ARCHITECTURE.md`](./ARCHITECTURE.md),前端设计元语见 [`frontend/DESIGN.md`](./frontend/DESIGN.md)。
 
 ---
 

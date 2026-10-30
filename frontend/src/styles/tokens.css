@@ -1,0 +1,50 @@
+/*
+ * UI 设计元语(design tokens)。
+ *
+ * 只用 CSS 变量表达颜色/圆角/间距,页面里不要再散落 #409eff、#f5f7fa 这类字面量。
+ * 变量命名以 dg- 开头,避免和 Element Plus 的 --el-* 混淆;需要覆盖 Element 时
+ * 在 main.css 里显式映射,而不是直接改组件库内部变量。
+ */
+:root {
+  /* 画布与表面 */
+  --dg-canvas: #f5f7fa;
+  --dg-surface: #ffffff;
+  --dg-surface-muted: #fafafa;
+
+  /* 侧边栏 */
+  --dg-sidebar: #304156;
+  --dg-sidebar-active: #263445;
+  --dg-sidebar-text: #bfcbd9;
+  --dg-sidebar-text-active: #ffffff;
+
+  /* 文字与边框 */
+  --dg-text: #303133;
+  --dg-text-secondary: #606266;
+  --dg-text-muted: #909399;
+  --dg-border: #e4e7ed;
+  --dg-border-strong: #dcdfe6;
+
+  /* 语义色:与 Element Plus 默认语义对齐 */
+  --dg-primary: #409eff;
+  --dg-success: #67c23a;
+  --dg-warning: #e6a23c;
+  --dg-danger: #f56c6c;
+  --dg-info: #909399;
+
+  /* 尺寸与节奏 */
+  --dg-radius: 6px;
+  --dg-radius-lg: 8px;
+  --dg-page-padding: 16px;
+  --dg-sidebar-width: 220px;
+  --dg-header-height: 60px;
+  --dg-space-xs: 4px;
+  --dg-space-sm: 8px;
+  --dg-space-md: 12px;
+  --dg-space-lg: 16px;
+  --dg-space-xl: 24px;
+
+  /* 字体 */
+  --dg-font-sans: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Helvetica,
+    Arial, 'Noto Sans CJK SC', sans-serif;
+  --dg-font-mono: 'JetBrains Mono', Menlo, Consolas, monospace;
+}
