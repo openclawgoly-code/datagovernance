@@ -1,20 +1,20 @@
 # SuperSonic 50 问评测结果
 
-- 时间：2026-10-29 00:26:49
-- 总数：50，PASS：49，PARTIAL：0，FAIL：1
-- 通过率：98.0%
+- 时间：2026-10-29 18:26:26
+- 总数：50，PASS：50，PARTIAL：0，FAIL：0
+- 通过率：100.0%
 
 | # | 分类 | 数据集 | 问题 | 结果 | 生成 SQL |
 |---:|---|---|---|---|---|
 | 1 | DWS 聚合 | dws_sales_master_0000 | 按状态统计记录数 | PASS | `with t_36 as (SELECT `cnt`, `status` FROM `synthetic`.`dws_sales_master_0000`) SELECT status, SUM(cnt) AS `_record_count_` FROM t_36 GROUP BY status LIMIT 1000` |
 | 2 | DWS 聚合 | dws_sales_master_0000 | 按区域统计总金额 | PASS | `with t_36 as (SELECT `total_amount`, `region` FROM `synthetic`.`dws_sales_master_0000`) SELECT region, SUM(total_amount) AS `_total_amount_` FROM t_36 GROUP BY region LIMIT 1000` |
-| 3 | DWS 趋势 | dws_sales_master_0000 | 按日期统计总金额 | PASS | `with t_36 as (SELECT `dt`, `total_amount` FROM `synthetic`.`dws_sales_master_0000`) SELECT dt, SUM(total_amount) AS `_total_amount_` FROM t_36 GROUP BY dt ORDER BY dt LIMIT 1000` |
+| 3 | DWS 趋势 | dws_sales_master_0000 | 按日期统计总金额 | PASS | `with t_36 as (SELECT `dt`, `total_amount` FROM `synthetic`.`dws_sales_master_0000`) SELECT dt, SUM(total_amount) AS `_total_amount_` FROM t_36 GROUP BY dt LIMIT 1000` |
 | 4 | DWS TopN | dws_sales_master_0000 | 总金额最高的3个区域，并返回对应总金额 | PASS | `with t_36 as (SELECT `total_amount`, `region` FROM `synthetic`.`dws_sales_master_0000`) SELECT region, SUM(total_amount) AS `_total_amount_` FROM t_36 GROUP BY region ORDER BY `_total_amount_` DESC LIMIT 3` |
-| 5 | DWS 聚合 | dws_order_master_0001 | 按状态统计记录数 | FAIL | `with t_37 as (SELECT `cnt`, `status` FROM `synthetic`.`dws_order_master_0001`) SELECT status, COUNT(cnt) AS `_记录数_` FROM t_37 GROUP BY status LIMIT 1000` |
+| 5 | DWS 聚合 | dws_order_master_0001 | 按状态统计记录数 | PASS | `with t_37 as (SELECT `cnt`, `status` FROM `synthetic`.`dws_order_master_0001`) SELECT status, SUM(cnt) AS `_record_count_` FROM t_37 GROUP BY status LIMIT 1000` |
 | 6 | DWS 聚合 | dws_order_master_0001 | 按区域统计总金额 | PASS | `with t_37 as (SELECT `total_amount`, `region` FROM `synthetic`.`dws_order_master_0001`) SELECT region, SUM(total_amount) AS `_total_amount_` FROM t_37 GROUP BY region LIMIT 1000` |
 | 7 | DWS 趋势 | dws_order_master_0001 | 按日期统计总金额 | PASS | `with t_37 as (SELECT `dt`, `total_amount` FROM `synthetic`.`dws_order_master_0001`) SELECT dt, SUM(total_amount) AS `_total_amount_` FROM t_37 GROUP BY dt LIMIT 1000` |
 | 8 | DWS TopN | dws_order_master_0001 | 总金额最高的3个区域，并返回对应总金额 | PASS | `with t_37 as (SELECT `total_amount`, `region` FROM `synthetic`.`dws_order_master_0001`) SELECT region, SUM(total_amount) AS `_total_amount_` FROM t_37 GROUP BY region ORDER BY `_total_amount_` DESC LIMIT 3` |
-| 9 | DWS 聚合 | dws_customer_master_0002 | 按状态统计记录数 | PASS | `with t_38 as (SELECT `cnt`, `status` FROM `synthetic`.`dws_customer_master_0002`) SELECT status, SUM(cnt) AS `_record_count_` FROM t_38 GROUP BY status LIMIT 1000` |
+| 9 | DWS 聚合 | dws_customer_master_0002 | 按状态统计记录数 | PASS | `with t_38 as (SELECT `cnt`, `status` FROM `synthetic`.`dws_customer_master_0002`) SELECT status, SUM(cnt) AS `_total_records_` FROM t_38 GROUP BY status LIMIT 1000` |
 | 10 | DWS 聚合 | dws_customer_master_0002 | 按区域统计总金额 | PASS | `with t_38 as (SELECT `total_amount`, `region` FROM `synthetic`.`dws_customer_master_0002`) SELECT region, SUM(total_amount) AS `_total_amount_` FROM t_38 GROUP BY region LIMIT 1000` |
 | 11 | DWS 趋势 | dws_customer_master_0002 | 按日期统计总金额 | PASS | `with t_38 as (SELECT `dt`, `total_amount` FROM `synthetic`.`dws_customer_master_0002`) SELECT dt, SUM(total_amount) AS `_total_amount_` FROM t_38 GROUP BY dt LIMIT 1000` |
 | 12 | DWS TopN | dws_customer_master_0002 | 总金额最高的3个区域，并返回对应总金额 | PASS | `with t_38 as (SELECT `total_amount`, `region` FROM `synthetic`.`dws_customer_master_0002`) SELECT region, SUM(total_amount) AS `_total_amount_` FROM t_38 GROUP BY region ORDER BY `_total_amount_` DESC LIMIT 3` |
@@ -59,9 +59,4 @@
 
 ## 失败/部分通过明细
 
-### 5. 按状态统计记录数（dws_order_master_0001）
-- 结果：FAIL
-- 生成 SQL：`with t_37 as (SELECT `cnt`, `status` FROM `synthetic`.`dws_order_master_0001`) SELECT status, COUNT(cnt) AS `_记录数_` FROM t_37 GROUP BY status LIMIT 1000`
-- 错误：value mismatch
-- 期望：{"ACTIVE": 307.0, "INACTIVE": 334.0, "PENDING": 359.0}
-- 实际：{"INACTIVE": 31.0, "ACTIVE": 31.0, "PENDING": 31.0}
+无。

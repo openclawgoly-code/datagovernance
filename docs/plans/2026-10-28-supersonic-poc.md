@@ -1,7 +1,7 @@
 # SuperSonic AI 问数 POC（Phase 1）
 
 - 日期：2026-10-28
-- 状态：ClickHouse 50/50、StarRocks 49/50 PASS；Phase 2 问数网关、前端入口、CSV 导出已落地；待真正 External Catalog、用户级映射和看板细化
+- 状态：ClickHouse 50/50、StarRocks 50/50 PASS；Phase 2 问数网关、前端入口、CSV/XLSX 导出、看板已落地；待真正 External Catalog、用户级映射和看板细化
 - 关联：`docs/plans/2026-10-26-catalog-lakehouse-lineage.md` §20
 - 部署说明：`deploy/supersonic/README.md`
 
@@ -216,7 +216,7 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
   - `columns_from_path="dt"` 还原 `dt` 分区列；
 - SuperSonic 数据源 `synthetic_starrocks`（id=4）`testConnect=true`；
 - StarRocks 主题域 `销售分析-StarRocks`（id=5），20 个模型/数据集，助手 id=6；
-- StarRocks 50 问评测：**49 PASS / 1 FAIL**，见
+- StarRocks 50 问评测：**50 PASS / 0 FAIL**，见
   `docs/plans/2026-10-29-supersonic-starrocks-50-eval.md`；
 - 平台已切到助手 6 / 数据集 36，`/insight/ask` 和 CSV 导出均验证通过。
 

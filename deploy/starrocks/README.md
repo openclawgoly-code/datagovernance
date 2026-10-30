@@ -77,7 +77,7 @@ docker network connect supersonic_supersonic_network dg-starrocks
 - 主题域 `销售分析-StarRocks`（id=5）
 - 20 个模型 / 20 个数据集
 - 助手 `销售分析助手-StarRocks`（id=6）
-- 50 问评测：`docs/plans/2026-10-29-supersonic-starrocks-50-eval.md`（49/50 PASS）
+- 50 问评测：`docs/plans/2026-10-29-supersonic-starrocks-50-eval.md`（50/50 PASS）
 
 批量建模型：
 

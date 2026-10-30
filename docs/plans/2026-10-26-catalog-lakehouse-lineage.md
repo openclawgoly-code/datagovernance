@@ -1117,7 +1117,7 @@ python3 scripts/seed-synthetic-warehouse.py \
   - 主题域 `销售分析-StarRocks`（id=5）；
   - 20 个模型/数据集；
   - 助手 id=6；
-  - 50 问评测 **49/50 PASS**，见 `docs/plans/2026-10-29-supersonic-starrocks-50-eval.md`。
+  - 50 问评测 **50/50 PASS**，见 `docs/plans/2026-10-29-supersonic-starrocks-50-eval.md`。
 - 平台网关切到 StarRocks 助手/数据集，`/insight/ask`、CSV 导出验证通过。
 
 ### 限制

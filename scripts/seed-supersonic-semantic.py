@@ -88,8 +88,9 @@ PROMPT_FIX = (
     "7.Alias created by `AS` command must use ASCII letters, digits and underscores only; "
     "NEVER use Chinese characters in aliases or CTE names.\n"
     "8.If the question asks for a metric that exists in the Schema "
-    "(for example 记录数/总金额), use that metric and its aggregation; "
-    "do NOT replace it with COUNT(*) unless no matching metric exists.\n"
+    "(for example 记录数/订单数/总金额), use that metric and its aggregation. "
+    "COUNT(cnt) and COUNT(*) are wrong for 记录数/订单数 when cnt is already "
+    "an aggregated count; use SUM(cnt) instead.\n"
     "9.The final SQL must be executable by ClickHouse: "
     "avoid unquoted non-ASCII identifiers."
 )
