@@ -206,7 +206,13 @@ public class LineageService {
 
     private GraphView graph(String nodeId, boolean upstream, int depth) {
         String workspaceId = WorkspaceContext.requireWorkspaceId();
-        requireNode(nodeId);
+        // 调用方通常持有 catalogColumnId(资产详情页就是如此);血缘节点 ID 只在
+        // 血缘内部使用。先按任一标识解析,找不到说明该字段还没有血缘,返回空图。
+        LineageNode start = findNode(workspaceId, nodeId);
+        if (start == null) {
+            return new GraphView(List.of(), List.of());
+        }
+        nodeId = start.getId();
         int levels = Math.max(1, Math.min(depth, MAX_DEPTH));
 
         Set<String> visitedNodes = new LinkedHashSet<>();
@@ -310,6 +316,13 @@ public class LineageService {
             }
         }
         return node;
+    }
+
+    private LineageNode findNode(String workspaceId, String id) {
+        return nodeMapper.selectOne(new LambdaQueryWrapper<LineageNode>()
+                .eq(LineageNode::getWorkspaceId, workspaceId)
+                .and(w -> w.eq(LineageNode::getId, id)
+                        .or().eq(LineageNode::getCatalogColumnId, id)));
     }
 
     private LineageNode requireNode(String nodeId) {

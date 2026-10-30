@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 import { catalogAssetApi } from '@/api/catalog-assets'
 import { dataSourceApi } from '@/api/datasource'
 import { confirmDanger } from '@/utils/confirm'
@@ -20,6 +21,7 @@ import type {
  * 数据集的字段/分区在抽屉里看 —— 列表页只带摘要,正文/分区不随列表一起拉。
  */
 
+const router = useRouter()
 const sources = ref<CatalogSource[]>([])
 const selected = ref<CatalogSource | null>(null)
 const datasets = ref<CatalogDataset[]>([])
@@ -178,6 +180,10 @@ async function removeSource() {
   await loadSources()
 }
 
+function openAssetDetail(row: any) {
+  router.push(`/metadata/assets/${row.id}`)
+}
+
 async function openDetail(row: CatalogDataset) {
   detailLoading.value = true
   detailVisible.value = true
@@ -310,6 +316,11 @@ onMounted(loadSources)
               <el-table-column label="更新于" width="180">
                 <template #default="{ row }">{{ formatDateTime(row.updatedAt) }}</template>
               </el-table-column>
+              <el-table-column label="操作" width="110" fixed="right">
+                <template #default="{ row }">
+                  <el-button link type="primary" @click.stop="openAssetDetail(row)">打开详情</el-button>
+                </template>
+              </el-table-column>
             </el-table>
 
             <div class="pagination">
@@ -389,6 +400,9 @@ onMounted(loadSources)
     <el-drawer v-model="detailVisible" title="数据集详情" size="720px">
       <el-empty v-if="!detail && !detailLoading" description="暂无数据" />
       <div v-else v-loading="detailLoading">
+        <div v-if="detail" class="drawer-actions">
+          <el-button type="primary" @click="openAssetDetail(detail.dataset)">打开完整详情</el-button>
+        </div>
         <el-descriptions v-if="detail" :column="2" border>
           <el-descriptions-item label="名称">{{ detail.dataset.name }}</el-descriptions-item>
           <el-descriptions-item label="限定名">
@@ -509,6 +523,12 @@ onMounted(loadSources)
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+
+.drawer-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
 }
 
 .mono {

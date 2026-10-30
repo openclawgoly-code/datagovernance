@@ -24,6 +24,11 @@ export interface CatalogDataset {
   comment: string | null
   schemaHash: string | null
   columnCount: number | null
+  rowCount?: number | null
+  sizeBytes?: number | null
+  location?: string | null
+  propertiesJson?: string | null
+  lastModifiedAt?: string | null
   updatedAt: string
 }
 
@@ -47,6 +52,7 @@ export interface CatalogPartition {
   valuesJson: string | null
   fileCount: number | null
   sizeBytes: number | null
+  rowCount?: number | null
   lastModifiedAt: string | null
 }
 

@@ -126,12 +126,15 @@ public class CatalogAssetService {
     public record DatasetView(String id, String sourceId, String namespaceId, String name,
                               String qualifiedName, String kind, String format,
                               String comment, String schemaHash, Integer columnCount,
-                              Instant updatedAt) {
+                              Long rowCount, Long sizeBytes, String location,
+                              String propertiesJson, Instant lastModifiedAt, Instant updatedAt) {
         static DatasetView from(CatalogDataset dataset) {
             return new DatasetView(dataset.getId(), dataset.getSourceId(),
                     dataset.getNamespaceId(), dataset.getName(), dataset.getQualifiedName(),
                     dataset.getKind(), dataset.getFormat(), dataset.getComment(),
-                    dataset.getSchemaHash(), dataset.getColumnCount(), dataset.getUpdatedAt());
+                    dataset.getSchemaHash(), dataset.getColumnCount(), dataset.getRowCount(),
+                    dataset.getSizeBytes(), dataset.getLocation(), dataset.getPropertiesJson(),
+                    dataset.getLastModifiedAt(), dataset.getUpdatedAt());
         }
     }
 
@@ -148,11 +151,13 @@ public class CatalogAssetService {
     }
 
     public record PartitionView(String id, String path, String valuesJson,
-                                Long fileCount, Long sizeBytes, Instant lastModifiedAt) {
+                                Long fileCount, Long sizeBytes, Long rowCount,
+                                Instant lastModifiedAt) {
         static PartitionView from(CatalogPartition partition) {
             return new PartitionView(partition.getId(), partition.getPartitionPath(),
                     partition.getPartitionValuesJson(), partition.getFileCount(),
-                    partition.getSizeBytes(), partition.getLastModifiedAt());
+                    partition.getSizeBytes(), partition.getRowCount(),
+                    partition.getLastModifiedAt());
         }
     }
 
