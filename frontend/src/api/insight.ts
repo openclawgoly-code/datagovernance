@@ -3,7 +3,9 @@ import type {
   InsightAnswer,
   InsightDashboard,
   InsightDashboardDetail,
+  InsightDashboardAcl,
   InsightDashboardItem,
+  InsightDashboardItemUpdate,
   InsightDashboardRun,
   InsightDashboardVersion,
   InsightSupersonicMapping,
@@ -55,6 +57,21 @@ export const insightApi = {
   },
   dashboardVersions(id: string) {
     return http.get<InsightDashboardVersion[]>(`/insight/dashboards/${id}/versions`)
+  },
+  dashboardAcl(id: string) {
+    return http.get<InsightDashboardAcl[]>(`/insight/dashboards/${id}/acl`)
+  },
+  addDashboardAcl(id: string, payload: InsightDashboardAcl) {
+    return http.post<InsightDashboardAcl>(`/insight/dashboards/${id}/acl`, payload)
+  },
+  removeDashboardAcl(id: string, username: string) {
+    return http.delete<void>(`/insight/dashboards/${id}/acl/${encodeURIComponent(username)}`)
+  },
+  updateDashboardItem(id: string, itemId: string, payload: InsightDashboardItemUpdate) {
+    return http.patch<InsightDashboardItem>(
+      `/insight/dashboards/${id}/items/${itemId}`,
+      payload,
+    )
   },
   mappings() {
     return http.get<InsightSupersonicMapping[]>('/insight/mappings')

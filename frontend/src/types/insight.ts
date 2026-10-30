@@ -106,3 +106,13 @@ export interface InsightSupersonicMapping {
   createdBy?: string
   updatedAt: string
 }
+
+export interface InsightDashboardAcl {
+  username: string
+  permission: 'READ' | 'MANAGE'
+}
+
+export interface InsightDashboardItemUpdate {
+  sortOrder?: number
+  layoutJson?: string
+}

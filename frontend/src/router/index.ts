@@ -36,6 +36,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '智能问数', permission: 'insight:ask' },
       },
       {
+        path: 'insight/queries',
+        name: 'insight-queries',
+        component: () => import('@/views/insight/QueryHistoryView.vue'),
+        meta: { title: '查询历史', permission: 'insight:read' },
+      },
+      {
         path: 'insight/dashboards',
         name: 'insight-dashboards',
         component: () => import('@/views/insight/DashboardView.vue'),
@@ -52,6 +58,24 @@ const routes: RouteRecordRaw[] = [
         name: 'datasources',
         component: () => import('@/views/metadata/DataSourceListView.vue'),
         meta: { title: '数据源', permission: 'metadata:datasource:read' },
+      },
+      {
+        path: 'metadata/assets/:id',
+        name: 'metadata-asset-detail',
+        component: () => import('@/views/metadata/AssetDetailView.vue'),
+        meta: { title: '资产详情', permission: 'metadata:asset:read' },
+      },
+      {
+        path: 'metadata/lineage',
+        name: 'metadata-lineage',
+        component: () => import('@/views/metadata/LineageView.vue'),
+        meta: { title: '字段血缘', permission: 'metadata:lineage:read' },
+      },
+      {
+        path: 'metadata/sensitivity',
+        name: 'metadata-sensitivity',
+        component: () => import('@/views/metadata/SensitivityView.vue'),
+        meta: { title: '敏感数据', permission: 'metadata:sensitivity:read' },
       },
       {
         path: 'metadata/catalog',

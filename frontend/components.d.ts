@@ -7,6 +7,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    DetailTabs: typeof import('./src/components/insight/DetailTabs.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAside: typeof import('element-plus/es')['ElAside']
     ElBreadcrumb: typeof import('element-plus/es')['ElBreadcrumb']
@@ -59,8 +60,16 @@ declare module 'vue' {
     ElTree: typeof import('element-plus/es')['ElTree']
     ElTreeSelect: typeof import('element-plus/es')['ElTreeSelect']
     ElUpload: typeof import('element-plus/es')['ElUpload']
+    EmptyState: typeof import('./src/components/common/EmptyState.vue')['default']
+    EntityLink: typeof import('./src/components/insight/EntityLink.vue')['default']
+    FilterBar: typeof import('./src/components/common/FilterBar.vue')['default']
+    MetadataPanel: typeof import('./src/components/insight/MetadataPanel.vue')['default']
+    PageHeader: typeof import('./src/components/common/PageHeader.vue')['default']
+    QuerySqlBlock: typeof import('./src/components/insight/QuerySqlBlock.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SensitivityBadge: typeof import('./src/components/insight/SensitivityBadge.vue')['default']
+    StatusTag: typeof import('./src/components/insight/StatusTag.vue')['default']
   }
   export interface ComponentCustomProperties {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']
