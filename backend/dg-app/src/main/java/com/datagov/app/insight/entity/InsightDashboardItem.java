@@ -19,6 +19,7 @@ public class InsightDashboardItem {
     private Long datasetId;
     private String chartType;
     private Integer sortOrder;
+    private String layoutJson;
     private String createdBy;
     private Instant createdAt;
 }

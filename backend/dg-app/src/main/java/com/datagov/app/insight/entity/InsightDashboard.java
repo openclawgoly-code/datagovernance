@@ -19,6 +19,8 @@ public class InsightDashboard {
     private String name;
     private String description;
     private String createdBy;
+    private String visibility;
+    private Integer version;
     private Instant createdAt;
     private Instant updatedAt;
 

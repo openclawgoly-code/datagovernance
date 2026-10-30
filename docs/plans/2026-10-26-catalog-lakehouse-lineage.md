@@ -1083,7 +1083,8 @@ python3 scripts/seed-synthetic-warehouse.py \
   - V21 修正 `menu:insight` 父菜单与问数叶子的层级；
   - 看板只保存问题定义,打开时重新问数,不落结果快照；
   - `POST /{id}/run` 逐项重新问数并返回结果,单题失败不拖垮看板；
-  - 前端支持手动刷新和 60 秒自动刷新。
+  - 前端支持手动刷新和 60 秒自动刷新；
+  - V22 增加看板版本快照、ACL(READ/MANAGE)与问题项 layout_json/排序接口。
 
 ### 验证
 

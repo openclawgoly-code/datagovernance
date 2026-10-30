@@ -1,11 +1,15 @@
 package com.datagov.app.insight;
 
+import com.datagov.app.insight.InsightDashboardService.AclRequest;
+import com.datagov.app.insight.InsightDashboardService.AclView;
 import com.datagov.app.insight.InsightDashboardService.CreateRequest;
 import com.datagov.app.insight.InsightDashboardService.DashboardDetail;
 import com.datagov.app.insight.InsightDashboardService.DashboardView;
 import com.datagov.app.insight.InsightDashboardService.ItemRequest;
+import com.datagov.app.insight.InsightDashboardService.ItemUpdateRequest;
 import com.datagov.app.insight.InsightDashboardService.ItemView;
 import com.datagov.app.insight.InsightDashboardService.RunResult;
+import com.datagov.app.insight.InsightDashboardService.VersionView;
 import com.datagov.app.web.RequirePermission;
 import com.datagov.common.api.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -13,6 +17,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -65,6 +70,46 @@ public class InsightDashboardController {
     public ApiResponse<ItemView> addItem(@PathVariable String id,
                                          @RequestBody ItemRequest request) {
         return ApiResponse.ok(service.addItem(id, request));
+    }
+
+    @PatchMapping("/{id}/items/{itemId}")
+    @RequirePermission("insight:dashboard:manage")
+    @Operation(summary = "更新问题项排序/布局")
+    public ApiResponse<ItemView> updateItem(@PathVariable String id,
+                                            @PathVariable String itemId,
+                                            @RequestBody ItemUpdateRequest request) {
+        return ApiResponse.ok(service.updateItem(id, itemId, request));
+    }
+
+    @GetMapping("/{id}/versions")
+    @RequirePermission("insight:dashboard:read")
+    @Operation(summary = "看板版本历史")
+    public ApiResponse<List<VersionView>> versions(@PathVariable String id) {
+        return ApiResponse.ok(service.versions(id));
+    }
+
+    @GetMapping("/{id}/acl")
+    @RequirePermission("insight:dashboard:read")
+    @Operation(summary = "看板 ACL")
+    public ApiResponse<List<AclView>> acl(@PathVariable String id) {
+        return ApiResponse.ok(service.acl(id));
+    }
+
+    @PostMapping("/{id}/acl")
+    @RequirePermission("insight:dashboard:manage")
+    @Operation(summary = "授予看板 READ/MANAGE")
+    public ApiResponse<AclView> addAcl(@PathVariable String id,
+                                       @RequestBody AclRequest request) {
+        return ApiResponse.ok(service.addAcl(id, request));
+    }
+
+    @DeleteMapping("/{id}/acl/{username}")
+    @RequirePermission("insight:dashboard:manage")
+    @Operation(summary = "移除看板 ACL")
+    public ApiResponse<Void> removeAcl(@PathVariable String id,
+                                       @PathVariable String username) {
+        service.removeAcl(id, username);
+        return ApiResponse.ok();
     }
 
     @DeleteMapping("/{id}")

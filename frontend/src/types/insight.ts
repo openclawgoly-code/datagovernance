@@ -42,6 +42,8 @@ export interface InsightDashboard {
   name: string
   description?: string
   itemCount: number
+  version?: number
+  visibility?: string
   createdBy?: string
   updatedAt: string
 }
@@ -52,12 +54,15 @@ export interface InsightDashboardItem {
   datasetId?: number
   chartType: string
   sortOrder: number
+  layoutJson?: string
 }
 
 export interface InsightDashboardDetail {
   id: string
   name: string
   description?: string
+  version?: number
+  visibility?: string
   createdBy?: string
   updatedAt: string
   items: InsightDashboardItem[]
@@ -83,4 +88,11 @@ export interface InsightDashboardRun {
   name: string
   refreshedAt: string
   items: InsightDashboardRunItem[]
+}
+
+export interface InsightDashboardVersion {
+  version: number
+  createdBy?: string
+  createdAt: string
+  itemCount: number
 }

@@ -7,6 +7,7 @@ import type {
   InsightDashboard,
   InsightDashboardDetail,
   InsightDashboardRun,
+  InsightDashboardVersion,
 } from '@/types/insight'
 import { formatDateTime } from '@/utils/format'
 
@@ -18,6 +19,8 @@ const dialogVisible = ref(false)
 const draft = ref({ name: '', description: '' })
 const running = ref(false)
 const runResult = ref<InsightDashboardRun | null>(null)
+const versionDialog = ref(false)
+const versions = ref<InsightDashboardVersion[]>([])
 const autoRefresh = ref(false)
 let refreshTimer: number | undefined
 
@@ -69,6 +72,14 @@ async function runDashboard(silent = false) {
   } finally {
     running.value = false
   }
+}
+
+async function openVersions() {
+  if (!detail.value) {
+    return
+  }
+  versions.value = await insightApi.dashboardVersions(detail.value.id)
+  versionDialog.value = true
 }
 
 function answerColumns(answer?: InsightAnswer) {
@@ -166,7 +177,9 @@ onBeforeUnmount(() => {
                 <div class="text-muted">{{ detail.description || '暂无描述' }}</div>
               </div>
               <div class="dashboard__actions">
+                <el-tag size="small">v{{ detail.version }}</el-tag>
                 <span class="text-muted">{{ detail.items.length }} 个问题</span>
+                <el-button size="small" @click="openVersions">版本</el-button>
                 <el-switch v-model="autoRefresh" active-text="自动刷新 60s" />
                 <el-button
                   size="small"
@@ -236,6 +249,17 @@ onBeforeUnmount(() => {
         </el-col>
       </el-row>
     </el-card>
+
+    <el-dialog v-model="versionDialog" title="看板版本" width="520px">
+      <el-table :data="versions" size="small">
+        <el-table-column prop="version" label="版本" width="80" />
+        <el-table-column prop="itemCount" label="问题数" width="90" />
+        <el-table-column prop="createdBy" label="创建人" width="100" />
+        <el-table-column label="时间">
+          <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
 
     <el-dialog v-model="dialogVisible" title="新建看板" width="480px">
       <el-form label-position="top">

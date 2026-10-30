@@ -5,6 +5,7 @@ import type {
   InsightDashboardDetail,
   InsightDashboardItem,
   InsightDashboardRun,
+  InsightDashboardVersion,
   InsightDataset,
   InsightPage,
   InsightQueryLog,
@@ -50,5 +51,8 @@ export const insightApi = {
   },
   runDashboard(id: string) {
     return http.post<InsightDashboardRun>(`/insight/dashboards/${id}/run`)
+  },
+  dashboardVersions(id: string) {
+    return http.get<InsightDashboardVersion[]>(`/insight/dashboards/${id}/versions`)
   },
 }

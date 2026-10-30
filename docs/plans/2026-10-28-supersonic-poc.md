@@ -185,7 +185,7 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
 - **入口**：
   - 后端 `POST /api/v1/insight/ask`，前端不直连 SuperSonic；
   - 前端 `/insight/ask` 页面：数据集下拉、问题输入、ECharts 图表、结果表格、生成 SQL、脱敏提示、最近问数；
-  - 前端 `/insight/dashboards` 页面：看板列表、创建看板、保存问题项、删除、手动刷新、60 秒自动刷新；
+  - 前端 `/insight/dashboards` 页面：看板列表、创建看板、保存问题项、删除、手动刷新、60 秒自动刷新、版本查看；
   - V18 菜单 `menu:insight`，权限 `insight:ask` / `insight:read`。
 - **数据集列表**：`GET /api/v1/insight/datasets`，从 SuperSonic 主题域/数据集树拍平。
 - **身份**：平台 JWT + `WorkspaceContext`；权限码 `insight:ask` / `insight:read`。
@@ -204,7 +204,7 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
   - `POST /api/v1/insight/export` 导出 CSV、`/export/xlsx` 导出 XLSX，需 `insight:export` 权限，导出同样脱敏并写 `INSIGHT_EXPORT` 审计；
   - 前端 `pnpm type-check`、`pnpm build` 通过，页面路由 `/insight/ask` 已注册，页面含“导出 CSV / XLSX”按钮；
   - 前端按结果自动选图：日期维度用折线图，其余维度用柱状图（ECharts 6，按需引入）；
-  - 看板 API：`/api/v1/insight/dashboards`，保存问题定义；`POST /{id}/run` 逐项重新问数并返回结果。
+  - 看板 API：保存问题定义；`POST /{id}/run` 逐项重新问数；`GET /{id}/versions` 版本历史；`GET/POST/DELETE /{id}/acl` 细粒度 ACL；`PATCH /{id}/items/{itemId}` 排序/布局。
 
 ### 8.2 已完成：StarRocks + MinIO 本地验证
 
@@ -244,7 +244,7 @@ Catalog 访问对象存储；当前 POC 保留 `FILES()` 内表装载作为链�
 1. **真正 External Catalog**：HMS/Glue 或 S3 文件外表，替换 `FILES()` 内表；
 2. **身份细化**：平台用户 → SuperSonic 账号映射；当前网关用单一服务账号，workspace 隔离只在平台侧；
 3. **查询策略**：并发限流、按用户配额、更完整的 SQL 只读校验；
-4. **看板**：已支持手动/60 秒自动刷新；布局、版本和权限细化待做；
+4. **看板**：已支持手动/60 秒刷新、版本快照、ACL、排序/布局字段；拖拽布局 UI、版本回滚待做；
 5. **导出**：PDF、审批流；CSV/XLSX 已做；
 6. **评测回归**：50 问变成回归集，语义模型变更必须跑；用真实业务问题替换合成题库。
 
