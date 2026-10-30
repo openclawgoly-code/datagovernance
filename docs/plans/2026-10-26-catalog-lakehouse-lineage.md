@@ -1081,7 +1081,8 @@ python3 scripts/seed-synthetic-warehouse.py \
 - `V20/V21` + `/insight/dashboards`：
   - 看板列表、创建、保存问题项、删除；
   - V21 修正 `menu:insight` 父菜单与问数叶子的层级；
-  - 看板只保存问题定义,打开时重新问数,不落结果快照。
+  - 看板只保存问题定义,打开时重新问数,不落结果快照；
+  - `POST /{id}/run` 逐项重新问数并返回结果,单题失败不拖垮看板。
 
 ### 验证
 

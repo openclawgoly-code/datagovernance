@@ -2,7 +2,12 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { insightApi } from '@/api/insight'
-import type { InsightDashboard, InsightDashboardDetail } from '@/types/insight'
+import type {
+  InsightAnswer,
+  InsightDashboard,
+  InsightDashboardDetail,
+  InsightDashboardRun,
+} from '@/types/insight'
 import { formatDateTime } from '@/utils/format'
 
 const dashboards = ref<InsightDashboard[]>([])
@@ -11,6 +16,8 @@ const loading = ref(false)
 const selectedId = ref('')
 const dialogVisible = ref(false)
 const draft = ref({ name: '', description: '' })
+const running = ref(false)
+const runResult = ref<InsightDashboardRun | null>(null)
 
 async function loadDashboards() {
   loading.value = true
@@ -45,6 +52,33 @@ async function createDashboard() {
   draft.value = { name: '', description: '' }
   await loadDashboards()
   await loadDetail(created.id)
+}
+
+async function runDashboard() {
+  if (!detail.value || running.value) {
+    return
+  }
+  running.value = true
+  try {
+    runResult.value = await insightApi.runDashboard(detail.value.id)
+    ElMessage.success('看板已刷新')
+  } finally {
+    running.value = false
+  }
+}
+
+function answerColumns(answer?: InsightAnswer) {
+  if (!answer) {
+    return []
+  }
+  if (answer.columns?.length) {
+    return answer.columns.map((column) => ({
+      key: column.bizName || column.name,
+      label: column.name,
+    }))
+  }
+  const first = answer.rows?.[0]
+  return first ? Object.keys(first).map((key) => ({ key, label: key })) : []
 }
 
 async function removeDashboard(id: string) {
@@ -110,7 +144,18 @@ onMounted(loadDashboards)
                 <h3>{{ detail.name }}</h3>
                 <div class="text-muted">{{ detail.description || '暂无描述' }}</div>
               </div>
-              <span class="text-muted">{{ detail.items.length }} 个问题</span>
+              <div class="dashboard__actions">
+                <span class="text-muted">{{ detail.items.length }} 个问题</span>
+                <el-button
+                  size="small"
+                  type="primary"
+                  :loading="running"
+                  :disabled="!detail.items.length"
+                  @click="runDashboard"
+                >
+                  刷新看板
+                </el-button>
+              </div>
             </div>
 
             <el-table :data="detail.items" size="small">
@@ -124,6 +169,46 @@ onMounted(loadDashboards)
               </el-table-column>
             </el-table>
             <el-empty v-if="!detail.items.length" description="去智能问数页把问题保存到看板" />
+
+            <template v-if="runResult">
+              <el-divider>刷新于 {{ formatDateTime(runResult.refreshedAt) }}</el-divider>
+              <el-card
+                v-for="item in runResult.items"
+                :key="item.itemId"
+                shadow="never"
+                class="dashboard__result"
+              >
+                <template #header>
+                  <div class="dashboard__result-header">
+                    <span>{{ item.question }}</span>
+                    <el-tag :type="item.succeeded ? 'success' : 'danger'" size="small">
+                      {{ item.succeeded ? 'SUCCESS' : 'FAILED' }}
+                    </el-tag>
+                  </div>
+                </template>
+                <el-alert
+                  v-if="!item.succeeded"
+                  type="error"
+                  show-icon
+                  :closable="false"
+                  :title="item.error || '执行失败'"
+                />
+                <template v-else-if="item.answer">
+                  <div v-if="item.answer.summary" class="dashboard__summary">
+                    {{ item.answer.summary }}
+                  </div>
+                  <el-table :data="item.answer.rows" size="small" max-height="220">
+                    <el-table-column
+                      v-for="column in answerColumns(item.answer)"
+                      :key="column.key"
+                      :prop="column.key"
+                      :label="column.label"
+                      min-width="120"
+                    />
+                  </el-table>
+                </template>
+              </el-card>
+            </template>
           </template>
           <el-empty v-else description="选择左侧看板查看详情" />
         </el-col>
@@ -160,6 +245,27 @@ onMounted(loadDashboards)
   justify-content: space-between;
   margin-bottom: 12px;
   gap: 12px;
+}
+
+.dashboard__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dashboard__result {
+  margin-top: 12px;
+}
+
+.dashboard__result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dashboard__summary {
+  margin-bottom: 8px;
+  line-height: 1.6;
 }
 
 .dashboard__title h3 {

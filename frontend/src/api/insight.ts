@@ -4,6 +4,7 @@ import type {
   InsightDashboard,
   InsightDashboardDetail,
   InsightDashboardItem,
+  InsightDashboardRun,
   InsightDataset,
   InsightPage,
   InsightQueryLog,
@@ -46,5 +47,8 @@ export const insightApi = {
   },
   deleteDashboardItem(id: string, itemId: string) {
     return http.delete<void>(`/insight/dashboards/${id}/items/${itemId}`)
+  },
+  runDashboard(id: string) {
+    return http.post<InsightDashboardRun>(`/insight/dashboards/${id}/run`)
   },
 }

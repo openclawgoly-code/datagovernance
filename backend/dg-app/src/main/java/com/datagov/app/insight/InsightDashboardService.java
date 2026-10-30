@@ -27,11 +27,14 @@ public class InsightDashboardService {
 
     private final InsightDashboardMapper dashboardMapper;
     private final InsightDashboardItemMapper itemMapper;
+    private final InsightQueryService queryService;
 
     public InsightDashboardService(InsightDashboardMapper dashboardMapper,
-                                   InsightDashboardItemMapper itemMapper) {
+                                   InsightDashboardItemMapper itemMapper,
+                                   InsightQueryService queryService) {
         this.dashboardMapper = dashboardMapper;
         this.itemMapper = itemMapper;
+        this.queryService = queryService;
     }
 
     public record DashboardView(String id, String name, String description,
@@ -57,6 +60,14 @@ public class InsightDashboardService {
     public record ItemRequest(String question, Long datasetId, String chartType) {
     }
 
+    public record RunItem(String itemId, String question, boolean succeeded,
+                          InsightQueryService.Answer answer, String error) {
+    }
+
+    public record RunResult(String dashboardId, String name, Instant refreshedAt,
+                            List<RunItem> items) {
+    }
+
     public List<DashboardView> list() {
         String workspaceId = WorkspaceContext.requireWorkspaceId();
         return dashboardMapper.selectList(new LambdaQueryWrapper<InsightDashboard>()
@@ -80,6 +91,29 @@ public class InsightDashboardService {
         return new DashboardDetail(dashboard.getId(), dashboard.getName(),
                 dashboard.getDescription(), dashboard.getCreatedBy(),
                 dashboard.getUpdatedAt(), items);
+    }
+
+    /**
+     * 重新执行看板上的全部问题。单个问题失败不拖垮整个看板 —— 看板里一条
+     * 问题坏掉时,业务还想看到其余数字。
+     */
+    public RunResult run(String id) {
+        Caller caller = WorkspaceContext.require();
+        if (!caller.hasPermission("insight:ask")) {
+            throw BizException.forbidden("缺少权限: insight:ask");
+        }
+        DashboardDetail detail = get(id);
+        List<RunItem> items = detail.items().stream().map(item -> {
+            try {
+                InsightQueryService.Answer answer = queryService.ask(
+                        new InsightQueryService.AskRequest(
+                                item.question(), item.datasetId(), null));
+                return new RunItem(item.id(), item.question(), true, answer, null);
+            } catch (RuntimeException e) {
+                return new RunItem(item.id(), item.question(), false, null, e.getMessage());
+            }
+        }).toList();
+        return new RunResult(detail.id(), detail.name(), Instant.now(), items);
     }
 
     public DashboardView create(CreateRequest request) {

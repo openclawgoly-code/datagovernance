@@ -69,3 +69,18 @@ export interface InsightPage<T> {
   page: number
   size: number
 }
+
+export interface InsightDashboardRunItem {
+  itemId: string
+  question: string
+  succeeded: boolean
+  answer?: InsightAnswer
+  error?: string
+}
+
+export interface InsightDashboardRun {
+  dashboardId: string
+  name: string
+  refreshedAt: string
+  items: InsightDashboardRunItem[]
+}

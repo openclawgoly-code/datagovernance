@@ -5,6 +5,7 @@ import com.datagov.app.insight.InsightDashboardService.DashboardDetail;
 import com.datagov.app.insight.InsightDashboardService.DashboardView;
 import com.datagov.app.insight.InsightDashboardService.ItemRequest;
 import com.datagov.app.insight.InsightDashboardService.ItemView;
+import com.datagov.app.insight.InsightDashboardService.RunResult;
 import com.datagov.app.web.RequirePermission;
 import com.datagov.common.api.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -49,6 +50,13 @@ public class InsightDashboardController {
     @Operation(summary = "看板详情")
     public ApiResponse<DashboardDetail> get(@PathVariable String id) {
         return ApiResponse.ok(service.get(id));
+    }
+
+    @PostMapping("/{id}/run")
+    @RequirePermission("insight:dashboard:read")
+    @Operation(summary = "重新执行看板全部问题")
+    public ApiResponse<RunResult> run(@PathVariable String id) {
+        return ApiResponse.ok(service.run(id));
     }
 
     @PostMapping("/{id}/items")
