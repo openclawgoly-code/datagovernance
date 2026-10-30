@@ -14,6 +14,8 @@ import com.datagov.metadata.mapper.ColumnSensitivityMapper;
 import com.datagov.metadata.mapper.ScanFindingMapper;
 import com.datagov.metadata.mapper.ScanRunMapper;
 import com.datagov.metadata.mapper.SensitivityRuleMapper;
+import com.datagov.metadata.service.SensitivityService.BatchReviewRequest;
+import com.datagov.metadata.service.SensitivityService.BatchReviewResult;
 import com.datagov.metadata.service.SensitivityService.ReviewRequest;
 import com.datagov.metadata.service.SensitivityService.ScanRequest;
 import com.datagov.metadata.service.SensitivityService.ScanResult;
@@ -30,6 +32,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -126,6 +129,56 @@ class SensitivityServiceTest {
     }
 
     @Nested
+    @DisplayName("批量复核")
+    class BatchReview {
+
+        @Test
+        @DisplayName("部分成功:缺失标签进入 failures,其余更新")
+        void batchPartialSuccess() {
+            ColumnSensitivity first = label("sens_1", "L2");
+            ColumnSensitivity second = label("sens_2", "L3");
+            when(sensitivityMapper.selectList(any())).thenReturn(List.of(first, second));
+
+            BatchReviewResult result = service.batchReview(new BatchReviewRequest(
+                    List.of("sens_1", "sens_2", "missing"), "CONFIRMED", "L4"));
+
+            assertThat(result.requested()).isEqualTo(3);
+            assertThat(result.succeeded()).isEqualTo(2);
+            assertThat(result.failed()).isEqualTo(1);
+            assertThat(result.failures().get(0).id()).isEqualTo("missing");
+            assertThat(first.getLevel()).isEqualTo("L4");
+            assertThat(first.getReviewedBy()).isEqualTo(USER);
+            assertThat(second.getLevel()).isEqualTo("L4");
+            verify(sensitivityMapper, times(2)).updateById(any(ColumnSensitivity.class));
+        }
+
+        @Test
+        @DisplayName("批量拒绝不改变级别")
+        void rejectKeepsLevel() {
+            ColumnSensitivity label = label("sens_1", "L2");
+            when(sensitivityMapper.selectList(any())).thenReturn(List.of(label));
+
+            BatchReviewResult result = service.batchReview(new BatchReviewRequest(
+                    List.of("sens_1"), "REJECTED", "L4"));
+
+            assertThat(result.succeeded()).isEqualTo(1);
+            assertThat(label.getStatus()).isEqualTo("REJECTED");
+            assertThat(label.getLevel()).isEqualTo("L2");
+        }
+
+        @Test
+        @DisplayName("超过 200 条直接拒绝")
+        void rejectsMoreThan200() {
+            List<String> ids = java.util.stream.IntStream.range(0, 201)
+                    .mapToObj(i -> "sens_" + i).toList();
+
+            assertThatThrownBy(() -> service.batchReview(
+                    new BatchReviewRequest(ids, "CONFIRMED", null)))
+                    .hasMessageContaining("200");
+        }
+    }
+
+    @Nested
     @DisplayName("复核")
     class Review {
 
@@ -155,6 +208,18 @@ class SensitivityServiceTest {
             assertThat(view.datasetQualifiedName()).isEqualTo("ecology.oa_user");
             verify(sensitivityMapper).updateById(label);
         }
+    }
+
+    private static ColumnSensitivity label(String id, String level) {
+        ColumnSensitivity label = new ColumnSensitivity();
+        label.setId(id);
+        label.setWorkspaceId(WORKSPACE);
+        label.setDatasetId("catds_1");
+        label.setColumnId("col_1");
+        label.setCategory("PII");
+        label.setLevel(level);
+        label.setStatus("SUGGESTED");
+        return label;
     }
 
     private static CatalogDataset dataset() {

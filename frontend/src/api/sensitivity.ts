@@ -1,6 +1,8 @@
 import { http } from './request'
 import type { PageResult } from '@/types/api'
 import type {
+  SensitivityBatchReviewRequest,
+  SensitivityBatchReviewResult,
   SensitivityLabel,
   SensitivityReviewRequest,
   SensitivityRule,
@@ -25,5 +27,11 @@ export const sensitivityApi = {
   },
   review(id: string, payload: SensitivityReviewRequest): Promise<SensitivityLabel> {
     return http.post<SensitivityLabel>(`/metadata/sensitivity/columns/${id}/review`, payload)
+  },
+  batchReview(payload: SensitivityBatchReviewRequest): Promise<SensitivityBatchReviewResult> {
+    return http.post<SensitivityBatchReviewResult>(
+      '/metadata/sensitivity/columns/batch-review',
+      payload,
+    )
   },
 }

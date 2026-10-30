@@ -4,6 +4,8 @@ import com.datagov.app.web.RequirePermission;
 import com.datagov.common.api.ApiResponse;
 import com.datagov.common.api.PageResult;
 import com.datagov.metadata.service.SensitivityService;
+import com.datagov.metadata.service.SensitivityService.BatchReviewRequest;
+import com.datagov.metadata.service.SensitivityService.BatchReviewResult;
 import com.datagov.metadata.service.SensitivityService.ReviewRequest;
 import com.datagov.metadata.service.SensitivityService.RuleView;
 import com.datagov.metadata.service.SensitivityService.ScanRequest;
@@ -63,6 +65,15 @@ public class SensitivityController {
             description = "按字段名/注释匹配规则;可指定 datasetId,也可全工作区扫描")
     public ApiResponse<ScanResult> scan(@RequestBody(required = false) ScanRequest request) {
         return ApiResponse.ok(sensitivityService.scan(request));
+    }
+
+    @PostMapping("/columns/batch-review")
+    @RequirePermission("metadata:sensitivity:review")
+    @Operation(summary = "批量复核敏感标签",
+            description = "一次最多 200 条;部分标签不存在时返回失败列表,不中断其余更新")
+    public ApiResponse<BatchReviewResult> batchReview(
+            @RequestBody BatchReviewRequest request) {
+        return ApiResponse.ok(sensitivityService.batchReview(request));
     }
 
     @PostMapping("/columns/{id}/review")

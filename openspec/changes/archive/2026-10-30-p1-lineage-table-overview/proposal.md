@@ -7,7 +7,7 @@ P0 血缘工作台只到列级。数据管家评估“改这张表会影响哪�
 ## What Changes
 
 - 新增表级血缘聚合端点：
-  - `GET /api/v1/metadata/lineage/datasets/{id}/graph?direction=upstream|downstream|both&depth=1..3`
+  - `GET /api/v1/metadata/lineage/datasets/{id}/graph?direction=upstream|downstream|both&depth=1..5`（页面控制 1–3，影响清单用 5）
   - 将列级节点按 `catalogDatasetId` 聚合为数据集节点，列级边聚合为数据集边
   - 边上保留列级边数量，节点详情可回到资产详情
 - `/metadata/lineage` 增加“字段级 / 表级”模式切换

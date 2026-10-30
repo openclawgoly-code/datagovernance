@@ -192,3 +192,28 @@ export interface AuditQuery {
   from?: string
   to?: string
 }
+
+// ── P1 治理收件箱 ────────────────────────────────────────────────────
+
+export type InboxSourceType = 'EXECUTION' | 'ALERT' | 'SENSITIVITY'
+export type InboxItemState = 'OPEN' | 'DISMISSED'
+
+export interface InboxItem {
+  sourceType: InboxSourceType
+  sourceId: string
+  title: string
+  summary: string
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+  occurredAt: string
+  sourceState: string
+  state: InboxItemState
+  route: string
+}
+
+export interface InboxPage {
+  records: InboxItem[]
+  total: number
+  page: number
+  size: number
+  truncated: boolean
+}

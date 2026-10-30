@@ -3,6 +3,7 @@ import type {
   InsightAnswer,
   InsightDashboard,
   InsightDashboardDetail,
+  InsightAclCandidate,
   InsightDashboardAcl,
   InsightDashboardItem,
   InsightDashboardItemUpdate,
@@ -27,7 +28,13 @@ export const insightApi = {
   exportXlsx(payload: { question: string; dataSetId?: number }) {
     return http.postBlob('/insight/export/xlsx', payload)
   },
-  queries(params: { page?: number; size?: number } = {}) {
+  queries(params: {
+    page?: number
+    size?: number
+    keyword?: string
+    succeeded?: boolean
+    username?: string
+  } = {}) {
     return http.get<InsightPage<InsightQueryLog>>('/insight/queries', params)
   },
   dashboards() {
@@ -66,6 +73,11 @@ export const insightApi = {
   },
   removeDashboardAcl(id: string, username: string) {
     return http.delete<void>(`/insight/dashboards/${id}/acl/${encodeURIComponent(username)}`)
+  },
+  dashboardAclCandidates(id: string, keyword?: string) {
+    return http.get<InsightAclCandidate[]>(`/insight/dashboards/${id}/acl/candidates`, {
+      keyword,
+    })
   },
   updateDashboardItem(id: string, itemId: string, payload: InsightDashboardItemUpdate) {
     return http.patch<InsightDashboardItem>(

@@ -15,4 +15,14 @@ export const lineageApi = {
   impact(columnId: string, depth = 5): Promise<LineageGraph> {
     return http.get<LineageGraph>(`/metadata/lineage/columns/${columnId}/impact`, { depth })
   },
+  datasetGraph(
+    datasetId: string,
+    direction: 'upstream' | 'downstream' | 'both',
+    depth = 2,
+  ): Promise<LineageGraph> {
+    return http.get<LineageGraph>(`/metadata/lineage/datasets/${datasetId}/graph`, {
+      direction,
+      depth,
+    })
+  },
 }

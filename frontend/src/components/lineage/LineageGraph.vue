@@ -12,9 +12,11 @@ const props = withDefaults(defineProps<{
   edges: LineageEdge[]
   selectedId?: string
   height?: number
+  showEdgeLabels?: boolean
 }>(), {
   selectedId: '',
   height: 560,
+  showEdgeLabels: false,
 })
 
 const emit = defineEmits<{ select: [id: string] }>()
@@ -201,6 +203,8 @@ function seriesData(palette: ReturnType<typeof chartPalette>) {
 }
 
 function seriesLinks() {
+  const textColor = cssVar('--dg-text-secondary', '#606266')
+  const backgroundColor = cssVar('--dg-surface', '#ffffff')
   return visibleEdges.value.map((edge) => ({
     source: edge.fromNodeId,
     target: edge.toNodeId,
@@ -208,6 +212,15 @@ function seriesLinks() {
     transformExpr: edge.transformExpr,
     confidence: edge.confidence,
     origin: edge.origin,
+    label: {
+      show: props.showEdgeLabels,
+      formatter: edge.transformExpr || edge.relation,
+      fontSize: 10,
+      color: textColor,
+      backgroundColor,
+      padding: [2, 4],
+      borderRadius: 3,
+    },
     lineStyle: {
       color: 'source',
       width: 1.2,

@@ -14,6 +14,9 @@ import com.datagov.common.error.ErrorCode;
 import com.datagov.common.id.Ids;
 import com.datagov.common.tenant.Caller;
 import com.datagov.common.tenant.WorkspaceContext;
+import com.datagov.platform.dto.UserView;
+import com.datagov.platform.service.UserService;
+import com.datagov.platform.service.WorkspaceService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
@@ -21,8 +24,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 问数看板。
@@ -44,19 +49,25 @@ public class InsightDashboardService {
     private final InsightDashboardVersionMapper versionMapper;
     private final InsightQueryService queryService;
     private final ObjectMapper objectMapper;
+    private final WorkspaceService workspaceService;
+    private final UserService userService;
 
     public InsightDashboardService(InsightDashboardMapper dashboardMapper,
                                    InsightDashboardItemMapper itemMapper,
                                    InsightDashboardAclMapper aclMapper,
                                    InsightDashboardVersionMapper versionMapper,
                                    InsightQueryService queryService,
-                                   ObjectMapper objectMapper) {
+                                   ObjectMapper objectMapper,
+                                   WorkspaceService workspaceService,
+                                   UserService userService) {
         this.dashboardMapper = dashboardMapper;
         this.itemMapper = itemMapper;
         this.aclMapper = aclMapper;
         this.versionMapper = versionMapper;
         this.queryService = queryService;
         this.objectMapper = objectMapper;
+        this.workspaceService = workspaceService;
+        this.userService = userService;
     }
 
     public record DashboardView(String id, String name, String description,
@@ -91,6 +102,9 @@ public class InsightDashboardService {
     }
 
     public record AclRequest(String username, String permission) {
+    }
+
+    public record AclCandidateView(String username, String displayName, String status) {
     }
 
     public record VersionView(Integer version, String createdBy, Instant createdAt,
@@ -261,6 +275,25 @@ public class InsightDashboardService {
                 .eq(InsightDashboardItem::getDashboardId, dashboardId)
                 .eq(InsightDashboardItem::getId, itemId));
         bumpVersion(dashboard, caller.username());
+    }
+
+    public List<AclCandidateView> aclCandidates(String dashboardId, String keyword) {
+        requireManageable(dashboardId);
+        String workspaceId = WorkspaceContext.requireWorkspaceId();
+        Set<String> members = new HashSet<>(workspaceService.listMemberIds(workspaceId));
+        Set<String> granted = new HashSet<>(aclMapper.selectList(
+                        new LambdaQueryWrapper<InsightDashboardAcl>()
+                                .eq(InsightDashboardAcl::getDashboardId, dashboardId)).stream()
+                .map(InsightDashboardAcl::getUsername).toList());
+        String term = keyword == null ? null : keyword.trim();
+        return userService.list(term).stream()
+                .filter(user -> members.contains(user.id()))
+                .filter(user -> "ACTIVE".equalsIgnoreCase(user.status()))
+                .filter(user -> !granted.contains(user.username()))
+                .limit(20)
+                .map(user -> new AclCandidateView(user.username(), user.displayName(),
+                        user.status()))
+                .toList();
     }
 
     public List<AclView> acl(String dashboardId) {

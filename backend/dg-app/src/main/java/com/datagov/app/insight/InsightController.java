@@ -94,8 +94,11 @@ public class InsightController {
     @Operation(summary = "问数记录", description = "当前空间的问数事实,用于审计/质量复盘")
     public ApiResponse<PageResult<QueryLogView>> queries(
             @RequestParam(defaultValue = "1") long page,
-            @RequestParam(defaultValue = "20") long size) {
-        return ApiResponse.ok(queryService.history(page, size));
+            @RequestParam(defaultValue = "20") long size,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Boolean succeeded,
+            @RequestParam(required = false) String username) {
+        return ApiResponse.ok(queryService.history(page, size, keyword, succeeded, username));
     }
 
     @GetMapping("/config")

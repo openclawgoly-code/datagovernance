@@ -81,4 +81,15 @@ public class LineageController {
                                          @RequestParam(defaultValue = "5") int depth) {
         return ApiResponse.ok(lineageService.impact(id, depth));
     }
+
+    @GetMapping("/datasets/{id}/graph")
+    @RequirePermission("metadata:lineage:read")
+    @Operation(summary = "表级血缘",
+            description = "列级事实按数据集聚合; direction=upstream/downstream/both, depth 上限 5")
+    public ApiResponse<GraphView> datasetGraph(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "both") String direction,
+            @RequestParam(defaultValue = "2") int depth) {
+        return ApiResponse.ok(lineageService.datasetGraph(id, direction, depth));
+    }
 }

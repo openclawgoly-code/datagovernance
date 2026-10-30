@@ -1,5 +1,6 @@
 package com.datagov.app.insight;
 
+import com.datagov.app.insight.InsightDashboardService.AclCandidateView;
 import com.datagov.app.insight.InsightDashboardService.AclRequest;
 import com.datagov.app.insight.InsightDashboardService.AclView;
 import com.datagov.app.insight.InsightDashboardService.CreateRequest;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -93,6 +95,16 @@ public class InsightDashboardController {
     @Operation(summary = "看板 ACL")
     public ApiResponse<List<AclView>> acl(@PathVariable String id) {
         return ApiResponse.ok(service.acl(id));
+    }
+
+    @GetMapping("/{id}/acl/candidates")
+    @RequirePermission("insight:dashboard:manage")
+    @Operation(summary = "看板 ACL 候选用户",
+            description = "只返回当前空间 ACTIVE 成员，排除已授权用户，最多 20 条")
+    public ApiResponse<List<AclCandidateView>> aclCandidates(
+            @PathVariable String id,
+            @RequestParam(required = false) String keyword) {
+        return ApiResponse.ok(service.aclCandidates(id, keyword));
     }
 
     @PostMapping("/{id}/acl")

@@ -316,12 +316,24 @@ public class InsightQueryService {
         return text;
     }
 
-    public PageResult<QueryLogView> history(long page, long size) {
+    public PageResult<QueryLogView> history(long page, long size, String keyword,
+                                            Boolean succeeded, String username) {
         String workspaceId = WorkspaceContext.requireWorkspaceId();
-        Page<InsightQueryLog> result = logMapper.selectPage(Page.of(page, size),
-                new LambdaQueryWrapper<InsightQueryLog>()
-                        .eq(InsightQueryLog::getWorkspaceId, workspaceId)
-                        .orderByDesc(InsightQueryLog::getCreatedAt));
+        String term = keyword == null ? null : keyword.trim();
+        if (term != null && term.length() > 200) {
+            throw new BizException(ErrorCode.SYS_VALIDATION_FAILED,
+                    "查询关键词不能超过 200 字");
+        }
+        String user = username == null ? null : username.trim();
+        LambdaQueryWrapper<InsightQueryLog> wrapper = new LambdaQueryWrapper<InsightQueryLog>()
+                .eq(InsightQueryLog::getWorkspaceId, workspaceId)
+                .and(term != null && !term.isBlank(),
+                        w -> w.like(InsightQueryLog::getQuestion, term)
+                                .or().like(InsightQueryLog::getGeneratedSql, term))
+                .eq(succeeded != null, InsightQueryLog::getSucceeded, succeeded)
+                .eq(user != null && !user.isBlank(), InsightQueryLog::getUsername, user)
+                .orderByDesc(InsightQueryLog::getCreatedAt);
+        Page<InsightQueryLog> result = logMapper.selectPage(Page.of(page, size), wrapper);
         return PageResult.of(result.getRecords().stream().map(QueryLogView::from).toList(),
                 result.getTotal(), page, size);
     }

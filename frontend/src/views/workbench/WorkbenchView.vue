@@ -64,6 +64,7 @@ const canSensitivity = computed(() => auth.hasPermission('metadata:sensitivity:r
 const canInsight = computed(() => auth.hasPermission('insight:read'))
 const canAsk = computed(() => auth.hasPermission('insight:ask'))
 const canAsset = computed(() => auth.hasPermission('metadata:asset:read'))
+const canInbox = computed(() => auth.hasPermission('governance:inbox:read'))
 
 const datasourceSummary = computed(() => {
   const counts = new Map<DataSourceStatus, number>()
@@ -130,6 +131,7 @@ const quickLinks = computed(() =>
     { label: '敏感复核', to: '/metadata/sensitivity', show: canSensitivity.value },
     { label: '执行记录', to: '/ops/executions', show: canExecution.value },
     { label: '告警信息', to: '/ops/alerts', show: canAlert.value },
+    { label: '治理收件箱', to: '/workbench/inbox', show: canInbox.value },
     { label: '数据源', to: '/metadata/datasources', show: canDatasource.value },
   ].filter((link) => link.show),
 )
@@ -371,9 +373,14 @@ onMounted(loadAll)
             <h3>需要处理</h3>
             <span class="text-muted">失败执行、未处理告警与待复核标签</span>
           </div>
-          <el-tag :type="attentionCount > 0 ? 'danger' : 'success'" size="large">
-            {{ attentionCount > 0 ? `${attentionCount} 项` : '已清空' }}
-          </el-tag>
+          <div class="section-head__right">
+            <el-button v-if="canInbox" link type="primary" @click="go('/workbench/inbox')">
+              打开收件箱
+            </el-button>
+            <el-tag :type="attentionCount > 0 ? 'danger' : 'success'" size="large">
+              {{ attentionCount > 0 ? `${attentionCount} 项` : '已清空' }}
+            </el-tag>
+          </div>
         </div>
 
         <el-row :gutter="16" class="attention-row">
@@ -651,6 +658,12 @@ onMounted(loadAll)
   margin: 0 0 2px;
   font-size: 16px;
   color: var(--dg-text);
+}
+
+.section-head__right {
+  display: flex;
+  align-items: center;
+  gap: var(--dg-space-sm);
 }
 
 .attention-row,

@@ -30,6 +30,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '工作台' },
       },
       {
+        path: 'workbench/inbox',
+        name: 'workbench-inbox',
+        component: () => import('@/views/workbench/InboxView.vue'),
+        meta: { title: '治理收件箱', permission: 'governance:inbox:read' },
+      },
+      {
         path: 'insight/ask',
         name: 'insight-ask',
         component: () => import('@/views/insight/AskView.vue'),

@@ -21,6 +21,8 @@ export interface LineageEdge {
 export interface LineageGraph {
   nodes: LineageNode[]
   edges: LineageEdge[]
+  /** 表级聚合时无法归属数据集的列级边数量。 */
+  unattributedEdges?: number
 }
 
 /** 图上的节点相对中心字段的位置：负数上游、正数下游、0 为中心。 */
@@ -39,4 +41,6 @@ export interface ImpactItem {
   displayName?: string | null
   catalogDatasetId?: string | null
   catalogColumnId?: string | null
+  /** 表级影响清单用：该节点关联的表级边数量。 */
+  edgeCount?: number
 }

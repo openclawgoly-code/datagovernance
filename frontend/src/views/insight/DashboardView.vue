@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { insightApi } from '@/api/insight'
 import { useAuthStore } from '@/stores/auth'
 import type {
+  InsightAclCandidate,
   InsightAnswer,
   InsightDashboard,
   InsightDashboardAcl,
@@ -27,7 +28,10 @@ const versions = ref<InsightDashboardVersion[]>([])
 const autoRefresh = ref(false)
 const aclDrawer = ref(false)
 const acl = ref<InsightDashboardAcl[]>([])
+const aclCandidates = ref<InsightAclCandidate[]>([])
 const aclLoading = ref(false)
+const aclCandidateLoading = ref(false)
+const aclCandidateError = ref('')
 const aclSubmitting = ref(false)
 const aclForm = ref<{ username: string; permission: 'READ' | 'MANAGE' }>({
   username: '',
@@ -35,6 +39,8 @@ const aclForm = ref<{ username: string; permission: 'READ' | 'MANAGE' }>({
 })
 const reordering = ref(false)
 let refreshTimer: number | undefined
+let candidateTimer: ReturnType<typeof setTimeout> | null = null
+let candidateSequence = 0
 
 const canManage = computed(() => auth.hasPermission('insight:dashboard:manage'))
 const canAsk = computed(() => auth.hasPermission('insight:ask'))
@@ -108,7 +114,44 @@ async function openAcl() {
   }
   aclForm.value = { username: '', permission: 'READ' }
   aclDrawer.value = true
+  aclCandidateError.value = ''
   await loadAcl()
+  if (canManage.value) {
+    await loadAclCandidates('')
+  }
+}
+
+async function loadAclCandidates(keyword: string) {
+  if (!detail.value || !canManage.value) {
+    return
+  }
+  const sequence = ++candidateSequence
+  aclCandidateLoading.value = true
+  aclCandidateError.value = ''
+  try {
+    const candidates = await insightApi.dashboardAclCandidates(detail.value.id, keyword.trim() || undefined)
+    if (sequence === candidateSequence) {
+      aclCandidates.value = candidates
+    }
+  } catch {
+    if (sequence === candidateSequence) {
+      aclCandidates.value = []
+      aclCandidateError.value = '候选用户加载失败'
+    }
+  } finally {
+    if (sequence === candidateSequence) {
+      aclCandidateLoading.value = false
+    }
+  }
+}
+
+function onCandidateSearch(keyword: string) {
+  if (candidateTimer) {
+    clearTimeout(candidateTimer)
+  }
+  candidateTimer = setTimeout(() => {
+    void loadAclCandidates(keyword)
+  }, 300)
 }
 
 async function loadAcl() {
@@ -144,6 +187,7 @@ async function addAcl() {
     ElMessage.success('看板权限已保存')
     aclForm.value.username = ''
     await loadAcl()
+    await loadAclCandidates('')
     await loadDashboards()
   } catch {
     ElMessage.error('保存看板权限失败')
@@ -167,6 +211,7 @@ async function removeAcl(username: string) {
     await insightApi.removeDashboardAcl(detail.value.id, username)
     ElMessage.success('看板权限已移除')
     await loadAcl()
+    await loadAclCandidates('')
     await loadDashboards()
   } catch {
     ElMessage.error('移除看板权限失败')
@@ -262,6 +307,9 @@ onMounted(loadDashboards)
 onBeforeUnmount(() => {
   if (refreshTimer) {
     window.clearInterval(refreshTimer)
+  }
+  if (candidateTimer) {
+    clearTimeout(candidateTimer)
   }
 })
 </script>
@@ -424,8 +472,32 @@ onBeforeUnmount(() => {
       />
 
       <el-form v-if="canManage" label-position="top" class="acl-form">
-        <el-form-item label="用户名">
-          <el-input v-model="aclForm.username" placeholder="输入平台用户名" maxlength="64" />
+        <el-form-item label="空间成员">
+          <el-select
+            v-model="aclForm.username"
+            filterable
+            remote
+            clearable
+            reserve-keyword
+            :remote-method="onCandidateSearch"
+            :loading="aclCandidateLoading"
+            placeholder="搜索用户名或显示名"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="candidate in aclCandidates"
+              :key="candidate.username"
+              :label="candidate.displayName || candidate.username"
+              :value="candidate.username"
+            >
+              <div class="acl-candidate">
+                <span>{{ candidate.displayName || candidate.username }}</span>
+                <span class="acl-candidate__meta">@{{ candidate.username }} · {{ candidate.status }}</span>
+              </div>
+            </el-option>
+          </el-select>
+          <div v-if="aclCandidateError" class="acl-candidate__error">{{ aclCandidateError }}</div>
+          <div v-else class="form-hint">仅显示当前空间有效成员，已授权用户不会重复出现。</div>
         </el-form-item>
         <el-form-item label="权限">
           <el-select v-model="aclForm.permission" style="width: 180px">
@@ -549,5 +621,29 @@ onBeforeUnmount(() => {
 
 .acl-table {
   margin-top: 4px;
+}
+
+.acl-candidate {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.acl-candidate__meta {
+  font-size: 11px;
+  color: var(--dg-text-muted);
+}
+
+.acl-candidate__error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--dg-danger);
+}
+
+.form-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--dg-text-muted);
+  line-height: 1.6;
 }
 </style>

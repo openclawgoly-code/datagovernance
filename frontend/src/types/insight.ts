@@ -113,6 +113,12 @@ export interface InsightDashboardAcl {
   permission: 'READ' | 'MANAGE'
 }
 
+export interface InsightAclCandidate {
+  username: string
+  displayName?: string | null
+  status: string
+}
+
 export interface InsightDashboardItemUpdate {
   sortOrder?: number
   layoutJson?: string

@@ -85,6 +85,16 @@ public class SensitivityService {
     public record ReviewRequest(String status, String level) {
     }
 
+    public record BatchReviewRequest(List<String> ids, String status, String level) {
+    }
+
+    public record BatchFailure(String id, String message) {
+    }
+
+    public record BatchReviewResult(int requested, int succeeded, int failed,
+                                    List<BatchFailure> failures) {
+    }
+
     public record RuleView(String id, String name, String category, String level,
                            String detectorType, String pattern, Integer priority,
                            Boolean enabled, String workspaceId) {
@@ -375,6 +385,65 @@ public class SensitivityService {
                         .orderByAsc(SensitivityRule::getPriority)).stream()
                 .map(RuleView::from)
                 .toList();
+    }
+
+    /**
+     * 批量复核。业务失败（标签不存在/无权访问）收集到 failures，不抛异常；
+     * 数据库异常仍由事务整体回滚。
+     */
+    @Transactional
+    public BatchReviewResult batchReview(BatchReviewRequest request) {
+        String workspaceId = WorkspaceContext.requireWorkspaceId();
+        if (request == null || request.ids() == null || request.ids().isEmpty()) {
+            throw new BizException(ErrorCode.SYS_VALIDATION_FAILED, "至少选择一条敏感标签");
+        }
+        List<String> ids = request.ids().stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            throw new BizException(ErrorCode.SYS_VALIDATION_FAILED, "至少选择一条敏感标签");
+        }
+        if (ids.size() > 200) {
+            throw new BizException(ErrorCode.SYS_VALIDATION_FAILED,
+                    "单次批量复核最多 200 条");
+        }
+        String status = request.status() == null ? "" : request.status().trim().toUpperCase();
+        if (!REVIEW_STATUS.contains(status)) {
+            throw new BizException(ErrorCode.SYS_VALIDATION_FAILED,
+                    "复核状态只能是 CONFIRMED / REJECTED");
+        }
+        String level = request.level() == null || request.level().isBlank()
+                ? null : request.level().trim().toUpperCase();
+        if (level != null && !LEVELS.contains(level)) {
+            throw new BizException(ErrorCode.SYS_VALIDATION_FAILED,
+                    "敏感级别只能是 L1 / L2 / L3 / L4");
+        }
+
+        Map<String, ColumnSensitivity> labelsById = sensitivityMapper.selectList(
+                        new LambdaQueryWrapper<ColumnSensitivity>()
+                                .eq(ColumnSensitivity::getWorkspaceId, workspaceId)
+                                .in(ColumnSensitivity::getId, ids)).stream()
+                .collect(java.util.stream.Collectors.toMap(ColumnSensitivity::getId, value -> value));
+        List<BatchFailure> failures = new ArrayList<>();
+        int succeeded = 0;
+        for (String id : ids) {
+            ColumnSensitivity value = labelsById.get(id);
+            if (value == null) {
+                failures.add(new BatchFailure(id, "敏感标签不存在或无权访问"));
+                continue;
+            }
+            value.setStatus(status);
+            if ("CONFIRMED".equals(status) && level != null) {
+                value.setLevel(level);
+            }
+            value.setReviewedBy(WorkspaceContext.require().userId());
+            value.setReviewedAt(Instant.now());
+            sensitivityMapper.updateById(value);
+            succeeded++;
+        }
+        return new BatchReviewResult(ids.size(), succeeded, failures.size(), failures);
     }
 
     @Transactional

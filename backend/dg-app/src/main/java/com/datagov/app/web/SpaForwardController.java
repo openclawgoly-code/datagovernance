@@ -16,6 +16,7 @@ public class SpaForwardController {
             "/",
             "/login",
             "/workbench",
+            "/workbench/**",
             "/insight/**",
             "/metadata/**",
             "/integration/**",

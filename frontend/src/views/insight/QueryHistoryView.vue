@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { insightApi } from '@/api/insight'
 import { useAuthStore } from '@/stores/auth'
 import type { InsightAnswer, InsightQueryLog } from '@/types/insight'
@@ -14,8 +14,9 @@ import MetadataPanel from '@/components/insight/MetadataPanel.vue'
 import QuerySqlBlock from '@/components/insight/QuerySqlBlock.vue'
 import StatusTag from '@/components/insight/StatusTag.vue'
 
-type HistoryStatus = '' | 'success' | 'failed'
+type HistoryStatus = '' | 'SUCCESS' | 'FAILED'
 
+const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
@@ -23,9 +24,16 @@ const loading = ref(false)
 const error = ref('')
 const logs = ref<InsightQueryLog[]>([])
 const total = ref(0)
-const query = reactive({ page: 1, size: 20 })
-const keyword = ref('')
-const statusFilter = ref<HistoryStatus>('')
+const query = reactive({
+  page: 1,
+  size: 20,
+  keyword: '',
+  status: '' as HistoryStatus,
+  username: '',
+})
+let filterTimer: ReturnType<typeof setTimeout> | null = null
+let lastSyncedRouteKey = ''
+const selfSyncedRouteKeys = new Set<string>()
 
 const detailVisible = ref(false)
 const selectedLog = ref<InsightQueryLog | null>(null)
@@ -35,32 +43,9 @@ const resultAnswer = ref<InsightAnswer | null>(null)
 
 const canAsk = computed(() => auth.hasPermission('insight:ask'))
 const canExport = computed(() => auth.hasPermission('insight:export'))
-const hasFilter = computed(() => !!keyword.value.trim() || !!statusFilter.value)
-const filteredLogs = computed(() => {
-  const term = keyword.value.trim().toLowerCase()
-  return logs.value.filter((log) => {
-    if (statusFilter.value === 'success' && !log.succeeded) {
-      return false
-    }
-    if (statusFilter.value === 'failed' && log.succeeded) {
-      return false
-    }
-    if (!term) {
-      return true
-    }
-    const haystack = [
-      log.question,
-      log.username,
-      log.generatedSql,
-      log.maskedColumns,
-      log.errorMessage,
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase()
-    return haystack.includes(term)
-  })
-})
+const hasFilter = computed(() =>
+  !!query.keyword.trim() || !!query.status || !!query.username.trim(),
+)
 const selectedMaskedColumns = computed(() => maskedColumns(selectedLog.value))
 const resultMaskedColumns = computed(() => resultAnswer.value?.maskedColumns ?? [])
 const resultColumns = computed(() => {
@@ -121,11 +106,86 @@ function statusOf(log: any): { status: string; label: string } {
     : { status: 'FAILED', label: '失败' }
 }
 
+function asString(value: unknown): string {
+  if (Array.isArray(value)) {
+    return typeof value[0] === 'string' ? value[0] : ''
+  }
+  return typeof value === 'string' ? value : ''
+}
+
+function routeState() {
+  const status = asString(route.query.status).toUpperCase()
+  const page = Number(asString(route.query.page))
+  const size = Number(asString(route.query.size))
+  return {
+    keyword: asString(route.query.keyword),
+    status: (status === 'SUCCESS' || status === 'FAILED' ? status : '') as HistoryStatus,
+    username: asString(route.query.username),
+    page: Number.isFinite(page) && page >= 1 ? page : 1,
+    size: [20, 50, 100].includes(size) ? size : 20,
+  }
+}
+
+function routeKeyOf(value: {
+  keyword?: string
+  status?: string
+  username?: string
+  page?: number
+  size?: number
+}) {
+  return [
+    value.keyword || '',
+    value.status || '',
+    value.username || '',
+    value.page || 1,
+    value.size || 20,
+  ].join('|')
+}
+
+const routeKey = computed(() =>
+  routeKeyOf(routeState()),
+)
+
+function syncRoute() {
+  const params: Record<string, string> = {}
+  if (query.keyword.trim()) {
+    params.keyword = query.keyword.trim()
+  }
+  if (query.status) {
+    params.status = query.status
+  }
+  if (query.username.trim()) {
+    params.username = query.username.trim()
+  }
+  if (query.page > 1) {
+    params.page = String(query.page)
+  }
+  if (query.size !== 20) {
+    params.size = String(query.size)
+  }
+  const key = routeKeyOf(query)
+  lastSyncedRouteKey = key
+  if (key !== routeKey.value) {
+    selfSyncedRouteKeys.add(key)
+    void router.replace({ path: '/insight/queries', query: params }).catch(() => undefined)
+  }
+}
+
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const page = await insightApi.queries({ page: query.page, size: query.size })
+    const page = await insightApi.queries({
+      page: query.page,
+      size: query.size,
+      keyword: query.keyword.trim() || undefined,
+      ...(query.status === 'SUCCESS'
+        ? { succeeded: true }
+        : query.status === 'FAILED'
+          ? { succeeded: false }
+          : {}),
+      username: query.username.trim() || undefined,
+    })
     logs.value = page.records
     total.value = page.total
   } catch {
@@ -137,14 +197,48 @@ async function load() {
   }
 }
 
+function onFilterChange() {
+  if (filterTimer) {
+    clearTimeout(filterTimer)
+    filterTimer = null
+  }
+  query.page = 1
+  syncRoute()
+  void load()
+}
+
+function scheduleFilter() {
+  if (filterTimer) {
+    clearTimeout(filterTimer)
+  }
+  filterTimer = setTimeout(onFilterChange, 300)
+}
+
+function onPageChange(page: number) {
+  query.page = page
+  syncRoute()
+  void load()
+}
+
+function onSizeChange(size: number) {
+  query.size = size
+  query.page = 1
+  syncRoute()
+  void load()
+}
+
 function openDetail(log: any) {
   selectedLog.value = log
   detailVisible.value = true
 }
 
 function resetFilters() {
-  keyword.value = ''
-  statusFilter.value = ''
+  query.keyword = ''
+  query.status = ''
+  query.username = ''
+  query.page = 1
+  syncRoute()
+  void load()
 }
 
 async function rerun(log: any) {
@@ -161,11 +255,13 @@ async function rerun(log: any) {
     detailVisible.value = false
     resultVisible.value = true
     query.page = 1
+    syncRoute()
     await load()
     ElMessage.success('重新执行完成')
   } catch {
     ElMessage.error('重新执行失败，失败记录已写入历史')
     query.page = 1
+    syncRoute()
     await load()
   } finally {
     rerunningId.value = ''
@@ -181,7 +277,37 @@ function closeResult() {
   resultAnswer.value = null
 }
 
-onMounted(load)
+async function applyRouteState() {
+  const state = routeState()
+  query.keyword = state.keyword
+  query.status = state.status
+  query.username = state.username
+  query.page = state.page
+  query.size = state.size
+  await load()
+}
+
+watch(routeKey, async () => {
+  if (routeKey.value === lastSyncedRouteKey) {
+    return
+  }
+  if (selfSyncedRouteKeys.delete(routeKey.value)) {
+    return
+  }
+  await applyRouteState()
+  syncRoute()
+})
+
+onMounted(async () => {
+  await applyRouteState()
+  syncRoute()
+})
+
+onBeforeUnmount(() => {
+  if (filterTimer) {
+    clearTimeout(filterTimer)
+  }
+})
 </script>
 
 <template>
@@ -196,14 +322,30 @@ onMounted(load)
     <el-card shadow="never">
       <FilterBar>
         <el-input
-          v-model="keyword"
-          placeholder="搜索问题、用户、SQL、脱敏列"
+          v-model="query.keyword"
+          placeholder="搜索问题或 SQL"
           clearable
-          style="width: 300px"
+          style="width: 260px"
+          @input="scheduleFilter"
+          @keyup.enter="onFilterChange"
         />
-        <el-select v-model="statusFilter" placeholder="执行状态" clearable style="width: 140px">
-          <el-option label="成功" value="success" />
-          <el-option label="失败" value="failed" />
+        <el-input
+          v-model="query.username"
+          placeholder="用户名精确筛选"
+          clearable
+          style="width: 170px"
+          @input="scheduleFilter"
+          @keyup.enter="onFilterChange"
+        />
+        <el-select
+          v-model="query.status"
+          placeholder="执行状态"
+          clearable
+          style="width: 130px"
+          @change="onFilterChange"
+        >
+          <el-option label="成功" value="SUCCESS" />
+          <el-option label="失败" value="FAILED" />
         </el-select>
         <template #actions>
           <el-button :disabled="!hasFilter" @click="resetFilters">清除筛选</el-button>
@@ -211,7 +353,7 @@ onMounted(load)
       </FilterBar>
 
       <div class="query-history__hint">
-        当前页客户端过滤，服务端共 {{ total }} 条；分页仍由服务端控制。
+        筛选由服务端执行，共 {{ total }} 条；翻页保留当前筛选条件。
       </div>
 
       <el-alert
@@ -227,7 +369,7 @@ onMounted(load)
 
       <el-table
         v-loading="loading"
-        :data="filteredLogs"
+        :data="logs"
         size="small"
         border
         @row-click="openDetail"
@@ -277,15 +419,10 @@ onMounted(load)
 
       <EmptyState
         v-if="!loading && !error && !logs.length"
-        description="暂无查询历史"
+        :description="hasFilter ? '没有匹配的查询记录' : '暂无查询历史'"
       >
-        <el-button v-if="canAsk" type="primary" plain @click="goAsk">去问数</el-button>
-      </EmptyState>
-      <EmptyState
-        v-else-if="!loading && !error && logs.length && !filteredLogs.length"
-        description="当前页没有匹配的记录，可翻页或清除筛选"
-      >
-        <el-button plain @click="resetFilters">清除筛选</el-button>
+        <el-button v-if="hasFilter" plain @click="resetFilters">清除筛选</el-button>
+        <el-button v-else-if="canAsk" type="primary" plain @click="goAsk">去问数</el-button>
       </EmptyState>
 
       <div v-if="total > 0" class="pagination">
@@ -295,8 +432,8 @@ onMounted(load)
           :total="total"
           :page-sizes="[20, 50, 100]"
           layout="total, sizes, prev, pager, next"
-          @current-change="load"
-          @size-change="load"
+          @current-change="onPageChange"
+          @size-change="onSizeChange"
         />
       </div>
     </el-card>

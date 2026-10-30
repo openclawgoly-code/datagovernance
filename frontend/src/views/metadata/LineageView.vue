@@ -19,10 +19,12 @@ import MetadataPanel from '@/components/insight/MetadataPanel.vue'
 import LineageGraphView from '@/components/lineage/LineageGraph.vue'
 
 type LineageDirection = 'upstream' | 'downstream' | 'both'
+type LineageMode = 'column' | 'dataset'
 
 const route = useRoute()
 const router = useRouter()
 
+const mode = ref<LineageMode>(parseMode(route.query.mode))
 const direction = ref<LineageDirection>(parseDirection(route.query.direction))
 const depth = ref(parseDepth(route.query.depth))
 const datasetId = ref('')
@@ -58,6 +60,7 @@ const directionLabelMap: Record<LineageDirection, string> = {
   downstream: '下游',
 }
 
+const isDatasetMode = computed(() => mode.value === 'dataset')
 const directionLabel = computed(() => directionLabelMap[direction.value])
 const datasetLabel = computed(() => dataset.value?.qualifiedName || '')
 const selectedColumn = computed(() =>
@@ -69,6 +72,9 @@ const selectedColumnLabel = computed(() => {
   }
   return `${selectedColumn.value.name}（${selectedColumn.value.rawType || selectedColumn.value.canonicalType || '-'}）`
 })
+const centerLabel = computed(() =>
+  isDatasetMode.value ? datasetLabel.value || '未选择数据集' : selectedColumnLabel.value,
+)
 
 const fullLayout = computed<LineageLayoutNode[]>(() =>
   buildLineageLayout(graph.value, rootNodeId.value),
@@ -144,10 +150,33 @@ const selectedNode = computed<LineageNode | null>(
 const selectedLayout = computed<LineageLayoutNode | null>(
   () => fullLayout.value.find((node) => node.id === selectedNodeId.value) || null,
 )
+const selectedEdgeStats = computed(() => {
+  const node = selectedNode.value
+  if (!node) {
+    return { edges: 0, columnEdges: 0 }
+  }
+  const incident = graph.value.edges.filter(
+    (edge) => edge.fromNodeId === node.id || edge.toNodeId === node.id,
+  )
+  const columnEdges = incident.reduce((sum, edge) => {
+    const match = (edge.transformExpr || '').match(/(\d+)/)
+    return sum + (match ? Number(match[1]) : 0)
+  }, 0)
+  return { edges: incident.length, columnEdges }
+})
 const selectedMetaItems = computed(() => {
   const node = selectedNode.value
   if (!node) {
     return []
+  }
+  if (isDatasetMode.value) {
+    return [
+      { label: '限定名', value: node.qualifiedName },
+      { label: '数据集 ID', value: node.catalogDatasetId || node.id },
+      { label: '节点类型', value: '数据集' },
+      { label: '关联表级边', value: selectedEdgeStats.value.edges },
+      { label: '累计列级边', value: selectedEdgeStats.value.columnEdges },
+    ]
   }
   return [
     { label: '限定名', value: node.qualifiedName },
@@ -157,18 +186,30 @@ const selectedMetaItems = computed(() => {
     { label: '节点 ID', value: node.id },
   ]
 })
-const canCenterSelected = computed(
-  () =>
-    !!selectedNode.value?.catalogColumnId &&
-    selectedNode.value.catalogColumnId !== columnId.value &&
-    !!selectedNode.value.catalogDatasetId,
-)
+const canCenterSelected = computed(() => {
+  const node = selectedNode.value
+  if (!node) {
+    return false
+  }
+  if (isDatasetMode.value) {
+    return !!node.catalogDatasetId && node.catalogDatasetId !== datasetId.value
+  }
+  return (
+    !!node.catalogColumnId &&
+    node.catalogColumnId !== columnId.value &&
+    !!node.catalogDatasetId
+  )
+})
 
 function asString(value: unknown): string {
   if (Array.isArray(value)) {
     return typeof value[0] === 'string' ? value[0] : ''
   }
   return typeof value === 'string' ? value : ''
+}
+
+function parseMode(value: unknown): LineageMode {
+  return asString(value) === 'dataset' ? 'dataset' : 'column'
 }
 
 function parseDirection(value: unknown): LineageDirection {
@@ -228,9 +269,19 @@ function selectedLevelText(): string {
     return '-'
   }
   if (selectedLayout.value.offset === 0) {
-    return '中心字段'
+    return isDatasetMode.value ? '中心数据集' : '中心字段'
   }
   return `${sideLabel(selectedLayout.value.offset)} · 第 ${selectedLayout.value.level} 层`
+}
+
+function modeTitle(): string {
+  return isDatasetMode.value ? '表级血缘' : '字段血缘'
+}
+
+function modeDescription(): string {
+  return isDatasetMode.value
+    ? '按数据集聚合列级血缘，评估表级上下游与影响'
+    : '列级上下游、节点详情与影响分析'
 }
 
 function registerDataset(item: CatalogDataset) {
@@ -300,7 +351,45 @@ function onDatasetSearch(keyword: string) {
   }, 260)
 }
 
+async function loadDatasetGraph() {
+  if (!datasetId.value) {
+    graph.value = { nodes: [], edges: [] }
+    rootNodeId.value = ''
+    selectedNodeId.value = ''
+    impactVisible.value = false
+    impactItems.value = []
+    return
+  }
+  graphLoading.value = true
+  graphError.value = ''
+  impactVisible.value = false
+  impactItems.value = []
+  try {
+    graph.value = await lineageApi.datasetGraph(datasetId.value, direction.value, depth.value)
+    const root =
+      graph.value.nodes.find((node) => node.catalogDatasetId === datasetId.value) ||
+      graph.value.nodes.find((node) => node.id === datasetId.value) ||
+      null
+    rootNodeId.value = root?.id || ''
+    selectedNodeId.value = root?.id || graph.value.nodes[0]?.id || ''
+    nodeTypes.value = []
+    expanded.value = false
+  } catch {
+    graph.value = { nodes: [], edges: [] }
+    rootNodeId.value = ''
+    selectedNodeId.value = ''
+    graphError.value = '表级血缘加载失败，请稍后重试'
+    ElMessage.error(graphError.value)
+  } finally {
+    graphLoading.value = false
+  }
+}
+
 async function loadGraph() {
+  if (isDatasetMode.value) {
+    await loadDatasetGraph()
+    return
+  }
   if (!columnId.value) {
     graph.value = { nodes: [], edges: [] }
     rootNodeId.value = ''
@@ -421,6 +510,42 @@ async function onDatasetChange(value: string) {
   syncRoute()
 }
 
+async function onModeChange() {
+  expanded.value = false
+  if (isDatasetMode.value) {
+    if (!datasetId.value) {
+      graph.value = { nodes: [], edges: [] }
+      rootNodeId.value = ''
+      selectedNodeId.value = ''
+    } else if (!dataset.value) {
+      await loadDatasetById(datasetId.value)
+    } else {
+      await loadDatasetGraph()
+    }
+    syncRoute()
+    return
+  }
+
+  if (!datasetId.value) {
+    syncRoute()
+    return
+  }
+  if (!columns.value.length) {
+    await loadDatasetById(datasetId.value)
+  } else {
+    if (!columnId.value) {
+      columnId.value = columns.value[0]?.id || ''
+    }
+    await loadGraph()
+  }
+  syncRoute()
+}
+
+async function switchToColumnMode() {
+  mode.value = 'column'
+  await onModeChange()
+}
+
 async function onColumnChange() {
   syncRoute()
   await loadGraph()
@@ -462,8 +587,25 @@ function openSelectedAsset() {
   void router.push(`/metadata/assets/${id}`)
 }
 
+async function focusDataset(targetDatasetId: string) {
+  if (dataset.value?.id === targetDatasetId) {
+    await loadDatasetGraph()
+    return
+  }
+  await loadDatasetById(targetDatasetId)
+}
+
 async function centerSelected() {
   const node = selectedNode.value
+  if (isDatasetMode.value) {
+    if (!node?.catalogDatasetId) {
+      ElMessage.warning('该节点没有关联的数据集')
+      return
+    }
+    await focusDataset(node.catalogDatasetId)
+    syncRoute()
+    return
+  }
   if (!node?.catalogDatasetId || !node.catalogColumnId) {
     ElMessage.warning('该节点没有关联的字段')
     return
@@ -473,6 +615,15 @@ async function centerSelected() {
 }
 
 async function centerImpactItem(item: any) {
+  if (isDatasetMode.value) {
+    if (!item.catalogDatasetId) {
+      ElMessage.warning('该节点没有关联的数据集')
+      return
+    }
+    await focusDataset(item.catalogDatasetId)
+    syncRoute()
+    return
+  }
   if (!item.catalogDatasetId || !item.catalogColumnId) {
     ElMessage.warning('该节点没有关联的字段')
     return
@@ -482,18 +633,23 @@ async function centerImpactItem(item: any) {
 }
 
 async function loadImpact() {
-  if (!columnId.value) {
+  if (isDatasetMode.value ? !datasetId.value : !columnId.value) {
     return
   }
   impactVisible.value = true
   impactLoading.value = true
   impactError.value = ''
   try {
-    const result = await lineageApi.impact(columnId.value, 5)
-    const root =
-      result.nodes.find((node) => node.catalogColumnId === columnId.value) ||
-      result.nodes.find((node) => node.id === rootNodeId.value) ||
-      null
+    const result = isDatasetMode.value
+      ? await lineageApi.datasetGraph(datasetId.value, 'downstream', 5)
+      : await lineageApi.impact(columnId.value, 5)
+    const root = isDatasetMode.value
+      ? result.nodes.find((node) => node.catalogDatasetId === datasetId.value) ||
+        result.nodes.find((node) => node.id === rootNodeId.value) ||
+        null
+      : result.nodes.find((node) => node.catalogColumnId === columnId.value) ||
+        result.nodes.find((node) => node.id === rootNodeId.value) ||
+        null
     impactItems.value = buildImpactItems(result, root?.id || '')
   } catch {
     impactItems.value = []
@@ -528,22 +684,38 @@ function copyImpact() {
     ElMessage.warning('当前没有可复制的影响清单')
     return
   }
-  const header = [
-    '字段血缘影响清单',
-    `中心字段：${selectedColumnLabel.value}`,
-    `数据集：${datasetLabel.value || '-'}`,
-    `生成时间：${new Date().toLocaleString('zh-CN')}`,
-    '',
-    '层级\t类型\t限定名\t父数据集\t字段 ID',
-  ]
+  const header = isDatasetMode.value
+    ? [
+        '表级血缘影响清单',
+        `中心数据集：${datasetLabel.value || '-'}`,
+        `生成时间：${new Date().toLocaleString('zh-CN')}`,
+        '',
+        '层级\t类型\t限定名\t关联表级边\t数据集 ID',
+      ]
+    : [
+        '字段血缘影响清单',
+        `中心字段：${selectedColumnLabel.value}`,
+        `数据集：${datasetLabel.value || '-'}`,
+        `生成时间：${new Date().toLocaleString('zh-CN')}`,
+        '',
+        '层级\t类型\t限定名\t父数据集\t字段 ID',
+      ]
   const lines = impactItems.value.map((item) =>
-    [
-      item.level,
-      nodeTypeLabel(item.nodeType),
-      item.qualifiedName,
-      parentDatasetOf(item),
-      item.catalogColumnId || '-',
-    ].join('\t'),
+    isDatasetMode.value
+      ? [
+          item.level,
+          nodeTypeLabel(item.nodeType),
+          item.qualifiedName,
+          item.edgeCount ?? 0,
+          item.catalogDatasetId || '-',
+        ].join('\t')
+      : [
+          item.level,
+          nodeTypeLabel(item.nodeType),
+          item.qualifiedName,
+          parentDatasetOf(item),
+          item.catalogColumnId || '-',
+        ].join('\t'),
   )
   void copyText([...header, ...lines].join('\n'), '影响清单已复制')
 }
@@ -554,10 +726,16 @@ async function refresh() {
 
 function syncRoute() {
   const query: Record<string, string> = {}
+  if (isDatasetMode.value) {
+    query.mode = 'dataset'
+  }
   if (datasetId.value) {
     query.datasetId = datasetId.value
   }
-  if (columnId.value) {
+  if (isDatasetMode.value) {
+    query.direction = direction.value
+    query.depth = String(depth.value)
+  } else if (columnId.value) {
     query.columnId = columnId.value
     query.direction = direction.value
     query.depth = String(depth.value)
@@ -573,6 +751,7 @@ function syncRoute() {
 
 function routeState() {
   return {
+    mode: parseMode(route.query.mode),
     datasetId: asString(route.query.datasetId),
     columnId: asString(route.query.columnId),
     direction: parseDirection(route.query.direction),
@@ -580,8 +759,15 @@ function routeState() {
   }
 }
 
-function routeKeyOf(query: { datasetId?: string; columnId?: string; direction?: string; depth?: string }) {
+function routeKeyOf(query: {
+  mode?: string
+  datasetId?: string
+  columnId?: string
+  direction?: string
+  depth?: string
+}) {
   return [
+    query.mode || 'column',
     query.datasetId || '',
     query.columnId || '',
     query.direction || 'both',
@@ -591,6 +777,7 @@ function routeKeyOf(query: { datasetId?: string; columnId?: string; direction?: 
 
 const routeKey = computed(() =>
   routeKeyOf({
+    mode: parseMode(route.query.mode),
     datasetId: asString(route.query.datasetId),
     columnId: asString(route.query.columnId),
     direction: parseDirection(route.query.direction),
@@ -600,9 +787,26 @@ const routeKey = computed(() =>
 
 async function applyRouteState() {
   const state = routeState()
+  mode.value = state.mode
   direction.value = state.direction
   depth.value = state.depth
   expanded.value = false
+
+  if (isDatasetMode.value) {
+    if (state.datasetId) {
+      if (dataset.value?.id !== state.datasetId) {
+        await loadDatasetById(state.datasetId)
+      } else {
+        await loadDatasetGraph()
+      }
+    } else {
+      graph.value = { nodes: [], edges: [] }
+      rootNodeId.value = ''
+      selectedNodeId.value = ''
+      await searchDatasets('')
+    }
+    return
+  }
 
   if (state.datasetId) {
     const sameDataset = dataset.value?.id === state.datasetId
@@ -664,15 +868,28 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page-container lineage-workspace">
-    <PageHeader title="字段血缘" description="列级上下游、节点详情与影响分析">
+    <PageHeader :title="modeTitle()" :description="modeDescription()">
       <template #actions>
         <el-button @click="copyLink">复制链接</el-button>
-        <el-button :disabled="!columnId" @click="refresh">刷新图谱</el-button>
+        <el-button
+          :disabled="!datasetId || (!isDatasetMode && !columnId)"
+          @click="refresh"
+        >
+          刷新图谱
+        </el-button>
       </template>
     </PageHeader>
 
     <el-card shadow="never" class="lineage-controls">
       <FilterBar>
+        <div class="control-field">
+          <span class="control-field__label">粒度</span>
+          <el-radio-group v-model="mode" size="small" @change="onModeChange">
+            <el-radio-button value="column">字段级</el-radio-button>
+            <el-radio-button value="dataset">表级</el-radio-button>
+          </el-radio-group>
+        </div>
+
         <div class="control-field control-field--dataset">
           <span class="control-field__label">数据集</span>
           <el-select
@@ -702,7 +919,7 @@ onBeforeUnmount(() => {
           </el-select>
         </div>
 
-        <div class="control-field control-field--column">
+        <div v-if="!isDatasetMode" class="control-field control-field--column">
           <span class="control-field__label">字段</span>
           <el-select
             v-model="columnId"
@@ -738,7 +955,7 @@ onBeforeUnmount(() => {
           </el-select>
         </div>
 
-        <div class="control-field control-field--types">
+        <div v-if="!isDatasetMode" class="control-field control-field--types">
           <span class="control-field__label">节点类型</span>
           <el-select
             v-model="nodeTypes"
@@ -761,7 +978,7 @@ onBeforeUnmount(() => {
           <el-button
             type="primary"
             :loading="graphLoading"
-            :disabled="!columnId"
+            :disabled="!datasetId || (!isDatasetMode && !columnId)"
             @click="refresh"
           >
             查询
@@ -781,7 +998,9 @@ onBeforeUnmount(() => {
             <span>{{ dataset.rowCount }} 行</span>
           </template>
         </template>
-        <span v-else>选择数据集后自动加载字段，再以字段为中心查看上下游</span>
+        <span v-else>
+          {{ isDatasetMode ? '选择数据集后查看表级上下游' : '选择数据集后自动加载字段，再以字段为中心查看上下游' }}
+        </span>
       </div>
     </el-card>
 
@@ -824,11 +1043,20 @@ onBeforeUnmount(() => {
                 {{ visibleEdges.length }} 边
               </span>
               <span v-if="graph.edges.length" class="panel-head__hint">
-                中心：{{ selectedColumnLabel }}
+                中心：{{ centerLabel }}
               </span>
             </div>
           </div>
         </template>
+
+        <el-alert
+          v-if="isDatasetMode && !graphLoading && (graph.unattributedEdges ?? 0) > 0"
+          type="warning"
+          show-icon
+          :closable="false"
+          class="lineage-attribution-alert"
+          :title="`${graph.unattributedEdges} 条历史列级边缺少数据集归属，未计入表级视图`"
+        />
 
         <div v-if="datasetLoading || graphLoading" v-loading="true" class="lineage-placeholder" />
         <el-alert
@@ -840,8 +1068,14 @@ onBeforeUnmount(() => {
         >
           <el-button link type="primary" @click="refresh">重试</el-button>
         </el-alert>
-        <EmptyState v-else-if="!columnId" description="先选择数据集与字段" />
-        <EmptyState v-else-if="!graph.edges.length" description="该字段暂无血缘">
+        <EmptyState
+          v-else-if="isDatasetMode ? !datasetId : !columnId"
+          :description="isDatasetMode ? '先选择数据集' : '先选择数据集与字段'"
+        />
+        <EmptyState
+          v-else-if="!graph.edges.length"
+          :description="isDatasetMode ? '该数据集暂无表级血缘' : '该字段暂无血缘'"
+        >
           <span class="lineage-empty-hint">
             血缘由 ETL / OpenLineage 作业上报后出现在这里
           </span>
@@ -856,6 +1090,7 @@ onBeforeUnmount(() => {
           :edges="visibleEdges"
           :selected-id="selectedNodeId"
           :height="graphHeight"
+          :show-edge-labels="isDatasetMode"
           @select="selectNode"
         />
       </el-card>
@@ -892,7 +1127,14 @@ onBeforeUnmount(() => {
               打开资产详情
             </el-button>
             <el-button :disabled="!canCenterSelected" @click="centerSelected">
-              以该字段为中心
+              {{ isDatasetMode ? '以该数据集为中心' : '以该字段为中心' }}
+            </el-button>
+            <el-button
+              v-if="isDatasetMode"
+              :disabled="!dataset"
+              @click="switchToColumnMode"
+            >
+              查看字段级血缘
             </el-button>
             <el-button link @click="copyQualifiedName">复制限定名</el-button>
           </div>
@@ -906,7 +1148,9 @@ onBeforeUnmount(() => {
         <div class="panel-head">
           <div class="panel-head__meta">
             <span class="panel-head__title">影响分析</span>
-            <span class="panel-head__hint">下游 5 层，独立于当前方向与深度</span>
+            <span class="panel-head__hint">
+              {{ isDatasetMode ? '表级下游 5 层' : '下游 5 层' }}，独立于当前方向与深度
+            </span>
           </div>
           <div class="panel-head__actions">
             <el-button
@@ -921,7 +1165,7 @@ onBeforeUnmount(() => {
               type="primary"
               plain
               :loading="impactLoading"
-              :disabled="!columnId"
+              :disabled="isDatasetMode ? !datasetId : !columnId"
               @click="loadImpact"
             >
               生成影响清单
@@ -931,7 +1175,9 @@ onBeforeUnmount(() => {
       </template>
 
       <div v-if="!impactVisible" class="impact-hint">
-        以当前字段为起点，调用 impact API 拉取下游 5 层节点；影响清单与图分开，避免图内过滤影响结论。
+        {{ isDatasetMode
+          ? '以当前数据集为起点，聚合下游 5 层表级血缘；影响清单与图分开，避免图内过滤影响结论。'
+          : '以当前字段为起点，调用 impact API 拉取下游 5 层节点；影响清单与图分开，避免图内过滤影响结论。' }}
       </div>
       <el-alert
         v-else-if="impactError"
@@ -959,10 +1205,18 @@ onBeforeUnmount(() => {
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="父数据集" min-width="230" show-overflow-tooltip>
+          <el-table-column
+            v-if="!isDatasetMode"
+            label="父数据集"
+            min-width="230"
+            show-overflow-tooltip
+          >
             <template #default="{ row }">{{ parentDatasetOf(row) }}</template>
           </el-table-column>
-          <el-table-column label="字段 ID" min-width="210" show-overflow-tooltip>
+          <el-table-column v-if="isDatasetMode" label="表级边" width="90" align="right">
+            <template #default="{ row }">{{ row.edgeCount ?? 0 }}</template>
+          </el-table-column>
+          <el-table-column v-else label="字段 ID" min-width="210" show-overflow-tooltip>
             <template #default="{ row }">{{ row.catalogColumnId || '-' }}</template>
           </el-table-column>
           <el-table-column label="操作" width="110" fixed="right">
@@ -970,7 +1224,7 @@ onBeforeUnmount(() => {
               <el-button
                 link
                 type="primary"
-                :disabled="!row.catalogColumnId || !row.catalogDatasetId"
+                :disabled="isDatasetMode ? !row.catalogDatasetId : (!row.catalogColumnId || !row.catalogDatasetId)"
                 @click="centerImpactItem(row)"
               >
                 设为中心
@@ -980,7 +1234,7 @@ onBeforeUnmount(() => {
         </el-table>
         <EmptyState
           v-if="!impactLoading && !impactItems.length"
-          description="该字段暂无下游影响"
+          :description="isDatasetMode ? '该数据集暂无下游表级影响' : '该字段暂无下游影响'"
         />
       </template>
     </el-card>
@@ -1043,6 +1297,10 @@ onBeforeUnmount(() => {
 
 .lineage-convergence {
   margin-bottom: var(--dg-space-md);
+}
+
+.lineage-attribution-alert {
+  margin-bottom: var(--dg-space-sm);
 }
 
 .lineage-convergence__content {

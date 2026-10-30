@@ -129,6 +129,9 @@ export function buildImpactItems(graph: LineageGraph, rootId: string): ImpactIte
       displayName: node.displayName,
       catalogDatasetId: node.catalogDatasetId,
       catalogColumnId: node.catalogColumnId,
+      edgeCount: graph.edges.filter(
+        (edge) => edge.fromNodeId === node.id || edge.toNodeId === node.id,
+      ).length,
     }))
     .sort(
       (a, b) =>

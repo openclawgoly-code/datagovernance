@@ -5,9 +5,11 @@ import com.datagov.common.error.BizException;
 import com.datagov.common.error.ErrorCode;
 import com.datagov.common.id.Ids;
 import com.datagov.common.tenant.WorkspaceContext;
+import com.datagov.metadata.entity.CatalogAssetEntities.CatalogDataset;
 import com.datagov.metadata.entity.LineageEntities.LineageEdge;
 import com.datagov.metadata.entity.LineageEntities.LineageJob;
 import com.datagov.metadata.entity.LineageEntities.LineageNode;
+import com.datagov.metadata.mapper.CatalogDatasetMapper;
 import com.datagov.metadata.mapper.LineageEdgeMapper;
 import com.datagov.metadata.mapper.LineageJobMapper;
 import com.datagov.metadata.mapper.LineageNodeMapper;
@@ -41,12 +43,14 @@ public class LineageService {
     private final LineageNodeMapper nodeMapper;
     private final LineageJobMapper jobMapper;
     private final LineageEdgeMapper edgeMapper;
+    private final CatalogDatasetMapper datasetMapper;
 
     public LineageService(LineageNodeMapper nodeMapper, LineageJobMapper jobMapper,
-                          LineageEdgeMapper edgeMapper) {
+                          LineageEdgeMapper edgeMapper, CatalogDatasetMapper datasetMapper) {
         this.nodeMapper = nodeMapper;
         this.jobMapper = jobMapper;
         this.edgeMapper = edgeMapper;
+        this.datasetMapper = datasetMapper;
     }
 
     public record NodeRef(String nodeType, String qualifiedName,
@@ -83,7 +87,11 @@ public class LineageService {
         }
     }
 
-    public record GraphView(List<NodeView> nodes, List<EdgeView> edges) {
+    public record GraphView(List<NodeView> nodes, List<EdgeView> edges,
+                            int unattributedEdges) {
+        public GraphView(List<NodeView> nodes, List<EdgeView> edges) {
+            this(nodes, edges, 0);
+        }
     }
 
     // ── 写入 ────────────────────────────────────────────────────────────
@@ -198,6 +206,143 @@ public class LineageService {
     /** 影响分析就是下游遍历;单独命名让调用方读得懂意图。 */
     public GraphView impact(String nodeId, int depth) {
         return downstream(nodeId, depth);
+    }
+
+    /**
+     * 表级血缘：列级事实按 catalogDatasetId 聚合。
+     *
+     * <p>表级视图不落新表：起点数据集的列节点先做 BFS，访问到的列级节点
+     * 再按数据集分组，列级边按 fromDataset→toDataset 计数。缺少数据集归属
+     * 的历史边会被跳过，避免表级图出现悬空节点。
+     */
+    public GraphView datasetGraph(String datasetId, String direction, int depth) {
+        String workspaceId = WorkspaceContext.requireWorkspaceId();
+        CatalogDataset dataset = datasetMapper.selectOne(new LambdaQueryWrapper<CatalogDataset>()
+                .eq(CatalogDataset::getId, datasetId)
+                .eq(CatalogDataset::getWorkspaceId, workspaceId));
+        if (dataset == null) {
+            throw BizException.notFound(ErrorCode.MTD_CATALOG_ASSET_NOT_FOUND, datasetId);
+        }
+
+        String dir = direction == null || direction.isBlank()
+                ? "both" : direction.trim().toLowerCase();
+        boolean both = "both".equals(dir);
+        boolean upstream = "upstream".equals(dir);
+        boolean downstream = "downstream".equals(dir);
+        if (!both && !upstream && !downstream) {
+            throw new BizException(ErrorCode.SYS_VALIDATION_FAILED,
+                    "表级血缘方向只能是 upstream / downstream / both");
+        }
+        int levels = Math.max(1, Math.min(depth, MAX_DEPTH));
+
+        List<LineageNode> seeds = nodeMapper.selectList(new LambdaQueryWrapper<LineageNode>()
+                .eq(LineageNode::getWorkspaceId, workspaceId)
+                .eq(LineageNode::getNodeType, "COLUMN")
+                .eq(LineageNode::getCatalogDatasetId, datasetId));
+        if (seeds.isEmpty()) {
+            return new GraphView(List.of(), List.of());
+        }
+
+        Set<String> seedIds = seeds.stream().map(LineageNode::getId)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        Set<String> nodeIds = new LinkedHashSet<>(seedIds);
+        Map<String, LineageEdge> columnEdges = new LinkedHashMap<>();
+        if (upstream || both) {
+            collectColumnEdges(workspaceId, seedIds, true, levels,
+                    new LinkedHashSet<>(seedIds), nodeIds, columnEdges);
+        }
+        if (downstream || both) {
+            collectColumnEdges(workspaceId, seedIds, false, levels,
+                    new LinkedHashSet<>(seedIds), nodeIds, columnEdges);
+        }
+        if (columnEdges.isEmpty()) {
+            return new GraphView(List.of(), List.of());
+        }
+
+        Map<String, LineageNode> nodesById = nodeMapper.selectList(
+                        new LambdaQueryWrapper<LineageNode>()
+                                .eq(LineageNode::getWorkspaceId, workspaceId)
+                                .in(LineageNode::getId, nodeIds)).stream()
+                .collect(java.util.stream.Collectors.toMap(LineageNode::getId, node -> node));
+
+        Set<String> datasetIds = new LinkedHashSet<>();
+        datasetIds.add(datasetId);
+        Map<String, Integer> edgeCounts = new LinkedHashMap<>();
+        int unattributedEdges = 0;
+        for (LineageEdge edge : columnEdges.values()) {
+            LineageNode from = nodesById.get(edge.getFromNodeId());
+            LineageNode to = nodesById.get(edge.getToNodeId());
+            if (from == null || to == null) {
+                unattributedEdges++;
+                continue;
+            }
+            String fromDatasetId = from.getCatalogDatasetId();
+            String toDatasetId = to.getCatalogDatasetId();
+            if (fromDatasetId == null || fromDatasetId.isBlank()
+                    || toDatasetId == null || toDatasetId.isBlank()) {
+                unattributedEdges++;
+                continue;
+            }
+            if (fromDatasetId.equals(toDatasetId)) {
+                continue;
+            }
+            datasetIds.add(fromDatasetId);
+            datasetIds.add(toDatasetId);
+            edgeCounts.merge(fromDatasetId + "\u0000" + toDatasetId, 1, Integer::sum);
+        }
+        if (edgeCounts.isEmpty()) {
+            return new GraphView(List.of(), List.of(), unattributedEdges);
+        }
+
+        Map<String, CatalogDataset> datasetsById = datasetMapper.selectList(
+                        new LambdaQueryWrapper<CatalogDataset>()
+                                .eq(CatalogDataset::getWorkspaceId, workspaceId)
+                                .in(CatalogDataset::getId, datasetIds)).stream()
+                .collect(java.util.stream.Collectors.toMap(CatalogDataset::getId, value -> value));
+
+        List<NodeView> resultNodes = datasetIds.stream()
+                .map(datasetsById::get)
+                .filter(Objects::nonNull)
+                .map(value -> new NodeView(value.getId(), "DATASET", value.getQualifiedName(),
+                        value.getId(), null, value.getName()))
+                .toList();
+
+        List<EdgeView> resultEdges = edgeCounts.entrySet().stream()
+                .filter(entry -> datasetsById.containsKey(entry.getKey().split("\u0000", 2)[0])
+                        && datasetsById.containsKey(entry.getKey().split("\u0000", 2)[1]))
+                .map(entry -> {
+                    String[] pair = entry.getKey().split("\u0000", 2);
+                    return new EdgeView("dsedge:" + pair[0] + "->" + pair[1],
+                            pair[0], pair[1], "DERIVE",
+                            entry.getValue() + " 条列级血缘", null, "AGGREGATED", STATUS_ACTIVE);
+                })
+                .toList();
+
+        return new GraphView(resultNodes, resultEdges, unattributedEdges);
+    }
+
+    private void collectColumnEdges(String workspaceId, Set<String> seedIds,
+                                    boolean upstream, int levels,
+                                    Set<String> visited, Set<String> nodeIds,
+                                    Map<String, LineageEdge> edges) {
+        Set<String> frontier = new LinkedHashSet<>(seedIds);
+        for (int level = 0; level < levels && !frontier.isEmpty(); level++) {
+            List<LineageEdge> found = edgeMapper.selectList(new LambdaQueryWrapper<LineageEdge>()
+                    .eq(LineageEdge::getWorkspaceId, workspaceId)
+                    .eq(LineageEdge::getStatus, STATUS_ACTIVE)
+                    .in(upstream ? LineageEdge::getToNodeId : LineageEdge::getFromNodeId,
+                            frontier));
+            Set<String> next = new LinkedHashSet<>();
+            for (LineageEdge edge : found) {
+                edges.putIfAbsent(edge.getId(), edge);
+                String other = upstream ? edge.getFromNodeId() : edge.getToNodeId();
+                nodeIds.add(other);
+                if (visited.add(other)) {
+                    next.add(other);
+                }
+            }
+            frontier = next;
+        }
     }
 
     public NodeView getNode(String nodeId) {

@@ -38,8 +38,11 @@ public class UserService {
     }
 
     public List<UserView> list(String keyword) {
+        String term = keyword == null ? null : keyword.trim();
         return userMapper.selectList(new LambdaQueryWrapper<User>()
-                        .like(keyword != null && !keyword.isBlank(), User::getUsername, keyword)
+                        .and(term != null && !term.isBlank(),
+                                wrapper -> wrapper.like(User::getUsername, term)
+                                        .or().like(User::getDisplayName, term))
                         .orderByDesc(User::getCreatedAt)).stream()
                 .map(AuthService::toView).toList();
     }

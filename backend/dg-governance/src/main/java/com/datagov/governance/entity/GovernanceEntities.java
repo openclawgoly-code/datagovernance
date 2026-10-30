@@ -183,6 +183,25 @@ public final class GovernanceEntities {
      * 修改的审计记录不是审计记录。保留期通常远长于执行日志,所以它单独一张表
      * 而不是塞进执行记录里。
      */
+    /**
+     * 治理收件箱状态(仅 OPEN/DISMISSED)。来源对象仍由执行/告警/敏感模块拥有，
+     * 这张表不复制事实，只记录用户是否把条目移出收件箱。
+     */
+    @Data
+    @TableName("gv_inbox_state")
+    public static class InboxState {
+        @TableId(type = IdType.INPUT)
+        private String id;
+
+        private String workspaceId;
+        private String sourceType;
+        private String sourceId;
+        private String state;
+        private String note;
+        private String updatedBy;
+        private Instant updatedAt;
+    }
+
     @Data
     @TableName("gv_audit_record")
     public static class AuditRecord {

@@ -9,6 +9,7 @@ import type {
   AlertSummary,
   AuditQuery,
   AuditRecord,
+  InboxPage,
   ChannelRequest,
   ChannelTestResult,
   MonitorDashboard,
@@ -121,5 +122,27 @@ export const auditApi = {
 
   search(query: AuditQuery): Promise<PageResult<AuditRecord>> {
     return http.get<PageResult<AuditRecord>>('/governance/audit', { ...query })
+  },
+}
+
+/** P1 治理收件箱。来源事实仍由执行/告警/敏感模块维护。 */
+export const inboxApi = {
+  list(params: {
+    page: number
+    size: number
+    sourceType?: string
+    state?: string
+    severity?: string
+    keyword?: string
+  }): Promise<InboxPage> {
+    return http.get<InboxPage>('/governance/inbox', params)
+  },
+
+  dismiss(sourceType: string, sourceId: string) {
+    return http.post(`/governance/inbox/${sourceType}/${sourceId}/dismiss`)
+  },
+
+  reopen(sourceType: string, sourceId: string) {
+    return http.post(`/governance/inbox/${sourceType}/${sourceId}/reopen`)
   },
 }

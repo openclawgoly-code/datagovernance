@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router'
 import { sensitivityApi } from '@/api/sensitivity'
 import { useAuthStore } from '@/stores/auth'
 import type {
+  SensitivityBatchReviewResult,
   SensitivityLabel,
   SensitivityRule,
   SensitivityScanResult,
@@ -63,6 +64,15 @@ const reviewStatus = ref<ReviewStatus>('CONFIRMED')
 const reviewLevel = ref('L2')
 const reviewSubmitting = ref(false)
 const reviewError = ref('')
+
+const tableRef = ref<any>(null)
+const selectedLabels = ref<SensitivityLabel[]>([])
+const batchDialogVisible = ref(false)
+const batchStatus = ref<ReviewStatus>('CONFIRMED')
+const batchLevel = ref('')
+const batchSubmitting = ref(false)
+const batchError = ref('')
+const batchResult = ref<SensitivityBatchReviewResult | null>(null)
 
 let pendingReviewId = ''
 let pendingReviewHandled = false
@@ -201,7 +211,58 @@ function levelLabel(level: string): string {
   }
 }
 
+function clearSelection() {
+  tableRef.value?.clearSelection?.()
+  selectedLabels.value = []
+}
+
+function onSelectionChange(rows: any[]) {
+  selectedLabels.value = rows as SensitivityLabel[]
+}
+
+function openBatchDialog(status: ReviewStatus) {
+  if (!selectedLabels.value.length) {
+    ElMessage.warning('请先选择至少一条敏感标签')
+    return
+  }
+  batchStatus.value = status
+  batchLevel.value = ''
+  batchError.value = ''
+  batchDialogVisible.value = true
+}
+
+async function submitBatch() {
+  if (!selectedLabels.value.length) {
+    return
+  }
+  batchSubmitting.value = true
+  batchError.value = ''
+  try {
+    const result = await sensitivityApi.batchReview({
+      ids: selectedLabels.value.map((label) => label.id),
+      status: batchStatus.value,
+      ...(batchStatus.value === 'CONFIRMED' && batchLevel.value
+        ? { level: batchLevel.value }
+        : {}),
+    })
+    batchResult.value = result
+    batchDialogVisible.value = false
+    clearSelection()
+    await loadLabels()
+    if (result.failed > 0) {
+      ElMessage.warning(`批量复核完成：成功 ${result.succeeded} 条，失败 ${result.failed} 条`)
+    } else {
+      ElMessage.success(`批量复核完成：${result.succeeded} 条，审计日志已记录`)
+    }
+  } catch {
+    batchError.value = '批量复核失败，请稍后重试'
+  } finally {
+    batchSubmitting.value = false
+  }
+}
+
 async function loadLabels() {
+  clearSelection()
   labelsLoading.value = true
   labelsError.value = ''
   try {
@@ -388,6 +449,25 @@ onMounted(async () => {
       </template>
     </el-alert>
 
+    <el-alert
+      v-if="batchResult"
+      class="scan-result"
+      :type="batchResult.failed > 0 ? 'warning' : 'success'"
+      show-icon
+      @close="batchResult = null"
+    >
+      <template #title>
+        <div class="scan-result__content">
+          <span>
+            批量复核完成：成功 {{ batchResult.succeeded }} 条，失败 {{ batchResult.failed }} 条
+          </span>
+        </div>
+      </template>
+      <div v-for="failure in batchResult.failures.slice(0, 5)" :key="failure.id" class="batch-failure">
+        {{ failure.id }}：{{ failure.message }}
+      </div>
+    </el-alert>
+
     <el-card shadow="never">
       <DetailTabs v-model="activeTab" :tabs="tabs">
         <template #labels>
@@ -438,7 +518,31 @@ onMounted(async () => {
             <el-button link type="primary" @click="loadLabels">重试</el-button>
           </el-alert>
 
-          <el-table v-loading="labelsLoading" :data="labels" size="small" border>
+          <div v-if="canReview && selectedLabels.length" class="batch-bar">
+            <div class="batch-bar__info">
+              <el-tag type="warning" size="small">已选 {{ selectedLabels.length }} 条</el-tag>
+              <span class="text-muted">批量操作只作用于当前页已选记录</span>
+            </div>
+            <div class="batch-bar__actions">
+              <el-button type="primary" @click="openBatchDialog('CONFIRMED')">
+                批量确认
+              </el-button>
+              <el-button type="danger" plain @click="openBatchDialog('REJECTED')">
+                批量拒绝
+              </el-button>
+              <el-button link @click="clearSelection">取消选择</el-button>
+            </div>
+          </div>
+
+          <el-table
+            ref="tableRef"
+            v-loading="labelsLoading"
+            :data="labels"
+            size="small"
+            border
+            @selection-change="onSelectionChange"
+          >
+            <el-table-column v-if="canReview" type="selection" width="44" />
             <el-table-column label="字段" min-width="160">
               <template #default="{ row }">
                 <EntityLink
@@ -480,7 +584,9 @@ onMounted(async () => {
             <el-table-column label="复核" width="190">
               <template #default="{ row }">
                 <template v-if="row.reviewedAt">
-                  <div>{{ row.reviewedBy || '-' }}</div>
+                  <el-tooltip :content="row.reviewedBy || '-'" placement="top">
+                    <div class="reviewer-id">{{ row.reviewedBy || '-' }}</div>
+                  </el-tooltip>
                   <div class="text-muted">{{ formatDateTime(row.reviewedAt) }}</div>
                 </template>
                 <span v-else class="text-muted">-</span>
@@ -625,6 +731,56 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="batchDialogVisible"
+      :title="batchStatus === 'CONFIRMED' ? '批量确认敏感标签' : '批量拒绝敏感标签'"
+      width="540px"
+      :close-on-click-modal="!batchSubmitting"
+      :close-on-press-escape="!batchSubmitting"
+    >
+      <div class="batch-summary">
+        当前页已选 <strong>{{ selectedLabels.length }}</strong> 条标签。
+        <span v-if="batchStatus === 'REJECTED'">拒绝不会删除字段或标签，只改变复核状态。</span>
+        <span v-else>确认后标签将参与问数结果的脱敏兜底。</span>
+      </div>
+
+      <el-form v-if="batchStatus === 'CONFIRMED'" label-position="top">
+        <el-form-item label="统一敏感级别（可选）">
+          <el-select
+            v-model="batchLevel"
+            clearable
+            placeholder="保持每条原级别"
+            style="width: 220px"
+          >
+            <el-option
+              v-for="level in ['L4', 'L3', 'L2', 'L1']"
+              :key="level"
+              :value="level"
+              :label="levelLabel(level)"
+            />
+          </el-select>
+          <div class="form-hint">不选择则保留每条标签当前级别。</div>
+        </el-form-item>
+      </el-form>
+
+      <el-alert
+        v-if="batchError"
+        type="error"
+        show-icon
+        :closable="false"
+        :title="batchError"
+      />
+
+      <template #footer>
+        <el-button :disabled="batchSubmitting" @click="batchDialogVisible = false">
+          取消
+        </el-button>
+        <el-button type="primary" :loading="batchSubmitting" @click="submitBatch">
+          提交批量复核
+        </el-button>
+      </template>
+    </el-dialog>
+
     <el-drawer
       v-model="reviewDrawerVisible"
       :title="canReview ? '复核敏感标签' : '敏感标签详情'"
@@ -718,6 +874,46 @@ onMounted(async () => {
 
 .tab-alert {
   margin-bottom: var(--dg-space-md);
+}
+
+.batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--dg-space-sm);
+  padding: var(--dg-space-sm) var(--dg-space-md);
+  margin-bottom: var(--dg-space-sm);
+  background: var(--dg-surface-muted);
+  border: 1px solid var(--dg-border);
+  border-radius: var(--dg-radius);
+  flex-wrap: wrap;
+}
+
+.batch-bar__info,
+.batch-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--dg-space-sm);
+  flex-wrap: wrap;
+}
+
+.batch-failure {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--dg-text-muted);
+}
+
+.batch-summary {
+  margin-bottom: var(--dg-space-md);
+  line-height: 1.7;
+  color: var(--dg-text-secondary);
+}
+
+.reviewer-id {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pagination {

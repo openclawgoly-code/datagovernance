@@ -39,3 +39,21 @@ export interface SensitivityReviewRequest {
   status: 'CONFIRMED' | 'REJECTED'
   level?: string
 }
+
+export interface SensitivityBatchReviewRequest {
+  ids: string[]
+  status: 'CONFIRMED' | 'REJECTED'
+  level?: string
+}
+
+export interface SensitivityBatchFailure {
+  id: string
+  message: string
+}
+
+export interface SensitivityBatchReviewResult {
+  requested: number
+  succeeded: number
+  failed: number
+  failures: SensitivityBatchFailure[]
+}

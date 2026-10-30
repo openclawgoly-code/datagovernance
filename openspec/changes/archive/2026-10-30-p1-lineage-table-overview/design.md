@@ -44,7 +44,7 @@ P0 血缘工作台只消费列级节点和边。`md_lineage_node` 同时保存 `
 
 ```text
 GET /api/v1/metadata/lineage/datasets/{id}/graph
-  ?direction=upstream|downstream|both&depth=1..3
+  ?direction=upstream|downstream|both&depth=1..5
 ```
 
 响应复用 `GraphView` 结构：
