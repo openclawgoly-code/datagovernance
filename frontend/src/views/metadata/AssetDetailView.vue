@@ -207,7 +207,14 @@ function openLineage(columnId?: string) {
     ElMessage.warning('该数据集没有字段，无法查看血缘')
     return
   }
-  router.push({ path: '/metadata/lineage', query: { columnId: id } })
+  router.push({
+    path: '/metadata/lineage',
+    query: {
+      columnId: id,
+      // 带上数据集 ID，血缘工作台才能直接加载字段选择器，不必反查。
+      datasetId: assetId.value,
+    },
+  })
 }
 
 async function copyLink() {

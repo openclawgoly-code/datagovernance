@@ -116,6 +116,19 @@ class LineageServiceTest {
     class Graph {
 
         @Test
+        @DisplayName("按字段 ID 解析节点:重复节点不抛 TooManyResults")
+        void resolvesCatalogColumnIdWithDuplicateNodes() {
+            LineageNode first = node("lin_first", "COLUMN", "dwd.orders.amount");
+            first.setCatalogColumnId("col_1");
+            LineageNode second = node("lin_second", "COLUMN", "dwd.orders.amount_v2");
+            second.setCatalogColumnId("col_1");
+            when(nodeMapper.selectList(any())).thenReturn(List.of(first, second));
+
+            assertThat(service.getNode("col_1").id()).isEqualTo("lin_first");
+            assertThat(service.getNode("lin_second").id()).isEqualTo("lin_second");
+        }
+
+        @Test
         @DisplayName("上游遍历返回节点与边")
         void upstream() {
             LineageNode target = node("lin_target", "COLUMN", "dwd.orders.amount");

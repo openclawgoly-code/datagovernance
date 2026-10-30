@@ -201,7 +201,12 @@ public class LineageService {
     }
 
     public NodeView getNode(String nodeId) {
-        return NodeView.from(requireNode(nodeId));
+        // 与图查询一致：调用方可能持有 catalogColumnId，而不一定是血缘节点 ID。
+        LineageNode node = findNode(WorkspaceContext.requireWorkspaceId(), nodeId);
+        if (node == null) {
+            throw BizException.notFound(ErrorCode.MTD_LINEAGE_NODE_NOT_FOUND, nodeId);
+        }
+        return NodeView.from(node);
     }
 
     private GraphView graph(String nodeId, boolean upstream, int depth) {
@@ -319,10 +324,20 @@ public class LineageService {
     }
 
     private LineageNode findNode(String workspaceId, String id) {
-        return nodeMapper.selectOne(new LambdaQueryWrapper<LineageNode>()
+        // 历史数据里同一个 catalogColumnId 可能对应多条节点（例如字段被重命名后
+        // 作业又上报了一次）。selectOne 会在这种数据上直接抛 TooManyResults，
+        // 导致整个血缘页 500；这里明确优先精确的节点 ID，再退到字段 ID。
+        List<LineageNode> matches = nodeMapper.selectList(new LambdaQueryWrapper<LineageNode>()
                 .eq(LineageNode::getWorkspaceId, workspaceId)
                 .and(w -> w.eq(LineageNode::getId, id)
                         .or().eq(LineageNode::getCatalogColumnId, id)));
+        return matches.stream()
+                .filter(node -> id.equals(node.getId()))
+                .findFirst()
+                .or(() -> matches.stream()
+                        .filter(node -> id.equals(node.getCatalogColumnId()))
+                        .findFirst())
+                .orElse(null);
     }
 
     private LineageNode requireNode(String nodeId) {
