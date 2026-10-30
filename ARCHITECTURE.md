@@ -79,6 +79,7 @@ Browser
 - **设计元语**：`styles/tokens.css` + `frontend/DESIGN.md`；
 - **AI 问数**：`views/insight/*`，经 `/api/v1/insight/*`，不直连 SuperSonic；
 - **图表**：ECharts 按需引入；日期维度折线，其他维度柱状。
+- **P0 计划**：`docs/plans/2026-10-30-frontend-p0.md`；实施拆分在 `openspec/changes/`。
 
 ### 4.1 API 契约
 

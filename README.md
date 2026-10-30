@@ -30,7 +30,8 @@
 [`docs/function-space-matrix.md`](./docs/function-space-matrix.md)。
 
 架构术语与模块边界索引见 [`ARCHITECTURE.md`](./ARCHITECTURE.md)；
-前端设计元语见 [`frontend/DESIGN.md`](./frontend/DESIGN.md)。
+前端设计元语见 [`frontend/DESIGN.md`](./frontend/DESIGN.md)；
+前端 P0 计划见 [`docs/plans/2026-10-30-frontend-p0.md`](./docs/plans/2026-10-30-frontend-p0.md)，实施拆分在 `openspec/changes/`。
 
 **面向使用者的操作手册**在 [`docs/user-manual.html`](./docs/user-manual.html) ——
 从建数据源到跑任务、看告警,含三台状态机速查、错误码归因表,以及可直接下载的
