@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { insightApi } from '@/api/insight'
+import { useAuthStore } from '@/stores/auth'
 import type {
   InsightAnswer,
   InsightDashboard,
+  InsightDashboardAcl,
   InsightDashboardDetail,
   InsightDashboardRun,
   InsightDashboardVersion,
 } from '@/types/insight'
 import { formatDateTime } from '@/utils/format'
 
+const auth = useAuthStore()
 const dashboards = ref<InsightDashboard[]>([])
 const detail = ref<InsightDashboardDetail | null>(null)
 const loading = ref(false)
@@ -22,17 +25,31 @@ const runResult = ref<InsightDashboardRun | null>(null)
 const versionDialog = ref(false)
 const versions = ref<InsightDashboardVersion[]>([])
 const autoRefresh = ref(false)
+const aclDrawer = ref(false)
+const acl = ref<InsightDashboardAcl[]>([])
+const aclLoading = ref(false)
+const aclSubmitting = ref(false)
+const aclForm = ref<{ username: string; permission: 'READ' | 'MANAGE' }>({
+  username: '',
+  permission: 'READ',
+})
+const reordering = ref(false)
 let refreshTimer: number | undefined
+
+const canManage = computed(() => auth.hasPermission('insight:dashboard:manage'))
+const canAsk = computed(() => auth.hasPermission('insight:ask'))
 
 async function loadDashboards() {
   loading.value = true
   try {
     dashboards.value = await insightApi.dashboards()
-    if (!selectedId.value && dashboards.value.length) {
-      selectedId.value = dashboards.value[0].id
+    if (!dashboards.value.some((item) => item.id === selectedId.value)) {
+      selectedId.value = dashboards.value[0]?.id || ''
     }
     if (selectedId.value) {
       await loadDetail(selectedId.value)
+    } else {
+      detail.value = null
     }
   } finally {
     loading.value = false
@@ -45,6 +62,9 @@ async function loadDetail(id: string) {
 }
 
 async function createDashboard() {
+  if (!canManage.value) {
+    return
+  }
   if (!draft.value.name.trim()) {
     ElMessage.warning('请输入看板名称')
     return
@@ -60,7 +80,7 @@ async function createDashboard() {
 }
 
 async function runDashboard(silent = false) {
-  if (!detail.value || running.value) {
+  if (!detail.value || running.value || !canAsk.value) {
     return
   }
   running.value = true
@@ -82,6 +102,113 @@ async function openVersions() {
   versionDialog.value = true
 }
 
+async function openAcl() {
+  if (!detail.value) {
+    return
+  }
+  aclForm.value = { username: '', permission: 'READ' }
+  aclDrawer.value = true
+  await loadAcl()
+}
+
+async function loadAcl() {
+  if (!detail.value) {
+    return
+  }
+  aclLoading.value = true
+  try {
+    acl.value = await insightApi.dashboardAcl(detail.value.id)
+  } catch {
+    acl.value = []
+    ElMessage.error('看板权限加载失败')
+  } finally {
+    aclLoading.value = false
+  }
+}
+
+async function addAcl() {
+  if (!detail.value || !canManage.value) {
+    return
+  }
+  const username = aclForm.value.username.trim()
+  if (!username) {
+    ElMessage.warning('请输入用户名')
+    return
+  }
+  aclSubmitting.value = true
+  try {
+    await insightApi.addDashboardAcl(detail.value.id, {
+      username,
+      permission: aclForm.value.permission,
+    })
+    ElMessage.success('看板权限已保存')
+    aclForm.value.username = ''
+    await loadAcl()
+    await loadDashboards()
+  } catch {
+    ElMessage.error('保存看板权限失败')
+  } finally {
+    aclSubmitting.value = false
+  }
+}
+
+async function removeAcl(username: string) {
+  if (!detail.value || !canManage.value) {
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`移除 ${username} 的看板权限？`, '移除权限', {
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  try {
+    await insightApi.removeDashboardAcl(detail.value.id, username)
+    ElMessage.success('看板权限已移除')
+    await loadAcl()
+    await loadDashboards()
+  } catch {
+    ElMessage.error('移除看板权限失败')
+  }
+}
+
+async function moveItem(index: number, delta: -1 | 1) {
+  if (!detail.value || !canManage.value || reordering.value) {
+    return
+  }
+  const items = detail.value.items
+  const target = index + delta
+  if (target < 0 || target >= items.length) {
+    return
+  }
+  const current = items[index]
+  const neighbour = items[target]
+  let currentOrder = current.sortOrder ?? index
+  let neighbourOrder = neighbour.sortOrder ?? target
+  if (currentOrder === neighbourOrder) {
+    currentOrder = index
+    neighbourOrder = target
+  }
+
+  reordering.value = true
+  try {
+    await insightApi.updateDashboardItem(detail.value.id, current.id, {
+      sortOrder: neighbourOrder,
+    })
+    await insightApi.updateDashboardItem(detail.value.id, neighbour.id, {
+      sortOrder: currentOrder,
+    })
+    runResult.value = null
+    await loadDashboards()
+    ElMessage.success('问题顺序已更新')
+  } catch {
+    ElMessage.error('问题顺序更新失败')
+  } finally {
+    reordering.value = false
+  }
+}
+
 function answerColumns(answer?: InsightAnswer) {
   if (!answer) {
     return []
@@ -97,6 +224,9 @@ function answerColumns(answer?: InsightAnswer) {
 }
 
 async function removeDashboard(id: string) {
+  if (!canManage.value) {
+    return
+  }
   await ElMessageBox.confirm('删除看板会同时删除其问题项,确定吗?', '删除看板', {
     type: 'warning',
   })
@@ -109,7 +239,7 @@ async function removeDashboard(id: string) {
 }
 
 async function removeItem(itemId: string) {
-  if (!detail.value) {
+  if (!detail.value || !canManage.value) {
     return
   }
   await insightApi.deleteDashboardItem(detail.value.id, itemId)
@@ -142,7 +272,9 @@ onBeforeUnmount(() => {
       <template #header>
         <div class="dashboard__header">
           <span>问数看板</span>
-          <el-button type="primary" @click="dialogVisible = true">新建看板</el-button>
+          <el-button v-if="canManage" type="primary" @click="dialogVisible = true">
+            新建看板
+          </el-button>
         </div>
       </template>
 
@@ -160,7 +292,7 @@ onBeforeUnmount(() => {
             <el-table-column label="更新时间" width="160">
               <template #default="{ row }">{{ formatDateTime(row.updatedAt) }}</template>
             </el-table-column>
-            <el-table-column width="70">
+            <el-table-column v-if="canManage" width="70">
               <template #default="{ row }">
                 <el-button link type="danger" @click.stop="removeDashboard(row.id)">删除</el-button>
               </template>
@@ -175,13 +307,22 @@ onBeforeUnmount(() => {
               <div>
                 <h3>{{ detail.name }}</h3>
                 <div class="text-muted">{{ detail.description || '暂无描述' }}</div>
+                <div class="text-muted dashboard__creator">
+                  创建人：{{ detail.createdBy || '-' }}
+                </div>
               </div>
               <div class="dashboard__actions">
                 <el-tag size="small">v{{ detail.version }}</el-tag>
                 <span class="text-muted">{{ detail.items.length }} 个问题</span>
+                <el-button size="small" @click="openAcl">权限</el-button>
                 <el-button size="small" @click="openVersions">版本</el-button>
-                <el-switch v-model="autoRefresh" active-text="自动刷新 60s" />
+                <el-switch
+                  v-if="canAsk"
+                  v-model="autoRefresh"
+                  active-text="自动刷新 60s"
+                />
                 <el-button
+                  v-if="canAsk"
                   size="small"
                   type="primary"
                   :loading="running"
@@ -194,10 +335,33 @@ onBeforeUnmount(() => {
             </div>
 
             <el-table :data="detail.items" size="small">
+              <el-table-column label="#" width="50">
+                <template #default="{ $index }">{{ $index + 1 }}</template>
+              </el-table-column>
               <el-table-column prop="question" label="问题" min-width="240" show-overflow-tooltip />
               <el-table-column prop="datasetId" label="数据集 ID" width="100" />
               <el-table-column prop="chartType" label="图表" width="90" />
-              <el-table-column width="80">
+              <el-table-column v-if="canManage" label="排序" width="140">
+                <template #default="{ $index }">
+                  <el-button
+                    link
+                    type="primary"
+                    :disabled="$index === 0 || reordering"
+                    @click="moveItem($index, -1)"
+                  >
+                    上移
+                  </el-button>
+                  <el-button
+                    link
+                    type="primary"
+                    :disabled="$index === detail.items.length - 1 || reordering"
+                    @click="moveItem($index, 1)"
+                  >
+                    下移
+                  </el-button>
+                </template>
+              </el-table-column>
+              <el-table-column v-if="canManage" width="80">
                 <template #default="{ row }">
                   <el-button link type="danger" @click="removeItem(row.id)">删除</el-button>
                 </template>
@@ -250,7 +414,56 @@ onBeforeUnmount(() => {
       </el-row>
     </el-card>
 
+    <el-drawer v-model="aclDrawer" title="看板权限" size="500px">
+      <el-alert
+        type="info"
+        show-icon
+        :closable="false"
+        class="acl-alert"
+        title="Space 权限决定能否使用看板；ACL 只决定能看哪一张看板。"
+      />
+
+      <el-form v-if="canManage" label-position="top" class="acl-form">
+        <el-form-item label="用户名">
+          <el-input v-model="aclForm.username" placeholder="输入平台用户名" maxlength="64" />
+        </el-form-item>
+        <el-form-item label="权限">
+          <el-select v-model="aclForm.permission" style="width: 180px">
+            <el-option label="READ · 只读" value="READ" />
+            <el-option label="MANAGE · 可管理" value="MANAGE" />
+          </el-select>
+        </el-form-item>
+        <el-button type="primary" :loading="aclSubmitting" @click="addAcl">
+          添加授权
+        </el-button>
+      </el-form>
+
+      <el-table v-loading="aclLoading" :data="acl" size="small" border class="acl-table">
+        <el-table-column prop="username" label="用户" min-width="140" />
+        <el-table-column label="权限" width="120">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.permission === 'MANAGE' ? 'warning' : 'info'">
+              {{ row.permission }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="canManage" label="操作" width="90">
+          <template #default="{ row }">
+            <el-button link type="danger" @click="removeAcl(row.username)">移除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!aclLoading && !acl.length" description="暂无单独授权" />
+    </el-drawer>
+
     <el-dialog v-model="versionDialog" title="看板版本" width="520px">
+      <el-alert
+        type="info"
+        show-icon
+        :closable="false"
+        class="version-alert"
+        title="版本快照保存问题项顺序与布局；P0 只读，不支持回滚。"
+      />
       <el-table :data="versions" size="small">
         <el-table-column prop="version" label="版本" width="80" />
         <el-table-column prop="itemCount" label="问题数" width="90" />
@@ -316,5 +529,25 @@ onBeforeUnmount(() => {
 
 .dashboard__title h3 {
   margin: 0 0 4px;
+}
+
+.dashboard__creator {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.acl-alert,
+.version-alert {
+  margin-bottom: 12px;
+}
+
+.acl-form {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--dg-border);
+  margin-bottom: 12px;
+}
+
+.acl-table {
+  margin-top: 4px;
 }
 </style>

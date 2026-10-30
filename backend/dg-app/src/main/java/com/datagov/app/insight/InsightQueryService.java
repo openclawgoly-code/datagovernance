@@ -99,14 +99,15 @@ public class InsightQueryService {
             String maskedColumns,
             boolean succeeded,
             String errorMessage,
-            Instant createdAt
+            Instant createdAt,
+            Long datasetId
     ) {
         static QueryLogView from(InsightQueryLog value) {
             return new QueryLogView(value.getId(), value.getUsername(), value.getQuestion(),
                     value.getQueryState(), value.getGeneratedSql(), value.getRowCount(),
                     value.getElapsedMs(), value.getMaskedColumns(),
                     Boolean.TRUE.equals(value.getSucceeded()), value.getErrorMessage(),
-                    value.getCreatedAt());
+                    value.getCreatedAt(), value.getDatasetId());
         }
     }
 

@@ -35,6 +35,7 @@ export interface InsightQueryLog {
   succeeded: boolean
   errorMessage?: string
   createdAt: string
+  datasetId?: number | null
 }
 
 export interface InsightDashboard {
