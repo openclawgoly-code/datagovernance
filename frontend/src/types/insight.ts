@@ -96,3 +96,13 @@ export interface InsightDashboardVersion {
   createdAt: string
   itemCount: number
 }
+
+export interface InsightSupersonicMapping {
+  id: string
+  platformUsername: string
+  supersonicUsername: string
+  credentialId: string
+  enabled: boolean
+  createdBy?: string
+  updatedAt: string
+}

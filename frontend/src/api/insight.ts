@@ -6,6 +6,7 @@ import type {
   InsightDashboardItem,
   InsightDashboardRun,
   InsightDashboardVersion,
+  InsightSupersonicMapping,
   InsightDataset,
   InsightPage,
   InsightQueryLog,
@@ -54,5 +55,18 @@ export const insightApi = {
   },
   dashboardVersions(id: string) {
     return http.get<InsightDashboardVersion[]>(`/insight/dashboards/${id}/versions`)
+  },
+  mappings() {
+    return http.get<InsightSupersonicMapping[]>('/insight/mappings')
+  },
+  saveMapping(payload: {
+    platformUsername: string
+    supersonicUsername: string
+    credentialId: string
+  }) {
+    return http.post<InsightSupersonicMapping>('/insight/mappings', payload)
+  },
+  deleteMapping(id: string) {
+    return http.delete<void>(`/insight/mappings/${id}`)
   },
 }

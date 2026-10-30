@@ -306,4 +306,6 @@ curl -X POST http://localhost:8080/api/v1/insight/ask \
 - 把问题、SQL、耗时、脱敏列写入 `ig_query_log`，同时写治理审计；
 - `POST /api/v1/insight/export` 导出 CSV，`/export/xlsx` 导出 XLSX；都需要 `insight:export` 权限，导出结果同样脱敏并写 `INSIGHT_EXPORT` 审计。
 
-> 当前是单一 SuperSonic 服务账号；生产需要把平台用户映射到 SuperSonic 账号/角色，或由网关统一做列级权限。
+> V23 支持平台用户 → SuperSonic 账号映射（`/insight/mappings`），口令通过平台凭据托管；无映射时回退服务账号。
+>
+> **DG_SECRET_KEY 必须固定**：凭据用它加密，换 key 后旧 credential 会解密失败。

@@ -1069,6 +1069,7 @@ python3 scripts/seed-synthetic-warehouse.py \
   - 行数上限、耗时、失败记录；
   - 同时写 `ig_query_log` 与 `gv_audit_record`。
 - 配置：`dg.insight.*` / `DG_SUPERSONIC_*`。
+- V23 `ig_supersonic_mapping` + `/api/v1/insight/mappings`：平台用户映射 SuperSonic 账号，口令走 Platform 凭据；无映射回退服务账号；前端 `/insight/mappings` 维护。
 - `V18__insight_menu.sql` + 前端 `/insight/ask` 页面：
   - 数据集下拉来自 `GET /api/v1/insight/datasets`；
   - 展示结果表格、生成 SQL、脱敏列、最近问数；

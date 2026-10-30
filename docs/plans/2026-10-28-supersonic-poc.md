@@ -1,7 +1,7 @@
 # SuperSonic AI 问数 POC（Phase 1）
 
 - 日期：2026-10-28
-- 状态：ClickHouse 50/50、StarRocks 50/50 PASS；Phase 2 问数网关、前端入口、CSV/XLSX 导出、看板已落地；待真正 External Catalog、用户级映射和看板细化
+- 状态：ClickHouse 50/50、StarRocks 50/50 PASS；Phase 2 问数网关、前端入口、CSV/XLSX 导出、看板已落地；待真正 External Catalog、用户级映射 UI/SSO 和看板细化
 - 关联：`docs/plans/2026-10-26-catalog-lakehouse-lineage.md` §20
 - 部署说明：`deploy/supersonic/README.md`
 
@@ -188,7 +188,8 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
   - 前端 `/insight/dashboards` 页面：看板列表、创建看板、保存问题项、删除、手动刷新、60 秒自动刷新、版本查看；
   - V18 菜单 `menu:insight`，权限 `insight:ask` / `insight:read`。
 - **数据集列表**：`GET /api/v1/insight/datasets`，从 SuperSonic 主题域/数据集树拍平。
-- **身份**：平台 JWT + `WorkspaceContext`；权限码 `insight:ask` / `insight:read`。
+- **身份**：平台 JWT + `WorkspaceContext`；权限码 `insight:ask` / `insight:read`；
+  V23 增加 `ig_supersonic_mapping`，按平台用户映射 SuperSonic 账号（口令托管在 Platform 凭据）；无映射时回退服务账号。
 - **网关**：
   - 行数上限 `DG_INSIGHT_MAX_ROWS`（默认 200），超出标记 `truncated`；
   - 上游超时 `DG_INSIGHT_TIMEOUT_SECONDS`（默认 120s）；
@@ -205,6 +206,7 @@ latency_ms, prompt_tokens, completion_tokens, failure_reason
   - 前端 `pnpm type-check`、`pnpm build` 通过，页面路由 `/insight/ask` 已注册，页面含“导出 CSV / XLSX”按钮；
   - 前端按结果自动选图：日期维度用折线图，其余维度用柱状图（ECharts 6，按需引入）；
   - 看板 API：保存问题定义；`POST /{id}/run` 逐项重新问数；`GET /{id}/versions` 版本历史；`GET/POST/DELETE /{id}/acl` 细粒度 ACL；`PATCH /{id}/items/{itemId}` 排序/布局。
+  - 用户映射 API：`GET/POST/DELETE /api/v1/insight/mappings`（管理员）；前端 `/insight/mappings` 可维护映射。
 
 ### 8.2 已完成：StarRocks + MinIO 本地验证
 
@@ -242,7 +244,7 @@ Catalog 访问对象存储；当前 POC 保留 `FILES()` 内表装载作为链�
 ### 8.4 待完成
 
 1. **真正 External Catalog**：HMS/Glue 或 S3 文件外表，替换 `FILES()` 内表；
-2. **身份细化**：平台用户 → SuperSonic 账号映射；当前网关用单一服务账号，workspace 隔离只在平台侧；
+2. **身份细化**：映射 API/UI 已落地；还缺 SuperSonic 用户/角色自动开通、映射回归；
 3. **查询策略**：并发限流、按用户配额、更完整的 SQL 只读校验；
 4. **看板**：已支持手动/60 秒刷新、版本快照、ACL、排序/布局字段；拖拽布局 UI、版本回滚待做；
 5. **导出**：PDF、审批流；CSV/XLSX 已做；
@@ -291,7 +293,7 @@ Catalog 访问对象存储；当前 POC 保留 `FILES()` 内表装载作为链�
 | ClickHouse 类型名不被 SuperSonic 分类器识别 | 数值列默认成普通字段 | 建模型时手动设为度量；Phase 2 换 StarRocks 后复核 |
 | 语义建模工作量被低估 | 准确率上不去 | 先 20–30 表，业务方参与定义同义词 |
 | DeepSeek 生成 SQL 不稳定 | 结果错误 | 语义层约束 + few-shot + 回归集 |
-| SuperSonic 账号与平台割裂 | 生产权限不一致 | 当前 V17 用单一服务账号；Phase 2 再接 SSO/workspace 映射 |
+| SuperSonic 账号与平台割裂 | 生产权限不一致 | V23 已支持 per-user 映射；还缺 SuperSonic 用户/角色自动开通与 UI |
 | 结果脱敏按列名/别名匹配 | 复杂表达式可能漏匹配 | 语义模型不暴露原始 PII 是第一道防线;上线前用敏感列回归集验证 |
 | 导出泄露 PII | 合规风险 | 默认脱敏 + 单独授权 + 审计 |
 | 看板归属不清 | 后续迁移成本 | POC 放 SuperSonic，Phase 2 决策 |

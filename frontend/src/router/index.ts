@@ -42,6 +42,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '问数看板', permission: 'insight:dashboard:read' },
       },
       {
+        path: 'insight/mappings',
+        name: 'insight-mappings',
+        component: () => import('@/views/insight/MappingView.vue'),
+        meta: { title: '问数账号映射', permission: 'insight:mapping:read' },
+      },
+      {
         path: 'metadata/datasources',
         name: 'datasources',
         component: () => import('@/views/metadata/DataSourceListView.vue'),

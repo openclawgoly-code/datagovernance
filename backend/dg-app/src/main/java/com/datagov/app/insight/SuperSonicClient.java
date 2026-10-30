@@ -19,12 +19,15 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * SuperSonic 的薄客户端。
  *
- * <p>只负责三件事:登录、拿一个会话、发问。语义层、SQL 生成、图表选择都在
- * SuperSonic 里,平台不重复实现 —— 否则两套口径迟早会分叉。
+ * <p>按“平台用户映射到的 SuperSonic 账号”缓存 token 和聊天会话。缓存键含
+ * 口令摘要:凭据轮换后旧 session 自然失效,不会长期拿旧口令。
+ *
+ * <p>口令只用于登录,不落日志、不进缓存明文字段。
  */
 @Component
 public class SuperSonicClient {
@@ -35,10 +38,7 @@ public class SuperSonicClient {
     private final InsightProperties properties;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
-
-    private volatile String token;
-    private volatile Instant tokenExpiresAt = Instant.EPOCH;
-    private volatile Integer chatId;
+    private final Map<String, Session> sessions = new ConcurrentHashMap<>();
 
     public SuperSonicClient(InsightProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
@@ -59,13 +59,21 @@ public class SuperSonicClient {
     public record DatasetOption(long id, String name, String domain) {
     }
 
-    /**
-     * 数据集树拍平成下拉选项。SuperSonic 的树是“主题域 → 数据集”,前端只需要
-     * 一个可选列表;把树结构原样透出会让 UI 额外实现一次展开逻辑。
-     */
+    private static final class Session {
+        private volatile String token;
+        private volatile Instant tokenExpiresAt = Instant.EPOCH;
+        private volatile Integer chatId;
+        private volatile Integer chatAgentId;
+    }
+
     public List<DatasetOption> datasets() {
-        requireConfigured();
-        Map<String, Object> response = get("/api/chat/conf/getDomainDataSetTree", token());
+        return datasets(properties.getUsername(), properties.getPassword());
+    }
+
+    public List<DatasetOption> datasets(String username, String password) {
+        requireConfigured(username, password);
+        Map<String, Object> response = get("/api/chat/conf/getDomainDataSetTree",
+                token(username, password));
         if (!Integer.valueOf(200).equals(response.get("code"))
                 || !(response.get("data") instanceof List<?> roots)) {
             throw new BizException(ErrorCode.GOV_INSIGHT_FAILED,
@@ -95,9 +103,14 @@ public class SuperSonicClient {
     }
 
     public AskResult ask(String question, int agentId, long datasetId) {
-        requireConfigured();
-        String accessToken = token();
-        int sessionId = chatId(accessToken);
+        return ask(question, agentId, datasetId, properties.getUsername(), properties.getPassword());
+    }
+
+    public AskResult ask(String question, int agentId, long datasetId,
+                         String username, String password) {
+        requireConfigured(username, password);
+        String accessToken = token(username, password);
+        int sessionId = chatId(username, password, accessToken, agentId);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("queryText", question);
         payload.put("agentId", agentId);
@@ -124,31 +137,29 @@ public class SuperSonicClient {
                 string(data.get("errorMsg")));
     }
 
-    private void requireConfigured() {
-        if (properties.getPassword() == null || properties.getPassword().isBlank()) {
+    private void requireConfigured(String username, String password) {
+        if (username == null || username.isBlank() || password == null || password.isBlank()) {
             throw new BizException(ErrorCode.GOV_INSIGHT_NOT_CONFIGURED,
-                    "未配置 SuperSonic 服务账号口令(DG_SUPERSONIC_PASSWORD)");
+                    "未配置 SuperSonic 账号或口令");
         }
     }
 
-    private int chatId(String accessToken) {
-        if (chatId != null) {
-            return chatId;
-        }
-        synchronized (this) {
-            if (chatId != null) {
-                return chatId;
+    private int chatId(String username, String password, String accessToken, int agentId) {
+        Session session = session(username, password);
+        synchronized (session) {
+            if (session.chatId != null && Integer.valueOf(agentId).equals(session.chatAgentId)) {
+                return session.chatId;
             }
             String encoded = URLEncoder.encode(CHAT_NAME, StandardCharsets.UTF_8);
             Map<String, Object> created = post(
-                    "/api/chat/manage/save?chatName=" + encoded + "&agentId=" + properties.getAgentId(),
+                    "/api/chat/manage/save?chatName=" + encoded + "&agentId=" + agentId,
                     null, accessToken);
             if (!Integer.valueOf(200).equals(created.get("code"))) {
                 throw new BizException(ErrorCode.GOV_INSIGHT_FAILED,
                         "创建问数会话失败: " + created.get("msg"));
             }
             Map<String, Object> chats = get(
-                    "/api/chat/manage/getAll?agentId=" + properties.getAgentId(), accessToken);
+                    "/api/chat/manage/getAll?agentId=" + agentId, accessToken);
             if (!(chats.get("data") instanceof List<?> list)) {
                 throw new BizException(ErrorCode.GOV_INSIGHT_FAILED, "读取问数会话失败");
             }
@@ -156,36 +167,42 @@ public class SuperSonicClient {
                 if (item instanceof Map<?, ?> chat
                         && CHAT_NAME.equals(string(chat.get("chatName")))
                         && chat.get("chatId") instanceof Number id) {
-                    chatId = id.intValue();
-                    return chatId;
+                    session.chatId = id.intValue();
+                    session.chatAgentId = agentId;
+                    return session.chatId;
                 }
             }
             throw new BizException(ErrorCode.GOV_INSIGHT_FAILED, "找不到刚创建的问数会话");
         }
     }
 
-    private String token() {
-        if (token != null && Instant.now().isBefore(tokenExpiresAt)) {
-            return token;
+    private String token(String username, String password) {
+        Session session = session(username, password);
+        if (session.token != null && Instant.now().isBefore(session.tokenExpiresAt)) {
+            return session.token;
         }
-        synchronized (this) {
-            if (token != null && Instant.now().isBefore(tokenExpiresAt)) {
-                return token;
+        synchronized (session) {
+            if (session.token != null && Instant.now().isBefore(session.tokenExpiresAt)) {
+                return session.token;
             }
             Map<String, Object> response = post("/api/auth/user/login",
-                    Map.of("name", properties.getUsername(), "password", properties.getPassword()),
-                    null);
+                    Map.of("name", username, "password", password), null);
             if (!Integer.valueOf(200).equals(response.get("code"))
                     || !(response.get("data") instanceof String value)) {
                 throw new BizException(ErrorCode.GOV_INSIGHT_FAILED,
                         "SuperSonic 登录失败: " + response.get("msg"));
             }
-            token = value;
-            // SuperSonic 默认 token 20 小时;这里保守缓存 10 分钟,口令轮换后最多
-            // 10 分钟生效。比每次问数都登录少一跳,又不会长期握住旧凭证。
-            tokenExpiresAt = Instant.now().plus(Duration.ofMinutes(10));
-            return token;
+            session.token = value;
+            session.tokenExpiresAt = Instant.now().plus(Duration.ofMinutes(10));
+            log.debug("SuperSonic 登录成功 user={}", username);
+            return session.token;
         }
+    }
+
+    private Session session(String username, String password) {
+        String key = username + "|" + Integer.toHexString(
+                (password == null ? "" : password).hashCode());
+        return sessions.computeIfAbsent(key, ignored -> new Session());
     }
 
     private Map<String, Object> get(String path, String accessToken) {

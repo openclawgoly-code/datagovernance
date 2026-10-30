@@ -13,6 +13,8 @@ import com.datagov.common.tenant.WorkspaceContext;
 import com.datagov.governance.service.AuditService;
 import com.datagov.governance.service.AuditService.AuditEntry;
 import com.datagov.metadata.service.SensitivityService;
+import com.datagov.platform.dto.CredentialSecret;
+import com.datagov.platform.service.CredentialService;
 import com.datagov.metadata.service.SensitivityService.SensitiveColumnView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,17 +45,26 @@ public class InsightQueryService {
     private final InsightQueryLogMapper logMapper;
     private final SensitivityService sensitivityService;
     private final AuditService auditService;
+    private final InsightSupersonicMappingService mappingService;
+    private final CredentialService credentialService;
 
     public InsightQueryService(SuperSonicClient client,
                                InsightProperties properties,
                                InsightQueryLogMapper logMapper,
                                SensitivityService sensitivityService,
-                               AuditService auditService) {
+                               AuditService auditService,
+                               InsightSupersonicMappingService mappingService,
+                               CredentialService credentialService) {
         this.client = client;
         this.properties = properties;
         this.logMapper = logMapper;
         this.sensitivityService = sensitivityService;
         this.auditService = auditService;
+        this.mappingService = mappingService;
+        this.credentialService = credentialService;
+    }
+
+    private record ClientCredentials(String username, String password) {
     }
 
     public record AskRequest(String question, Long dataSetId, Integer agentId) {
@@ -100,14 +111,17 @@ public class InsightQueryService {
     }
 
     public List<SuperSonicClient.DatasetOption> datasets() {
+        Caller caller = WorkspaceContext.require();
         WorkspaceContext.requireWorkspaceId();
-        return client.datasets();
+        ClientCredentials credentials = credentials(caller);
+        return client.datasets(credentials.username(), credentials.password());
     }
 
     public Answer ask(AskRequest request) {
         Caller caller = WorkspaceContext.require();
         // 问数事实必须落在某个空间里;平台管理员在未选空间时也不能匿名查业务数据。
         WorkspaceContext.requireWorkspaceId();
+        ClientCredentials credentials = credentials(caller);
         String question = request == null ? null : request.question();
         if (question == null || question.isBlank()) {
             throw new BizException(ErrorCode.SYS_VALIDATION_FAILED, "问题不能为空");
@@ -124,7 +138,8 @@ public class InsightQueryService {
         long started = System.currentTimeMillis();
         InsightQueryLog fact = newFact(caller, question, agentId, datasetId);
         try {
-            SuperSonicClient.AskResult result = client.ask(question, agentId, datasetId);
+            SuperSonicClient.AskResult result = client.ask(question, agentId, datasetId,
+                    credentials.username(), credentials.password());
             if (!"SUCCESS".equalsIgnoreCase(result.state())) {
                 throw new BizException(ErrorCode.GOV_INSIGHT_FAILED,
                         "问数未成功: " + nullSafe(result.error(), result.state()));
@@ -308,6 +323,24 @@ public class InsightQueryService {
                         .orderByDesc(InsightQueryLog::getCreatedAt));
         return PageResult.of(result.getRecords().stream().map(QueryLogView::from).toList(),
                 result.getTotal(), page, size);
+    }
+
+    private ClientCredentials credentials(Caller caller) {
+        var mapping = mappingService.find(caller.workspaceId(), caller.username());
+        if (mapping != null) {
+            CredentialSecret secret = credentialService.resolveSecret(
+                    caller.workspaceId(), mapping.getCredentialId());
+            if (secret.secret() == null || secret.secret().isBlank()) {
+                throw new BizException(ErrorCode.GOV_INSIGHT_NOT_CONFIGURED,
+                        "问数账号映射的凭据没有口令");
+            }
+            return new ClientCredentials(mapping.getSupersonicUsername(), secret.secret());
+        }
+        if (properties.getPassword() == null || properties.getPassword().isBlank()) {
+            throw new BizException(ErrorCode.GOV_INSIGHT_NOT_CONFIGURED,
+                    "当前用户没有 SuperSonic 账号映射,且未配置服务账号");
+        }
+        return new ClientCredentials(properties.getUsername(), properties.getPassword());
     }
 
     private InsightQueryLog newFact(Caller caller, String question, int agentId, long datasetId) {
