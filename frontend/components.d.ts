@@ -7,6 +7,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    DatasetSearchSelect: typeof import('./src/components/metadata/DatasetSearchSelect.vue')['default']
     DetailTabs: typeof import('./src/components/insight/DetailTabs.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAside: typeof import('element-plus/es')['ElAside']

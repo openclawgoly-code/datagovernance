@@ -58,3 +58,11 @@
 <MetadataPanel title="属性" :items="[{ label: '来源', value: source }]" />
 <QuerySqlBlock :sql="answer.sql" />
 ```
+
+## DatasetSearchSelect
+
+按来源并行远程搜索 Catalog 数据集，适合筛选器和扫描范围选择。不要把全量数据集一次拉进浏览器。
+
+```vue
+<DatasetSearchSelect v-model="datasetId" placeholder="筛选数据集" @change="onFilterChange" />
+```

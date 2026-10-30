@@ -201,6 +201,17 @@ function openColumn(column: CatalogColumn) {
   columnDrawerVisible.value = true
 }
 
+function openColumnFromQuery() {
+  const columnId = typeof route.query.columnId === 'string' ? route.query.columnId : ''
+  if (!columnId) {
+    return
+  }
+  const column = columns.value.find((item) => item.id === columnId)
+  if (column) {
+    openColumn(column)
+  }
+}
+
 function openLineage(columnId?: string) {
   const id = columnId || selectedColumnId.value || columns.value[0]?.id
   if (!id) {
@@ -240,6 +251,10 @@ watch(() => route.query.tab, (value) => {
   activeTab.value = normalizeTab(value)
 })
 
+watch(() => route.query.columnId, () => {
+  openColumnFromQuery()
+})
+
 watch(activeTab, (value) => {
   if (typeof route.query.tab !== 'string' || route.query.tab !== value) {
     router.replace({ query: { ...route.query, tab: value } })
@@ -275,6 +290,7 @@ onMounted(async () => {
   if (activeTab.value === 'lineage') {
     await loadLineage()
   }
+  openColumnFromQuery()
 })
 </script>
 
@@ -467,9 +483,9 @@ onMounted(async () => {
                 />
               </el-select>
               <el-radio-group v-model="lineageDirection" size="small">
-                <el-radio-button label="both">双向</el-radio-button>
-                <el-radio-button label="upstream">上游</el-radio-button>
-                <el-radio-button label="downstream">下游</el-radio-button>
+                <el-radio-button value="both">双向</el-radio-button>
+                <el-radio-button value="upstream">上游</el-radio-button>
+                <el-radio-button value="downstream">下游</el-radio-button>
               </el-radio-group>
               <el-button link @click="loadLineage">刷新</el-button>
               <el-button type="primary" plain @click="openLineage(selectedColumnId)">

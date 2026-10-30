@@ -99,13 +99,15 @@ public class SensitivityService {
                                   String columnName, String category, String level,
                                   Double confidence, String status, String evidenceJson,
                                   String detectedBy, Instant detectedAt,
-                                  String reviewedBy, Instant reviewedAt) {
-        static SensitivityView from(ColumnSensitivity value, String columnName) {
+                                  String reviewedBy, Instant reviewedAt,
+                                  String datasetName, String datasetQualifiedName) {
+        static SensitivityView from(ColumnSensitivity value, String columnName,
+                                    String datasetName, String datasetQualifiedName) {
             return new SensitivityView(value.getId(), value.getDatasetId(),
                     value.getColumnId(), columnName, value.getCategory(), value.getLevel(),
                     value.getConfidence(), value.getStatus(), value.getEvidenceJson(),
                     value.getDetectedBy(), value.getDetectedAt(), value.getReviewedBy(),
-                    value.getReviewedAt());
+                    value.getReviewedAt(), datasetName, datasetQualifiedName);
         }
     }
 
@@ -294,9 +296,26 @@ public class SensitivityService {
                 columnNames.put(column.getId(), column.getName());
             }
         }
+        // 列表页要直接显示“哪个数据集下的哪个字段”。让后端一次带出数据集名，
+        // 避免 1000 张表时前端逐条反查 Catalog。
+        Map<String, CatalogDataset> datasetsById = new HashMap<>();
+        List<String> datasetIds = result.getRecords().stream()
+                .map(ColumnSensitivity::getDatasetId).distinct().toList();
+        if (!datasetIds.isEmpty()) {
+            for (CatalogDataset dataset : datasetMapper.selectList(
+                    new LambdaQueryWrapper<CatalogDataset>()
+                            .in(CatalogDataset::getId, datasetIds))) {
+                datasetsById.put(dataset.getId(), dataset);
+            }
+        }
         return PageResult.of(result.getRecords().stream()
-                        .map(value -> SensitivityView.from(value,
-                                columnNames.getOrDefault(value.getColumnId(), value.getColumnId())))
+                        .map(value -> {
+                            CatalogDataset dataset = datasetsById.get(value.getDatasetId());
+                            return SensitivityView.from(value,
+                                    columnNames.getOrDefault(value.getColumnId(), value.getColumnId()),
+                                    dataset == null ? null : dataset.getName(),
+                                    dataset == null ? null : dataset.getQualifiedName());
+                        })
                         .toList(),
                 result.getTotal(), page, size);
     }
@@ -388,8 +407,11 @@ public class SensitivityService {
 
         CatalogColumn column = columnMapper.selectOne(new LambdaQueryWrapper<CatalogColumn>()
                 .eq(CatalogColumn::getId, value.getColumnId()));
+        CatalogDataset dataset = datasetMapper.selectById(value.getDatasetId());
         return SensitivityView.from(value,
-                column == null ? value.getColumnId() : column.getName());
+                column == null ? value.getColumnId() : column.getName(),
+                dataset == null ? null : dataset.getName(),
+                dataset == null ? null : dataset.getQualifiedName());
     }
 
     // ── 工具 ────────────────────────────────────────────────────────────

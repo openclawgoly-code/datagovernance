@@ -24,6 +24,8 @@ export interface SensitivityLabel {
   detectedAt: string
   reviewedBy?: string | null
   reviewedAt?: string | null
+  datasetName?: string | null
+  datasetQualifiedName?: string | null
 }
 
 export interface SensitivityScanResult {

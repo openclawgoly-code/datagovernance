@@ -143,6 +143,7 @@ class SensitivityServiceTest {
             when(sensitivityMapper.selectOne(any())).thenReturn(label);
             when(columnMapper.selectOne(any())).thenReturn(
                     column("col_id", "catds_1", "身份证号", null));
+            when(datasetMapper.selectById("catds_1")).thenReturn(dataset());
 
             SensitivityView view = service.review("sens_1",
                     new ReviewRequest("CONFIRMED", "L4"));
@@ -150,6 +151,8 @@ class SensitivityServiceTest {
             assertThat(view.status()).isEqualTo("CONFIRMED");
             assertThat(view.level()).isEqualTo("L4");
             assertThat(view.reviewedBy()).isEqualTo(USER);
+            assertThat(view.datasetName()).isEqualTo("oa_user");
+            assertThat(view.datasetQualifiedName()).isEqualTo("ecology.oa_user");
             verify(sensitivityMapper).updateById(label);
         }
     }
