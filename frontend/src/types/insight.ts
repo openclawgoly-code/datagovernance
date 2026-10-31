@@ -24,6 +24,15 @@ export interface InsightDataset {
   domain: string
 }
 
+export interface InsightConfig {
+  enabled: boolean
+  masking: boolean
+  maxRows: number
+  defaultDatasetId?: number
+  agentId?: number
+  message?: string
+}
+
 export interface InsightQueryLog {
   id: string
   username?: string

@@ -28,6 +28,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -99,5 +100,34 @@ class InsightQueryServiceGrantTest {
         ArgumentCaptor<AuditEntry> auditCaptor = ArgumentCaptor.forClass(AuditEntry.class);
         verify(auditService).record(auditCaptor.capture());
         assertThat(auditCaptor.getValue().detail()).contains("grants=[agrant_1]");
+    }
+
+    @Test
+    @DisplayName("“这个数据域有哪些表”走元数据回答，不经过 SuperSonic parser")
+    void answersCatalogQuestionFromDatasetDomain() {
+        when(client.datasets("admin", "service-password")).thenReturn(List.of(
+                new SuperSonicClient.DatasetOption(4, "销售数据集", "销售分析"),
+                new SuperSonicClient.DatasetOption(5, "订单明细数据集", "销售分析"),
+                new SuperSonicClient.DatasetOption(36, "销售汇总数据集", "销售分析-StarRocks")));
+
+        InsightQueryService.Answer answer = service.ask(
+                new InsightQueryService.AskRequest("这个数据域有哪些表", 4L, 5));
+
+        assertThat(answer.state()).isEqualTo("METADATA");
+        assertThat(answer.rowCount()).isEqualTo(2);
+        assertThat(answer.columns()).extracting(SuperSonicClient.Column::bizName)
+                .containsExactly("domain", "dataset", "datasetId");
+        assertThat(answer.summary()).contains("销售分析");
+        verify(client, never()).ask(anyString(), anyInt(), anyLong(), anyString(), anyString());
+
+        ArgumentCaptor<InsightQueryLog> logCaptor = ArgumentCaptor.forClass(InsightQueryLog.class);
+        verify(logMapper).insert(logCaptor.capture());
+        assertThat(logCaptor.getValue().getQueryState()).isEqualTo("METADATA");
+        assertThat(logCaptor.getValue().getSucceeded()).isTrue();
+        assertThat(logCaptor.getValue().getRowCount()).isEqualTo(2);
+
+        ArgumentCaptor<AuditEntry> auditCaptor = ArgumentCaptor.forClass(AuditEntry.class);
+        verify(auditService).record(auditCaptor.capture());
+        assertThat(auditCaptor.getValue().detail()).contains("metadata=true");
     }
 }

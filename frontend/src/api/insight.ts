@@ -11,11 +11,15 @@ import type {
   InsightDashboardVersion,
   InsightSupersonicMapping,
   InsightDataset,
+  InsightConfig,
   InsightPage,
   InsightQueryLog,
 } from '@/types/insight'
 
 export const insightApi = {
+  config() {
+    return http.get<InsightConfig>('/insight/config')
+  },
   datasets() {
     return http.get<InsightDataset[]>('/insight/datasets')
   },

@@ -109,6 +109,8 @@ public class InsightController {
                 "enabled", true,
                 "masking", true,
                 "maxRows", properties.getMaxRows(),
+                "defaultDatasetId", properties.getDefaultDatasetId(),
+                "agentId", properties.getAgentId(),
                 "message", "问数请求请走 POST /api/v1/insight/ask"));
     }
 }

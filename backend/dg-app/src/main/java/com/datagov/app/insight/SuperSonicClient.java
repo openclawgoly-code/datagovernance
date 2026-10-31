@@ -120,8 +120,15 @@ public class SuperSonicClient {
 
         Map<String, Object> response = post("/api/chat/query/", payload, accessToken);
         if (!Integer.valueOf(200).equals(response.get("code"))) {
+            String message = string(response.get("msg"));
+            if (message != null && message.contains("no selectedParses")) {
+                // 这是“选中的数据集没有语义解析”，不是用户问题写错；
+                // 直接回 parser error 会让人误以为是语法问题。
+                throw new BizException(ErrorCode.GOV_INSIGHT_FAILED,
+                        "当前数据集没有可用的语义解析，请切换数据集后重试");
+            }
             throw new BizException(ErrorCode.GOV_INSIGHT_FAILED,
-                    "问数服务返回错误: " + response.get("msg"));
+                    "问数服务返回错误: " + message);
         }
         Object dataObject = response.get("data");
         if (!(dataObject instanceof Map<?, ?> data)) {

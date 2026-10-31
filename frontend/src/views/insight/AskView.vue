@@ -33,6 +33,10 @@ echarts.use([BarChart, LineChart, GridComponent, TooltipComponent, CanvasRendere
 const canAsk = computed(() => question.value.trim().length > 0 && !asking.value)
 
 const chartData = computed(() => {
+  // 元数据问题返回的是数据集清单，不是指标；不要拿 datasetId 画柱状图。
+  if (answer.value?.state === 'METADATA') {
+    return null
+  }
   const rows = answer.value?.rows ?? []
   if (!rows.length || !columns.value.length) {
     return null
@@ -76,15 +80,23 @@ const columns = computed(() => {
 
 async function loadDatasets() {
   try {
-    datasets.value = await insightApi.datasets()
+    const [list, config] = await Promise.all([
+      insightApi.datasets(),
+      insightApi.config().catch(() => null),
+    ])
+    datasets.value = list
     if (!datasetId.value) {
-      const preferred = datasets.value.find((item) => item.id === 4) ?? datasets.value[0]
-      datasetId.value = preferred?.id
+      // 优先使用后端配置的默认数据集（SuperSonic 语义模型随环境变化，
+      // 不能在前端硬编码 id=4；否则会选中一个没有 parse 的旧数据集）。
+      const preferred = config?.defaultDatasetId
+        ? list.find((item) => item.id === config.defaultDatasetId)
+        : undefined
+      datasetId.value = preferred?.id ?? list[0]?.id
     }
   } catch {
     // 拦截器已经提示;保留手输/默认数据集能力,不让页面整体不可用
-    datasets.value = [{ id: 4, name: '销售数据集', domain: '销售分析' }]
-    datasetId.value = 4
+    datasets.value = []
+    datasetId.value = undefined
   }
 }
 
@@ -286,8 +298,12 @@ onBeforeUnmount(() => {
         <div class="insight__header">
           <span>分析结果</span>
           <div class="insight__badges">
-            <el-tag :type="answer.state === 'SUCCESS' ? 'success' : 'danger'" size="small">
-              {{ answer.state }}
+            <el-tag
+              :type="answer.state === 'SUCCESS' ? 'success'
+                : answer.state === 'METADATA' ? 'primary' : 'danger'"
+              size="small"
+            >
+              {{ answer.state === 'METADATA' ? '元数据' : answer.state }}
             </el-tag>
             <el-tag v-if="answer.truncated" type="warning" size="small">已截断</el-tag>
             <el-tag v-if="answer.maskedColumns.length" type="warning" size="small">
@@ -366,7 +382,8 @@ onBeforeUnmount(() => {
         <el-table-column prop="queryState" label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="row.succeeded ? 'success' : 'danger'" size="small">
-              {{ row.queryState || (row.succeeded ? 'SUCCESS' : 'FAILED') }}
+              {{ row.queryState === 'METADATA' ? '元数据'
+                : row.queryState || (row.succeeded ? 'SUCCESS' : 'FAILED') }}
             </el-tag>
           </template>
         </el-table-column>

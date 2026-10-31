@@ -23,8 +23,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * 智能问数网关。
@@ -41,6 +43,14 @@ import java.util.Map;
 public class InsightQueryService {
 
     private static final Logger log = LoggerFactory.getLogger(InsightQueryService.class);
+
+    /**
+     * “这个数据域有哪些表/数据集”属于元数据问题，SuperSonic 的 parser 不处理；
+     * 命中后走数据集树回答，避免把 parser error 直接抛给用户。
+     */
+    private static final Pattern CATALOG_QUESTION = Pattern.compile(
+            "(数据域|数据集|表).*(有哪些|清单|列表)|有哪些.*(表|数据集)|列出.*(表|数据集)",
+            Pattern.CASE_INSENSITIVE);
 
     private final SuperSonicClient client;
     private final InsightProperties properties;
@@ -146,6 +156,10 @@ public class InsightQueryService {
         long started = System.currentTimeMillis();
         InsightQueryLog fact = newFact(caller, question, agentId, datasetId);
         try {
+            if (isCatalogQuestion(question)) {
+                return answerCatalogQuestion(caller, question, agentId, datasetId,
+                        credentials, started, fact);
+            }
             SuperSonicClient.AskResult result = client.ask(question, agentId, datasetId,
                     credentials.username(), credentials.password());
             if (!"SUCCESS".equalsIgnoreCase(result.state())) {
@@ -392,6 +406,76 @@ public class InsightQueryService {
         fact.setSucceeded(false);
         fact.setCreatedAt(Instant.now());
         return fact;
+    }
+
+    /**
+     * 元数据问题：从当前数据集所属的“数据域”返回数据集清单。
+     *
+     * <p>这不是 SuperSonic 的语义查询，因此单独记录 queryState=METADATA；
+     * 不生成 SQL、不做脱敏，也不参与 grant 放行。它解决的是“这个数据域有哪些表”
+     * 这类 parser 无法回答的问题，而不是替代目录页。
+     */
+    private Answer answerCatalogQuestion(Caller caller, String question, int agentId,
+                                         long datasetId, ClientCredentials credentials,
+                                         long started, InsightQueryLog fact) {
+        List<SuperSonicClient.DatasetOption> all = client.datasets(
+                credentials.username(), credentials.password());
+        SuperSonicClient.DatasetOption selected = all.stream()
+                .filter(item -> item.id() == datasetId)
+                .findFirst().orElse(null);
+        String domain = selected == null ? null : selected.domain();
+        List<SuperSonicClient.DatasetOption> matched = all.stream()
+                .filter(item -> domain == null || domain.equals(item.domain()))
+                .sorted(Comparator.comparing(SuperSonicClient.DatasetOption::domain,
+                                Comparator.nullsLast(String::compareTo))
+                        .thenComparing(SuperSonicClient.DatasetOption::name,
+                                Comparator.nullsLast(String::compareTo)))
+                .limit(200)
+                .toList();
+        List<SuperSonicClient.Column> columns = List.of(
+                new SuperSonicClient.Column("数据域", "domain", "STRING"),
+                new SuperSonicClient.Column("数据集", "dataset", "STRING"),
+                new SuperSonicClient.Column("数据集 ID", "datasetId", "LONG"));
+        List<Map<String, Object>> rows = matched.stream()
+                .map(item -> Map.<String, Object>of(
+                        "domain", item.domain() == null ? "" : item.domain(),
+                        "dataset", item.name() == null ? "" : item.name(),
+                        "datasetId", item.id()))
+                .toList();
+        long elapsed = System.currentTimeMillis() - started;
+        fact.setQueryState("METADATA");
+        fact.setRowCount(rows.size());
+        fact.setElapsedMs(elapsed);
+        fact.setSucceeded(true);
+        logMapper.insert(fact);
+        auditService.record(new AuditEntry(
+                AuditService.EXECUTE,
+                "INSIGHT_QUERY",
+                fact.getId(),
+                truncate(question, 256),
+                "GOVERNANCE",
+                true,
+                null,
+                "POST /api/v1/insight/ask",
+                "dataset=" + datasetId + "; metadata=true; domain=" + domain
+                        + "; rows=" + rows.size()));
+        String summary = domain == null
+                ? "未定位当前数据集，返回全部数据集（共 " + rows.size() + " 个）"
+                : "数据域「" + domain + "」下共 " + rows.size() + " 个数据集";
+        return new Answer(null, "METADATA", null, columns, rows, rows.size(),
+                false, elapsed, List.of(), List.of(), summary);
+    }
+
+    private static boolean isCatalogQuestion(String question) {
+        if (question == null || question.isBlank()) {
+            return false;
+        }
+        String text = question.toLowerCase();
+        // “订单表有哪些字段”问的是字段，不是表清单，不能被目录意图截走。
+        if (text.contains("字段") || text.contains("列")) {
+            return false;
+        }
+        return CATALOG_QUESTION.matcher(question).find();
     }
 
     private static String nullSafe(String value, String fallback) {
