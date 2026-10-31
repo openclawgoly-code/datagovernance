@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { switchWorkspace, logout as logoutApi } from '@/api/auth'
+import { prefetchAllRoutes } from '@/router/prefetch'
 import MenuTree from './MenuTree.vue'
 import { confirmAction } from '@/utils/confirm'
 
@@ -12,6 +13,33 @@ const router = useRouter()
 const route = useRoute()
 
 const switching = ref(false)
+
+/**
+ * 缓存的是“列表页”而不是全部页面：
+ * - 列表页回到原页时保留筛选/滚动位置，体验更接近动态应用；
+ * - 详情页、问数页不缓存，避免拿着旧参数或旧结果。
+ * 组件名必须与各视图的 defineOptions({ name }) 一致。
+ */
+const cachedViews = [
+  'CatalogAssetView',
+  'GlossaryView',
+  'QualityView',
+  'AccessRequestView',
+  'DataSourceListView',
+  'InboxView',
+]
+
+const routeCacheKey = (name: string | symbol | null | undefined, fullPath: string,
+                       keepAlive: boolean) =>
+  keepAlive ? `${String(name)}:${auth.workspaceId}` : fullPath
+
+onMounted(() => {
+  // 空闲时预取菜单 chunk；失败不影响任何正常导航。
+  const idle = window.requestIdleCallback
+    ? window.requestIdleCallback(() => prefetchAllRoutes(), { timeout: 2500 })
+    : window.setTimeout(() => prefetchAllRoutes(), 1500)
+  void idle
+})
 
 /**
  * 侧边栏菜单直接用后端下发的树。
@@ -122,7 +150,17 @@ async function onLogout() {
       </el-header>
 
       <el-main class="layout__main">
-        <RouterView />
+        <RouterView v-slot="{ Component, route: currentRoute }">
+          <Transition name="route-fade" mode="out-in">
+            <KeepAlive :include="cachedViews" :max="10">
+              <component
+                :is="Component"
+                :key="routeCacheKey(currentRoute.name, currentRoute.fullPath,
+                  Boolean(currentRoute.meta.keepAlive))"
+              />
+            </KeepAlive>
+          </Transition>
+        </RouterView>
       </el-main>
     </el-container>
   </el-container>

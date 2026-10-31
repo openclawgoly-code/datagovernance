@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { catalogAssetApi } from '@/api/catalog-assets'
 import { credentialApi } from '@/api/credential'
 import { governanceApi } from '@/api/catalog-governance'
 import { dataSourceApi } from '@/api/datasource'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 import { confirmDanger } from '@/utils/confirm'
 import { formatBytes, formatDateTime } from '@/utils/format'
 import type { Credential } from '@/types/credential'
@@ -24,6 +25,8 @@ import type {
  * 左边是“来源”(JDBC 数据源或 Parquet 目录),右边是该来源采集到的数据集。
  * 数据集的字段/分区在抽屉里看 —— 列表页只带摘要,正文/分区不随列表一起拉。
  */
+
+defineOptions({ name: 'CatalogAssetView' })
 
 const router = useRouter()
 const sources = ref<CatalogSource[]>([])
@@ -376,10 +379,12 @@ async function loadDomains() {
   }
 }
 
-onMounted(async () => {
+async function bootstrap() {
   await loadDomains()
   await loadSources()
-})
+}
+
+usePageRefresh(bootstrap)
 </script>
 
 <template>

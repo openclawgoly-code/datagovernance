@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { dataSourceApi, dataSourceCatalogApi } from '@/api/datasource'
 import { statusMeta } from '@/utils/datasource-status'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 import { confirmAction, confirmDanger } from '@/utils/confirm'
 import DataSourceFormDialog from './DataSourceFormDialog.vue'
 import CatalogBrowserDrawer from './CatalogBrowserDrawer.vue'
@@ -15,6 +16,8 @@ import type {
   DataSourceCatalogTree,
   DataSourceTypeInfo,
 } from '@/types/datasource'
+
+defineOptions({ name: 'DataSourceListView' })
 
 const loading = ref(false)
 const rows = ref<DataSource[]>([])
@@ -73,10 +76,12 @@ async function loadCatalogs() {
   }
 }
 
-onMounted(async () => {
+async function bootstrap() {
   types.value = await dataSourceApi.types()
   await Promise.all([load(), loadCatalogs()])
-})
+}
+
+usePageRefresh(bootstrap)
 
 function onCreate() {
   formDialog.value?.open(null)

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { qualityApi } from '@/api/quality'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
 import { formatDuration } from '@/utils/job-status'
@@ -23,6 +24,8 @@ import EmptyState from '@/components/common/EmptyState.vue'
  * 以“运行事实”为中心：失败资产/最近运行都从 md_quality_run 读，
  * 不把结果覆盖到规则行上。分数只覆盖已配置规则，这里展示的是运行明细。
  */
+defineOptions({ name: 'QualityView' })
+
 const router = useRouter()
 const auth = useAuthStore()
 
@@ -92,7 +95,7 @@ function ruleLabel(type: string | null | undefined): string {
   return QUALITY_RULE_LABELS[type as keyof typeof QUALITY_RULE_LABELS] || type
 }
 
-onMounted(load)
+usePageRefresh(load)
 </script>
 
 <template>

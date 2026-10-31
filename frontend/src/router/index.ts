@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { failProgress, finishProgress, startProgress } from './progress'
 
 /**
  * 路由表。
@@ -33,7 +34,7 @@ const routes: RouteRecordRaw[] = [
         path: 'workbench/inbox',
         name: 'workbench-inbox',
         component: () => import('@/views/workbench/InboxView.vue'),
-        meta: { title: '治理收件箱', permission: 'governance:inbox:read' },
+        meta: { title: '治理收件箱', permission: 'governance:inbox:read', keepAlive: true },
       },
       {
         path: 'insight/ask',
@@ -63,7 +64,7 @@ const routes: RouteRecordRaw[] = [
         path: 'metadata/datasources',
         name: 'datasources',
         component: () => import('@/views/metadata/DataSourceListView.vue'),
-        meta: { title: '数据源', permission: 'metadata:datasource:read' },
+        meta: { title: '数据源', permission: 'metadata:datasource:read', keepAlive: true },
       },
       {
         path: 'metadata/assets/:id',
@@ -87,25 +88,25 @@ const routes: RouteRecordRaw[] = [
         path: 'metadata/glossary',
         name: 'metadata-glossary',
         component: () => import('@/views/metadata/GlossaryView.vue'),
-        meta: { title: '业务术语', permission: 'metadata:glossary:read' },
+        meta: { title: '业务术语', permission: 'metadata:glossary:read', keepAlive: true },
       },
       {
         path: 'metadata/quality',
         name: 'metadata-quality',
         component: () => import('@/views/metadata/QualityView.vue'),
-        meta: { title: '资产质量', permission: 'metadata:quality:read' },
+        meta: { title: '资产质量', permission: 'metadata:quality:read', keepAlive: true },
       },
       {
         path: 'governance/access-requests',
         name: 'governance-access-requests',
         component: () => import('@/views/security/AccessRequestView.vue'),
-        meta: { title: '敏感访问', permission: 'metadata:access:request' },
+        meta: { title: '敏感访问', permission: 'metadata:access:request', keepAlive: true },
       },
       {
         path: 'metadata/catalog',
         name: 'catalog-assets',
         component: () => import('@/views/metadata/CatalogAssetView.vue'),
-        meta: { title: '数据目录', permission: 'metadata:asset:read' },
+        meta: { title: '数据目录', permission: 'metadata:asset:read', keepAlive: true },
       },
       // 注册中心与语义映射(序号 34 的契约第 3、4 条)
       {
@@ -253,6 +254,7 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+  startProgress()
   const auth = useAuthStore()
 
   if (to.meta.public) {
@@ -282,8 +284,13 @@ router.beforeEach(async (to) => {
 })
 
 router.afterEach((to) => {
+  finishProgress()
   const title = to.meta.title as string | undefined
   document.title = title ? `${title} · 数据治理平台` : '数据治理平台'
+})
+
+router.onError(() => {
+  failProgress()
 })
 
 export default router

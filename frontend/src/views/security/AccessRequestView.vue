@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { accessRequestApi } from '@/api/access-request'
 import { useAuthStore } from '@/stores/auth'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 import { confirmDanger } from '@/utils/confirm'
 import { formatDateTime } from '@/utils/format'
 import type {
@@ -23,6 +24,8 @@ import EmptyState from '@/components/common/EmptyState.vue'
  * P2 的授权范围是 workspace 内的“敏感类别 + 最高级别”，不是单个资产 ——
  * 这一点在表单和列表里都要明示，避免用户误以为只放开某张表。
  */
+defineOptions({ name: 'AccessRequestView' })
+
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
@@ -192,7 +195,7 @@ function categoryLabel(category: string): string {
   return categoryLabels[category as AccessCategory] || category
 }
 
-onMounted(async () => {
+async function bootstrap() {
   await load()
   if (route.query.apply === '1') {
     openApply({
@@ -201,7 +204,9 @@ onMounted(async () => {
     })
     router.replace({ query: { ...route.query, apply: undefined } })
   }
-})
+}
+
+usePageRefresh(bootstrap)
 </script>
 
 <template>

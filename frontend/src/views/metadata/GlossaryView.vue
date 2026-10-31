@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { catalogAssetApi } from '@/api/catalog-assets'
 import { governanceApi } from '@/api/catalog-governance'
 import { glossaryApi } from '@/api/glossary'
 import { useAuthStore } from '@/stores/auth'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 import { confirmDanger } from '@/utils/confirm'
 import { formatDateTime } from '@/utils/format'
 import type { CatalogColumn } from '@/types/catalog-assets'
@@ -19,6 +20,8 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import FilterBar from '@/components/common/FilterBar.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import DatasetSearchSelect from '@/components/metadata/DatasetSearchSelect.vue'
+
+defineOptions({ name: 'GlossaryView' })
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -269,9 +272,11 @@ function statusOf(term: GlossaryTerm | Record<string, any>) {
   return statusMeta[term.status as GlossaryStatus]
 }
 
-onMounted(async () => {
+async function bootstrap() {
   await Promise.all([load(), loadOptions()])
-})
+}
+
+usePageRefresh(bootstrap)
 </script>
 
 <template>

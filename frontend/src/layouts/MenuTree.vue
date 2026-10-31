@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { MenuItem } from '@/types/permission'
+import { prefetchRoute } from '@/router/prefetch'
 
 /**
  * 递归渲染后端下发的菜单树。
@@ -21,7 +22,12 @@ defineProps<{ items: MenuItem[] }>()
       <MenuTree :items="item.children" />
     </el-sub-menu>
 
-    <el-menu-item v-else :index="item.routePath || item.code">
+    <el-menu-item
+      v-else
+      :index="item.routePath || item.code"
+      @mouseenter="prefetchRoute(item.routePath)"
+      @focus="prefetchRoute(item.routePath)"
+    >
       <el-icon v-if="item.icon"><component :is="item.icon" /></el-icon>
       <template #title>{{ item.name }}</template>
     </el-menu-item>

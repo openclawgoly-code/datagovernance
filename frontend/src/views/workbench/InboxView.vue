@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { inboxApi } from '@/api/governance'
+import { usePageRefresh } from '@/composables/usePageRefresh'
 import { useAuthStore } from '@/stores/auth'
 import type { InboxItem, InboxSourceType } from '@/types/governance'
 import { formatDateTime } from '@/utils/format'
 import PageHeader from '@/components/common/PageHeader.vue'
 import FilterBar from '@/components/common/FilterBar.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
+
+defineOptions({ name: 'InboxView' })
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -154,7 +157,7 @@ function goBack() {
   void router.push('/workbench')
 }
 
-onMounted(load)
+usePageRefresh(load)
 
 onBeforeUnmount(() => {
   if (filterTimer) {

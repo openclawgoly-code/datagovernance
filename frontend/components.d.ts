@@ -7,6 +7,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AppBootSkeleton: typeof import('./src/components/common/AppBootSkeleton.vue')['default']
     AssetGovernancePanel: typeof import('./src/components/metadata/AssetGovernancePanel.vue')['default']
     DatasetSearchSelect: typeof import('./src/components/metadata/DatasetSearchSelect.vue')['default']
     DetailTabs: typeof import('./src/components/insight/DetailTabs.vue')['default']
@@ -52,6 +53,7 @@ declare module 'vue' {
     ElRow: typeof import('element-plus/es')['ElRow']
     ElScrollbar: typeof import('element-plus/es')['ElScrollbar']
     ElSelect: typeof import('element-plus/es')['ElSelect']
+    ElSkeleton: typeof import('element-plus/es')['ElSkeleton']
     ElSpace: typeof import('element-plus/es')['ElSpace']
     ElSubMenu: typeof import('element-plus/es')['ElSubMenu']
     ElSwitch: typeof import('element-plus/es')['ElSwitch']
@@ -71,6 +73,7 @@ declare module 'vue' {
     MetadataPanel: typeof import('./src/components/insight/MetadataPanel.vue')['default']
     PageHeader: typeof import('./src/components/common/PageHeader.vue')['default']
     QuerySqlBlock: typeof import('./src/components/insight/QuerySqlBlock.vue')['default']
+    RouteProgress: typeof import('./src/components/common/RouteProgress.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SensitivityBadge: typeof import('./src/components/insight/SensitivityBadge.vue')['default']
