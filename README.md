@@ -126,6 +126,26 @@ Flyway 会自动建表并灌入权限与内置角色种子。首次启动还会�
 cd frontend && pnpm install && pnpm run dev
 ```
 
+### 5. 启动智能问数 Agent（可选，`/insight/ask` 需要）
+
+```bash
+cd agent-service && npm install
+DG_BACKEND_URL=http://127.0.0.1:8080 \
+DG_AGENT_TOKEN=dev-agent-token \
+DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY" \
+DEEPSEEK_MODEL=deepseek-flash \
+npm start
+```
+
+后端启动时也要带同一个 `DG_AGENT_TOKEN`，否则内部工具端点返回未配置：
+
+```bash
+DG_AGENT_TOKEN=dev-agent-token mvn -pl backend/dg-app -am spring-boot:run
+```
+
+前端仍只访问 `/api/v1/insight/agent/*`；Node 服务只监听 `127.0.0.1:8090`，
+由 Java 代理做鉴权和会话归属校验。详细边界见 `agent-service/README.md`。
+
 ## 测试
 
 ```bash

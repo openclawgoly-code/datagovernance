@@ -21,6 +21,7 @@ const switching = ref(false)
  * 组件名必须与各视图的 defineOptions({ name }) 一致。
  */
 const cachedViews = [
+  'AskView',
   'CatalogAssetView',
   'GlossaryView',
   'QualityView',

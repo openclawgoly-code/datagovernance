@@ -69,6 +69,7 @@ declare module 'vue' {
     EmptyState: typeof import('./src/components/common/EmptyState.vue')['default']
     EntityLink: typeof import('./src/components/insight/EntityLink.vue')['default']
     FilterBar: typeof import('./src/components/common/FilterBar.vue')['default']
+    InsightAnswerChart: typeof import('./src/components/insight/InsightAnswerChart.vue')['default']
     LineageGraph: typeof import('./src/components/lineage/LineageGraph.vue')['default']
     MetadataPanel: typeof import('./src/components/insight/MetadataPanel.vue')['default']
     PageHeader: typeof import('./src/components/common/PageHeader.vue')['default']

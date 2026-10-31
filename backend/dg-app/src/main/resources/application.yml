@@ -60,6 +60,7 @@ dg:
     # 无需认证即可访问的路径
     permit-paths:
       - /api/v1/auth/login
+      - /api/v1/internal/agent/**
       - /v3/api-docs/**
       - /swagger-ui/**
       - /swagger-ui.html
@@ -87,6 +88,10 @@ dg:
     default-dataset-id: ${DG_SUPERSONIC_DATASET_ID:4}
     max-rows: ${DG_INSIGHT_MAX_ROWS:200}
     timeout-seconds: ${DG_INSIGHT_TIMEOUT_SECONDS:120}
+    # Pi agent 服务（agent-service）调用内部工具端点的共享令牌。
+    agent-token: ${DG_AGENT_TOKEN:}
+    # Node sidecar 地址（只监听本机）。
+    agent-base-url: ${DG_AGENT_URL:http://127.0.0.1:8090}
 
 logging:
   level:

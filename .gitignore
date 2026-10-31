@@ -42,6 +42,7 @@ Thumbs.db
 logs/
 *.log
 /data/
+agent-service/data/
 embedded-pg/
 
 ### 本地机密 —— 主密钥与真实数据源口令绝不入库 ###

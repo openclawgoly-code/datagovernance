@@ -26,6 +26,7 @@
 | Sensitivity | 字段敏感标签与规则命中的复核状态 | 不是内容脱敏执行器 |
 | AnalysisReport | 对执行/告警/任务的结论，版本不可变 | 不是制品 Artifact |
 | Insight | 受治理的 AI 问数入口 | 不是语义层本身 |
+| Insight Agent | 独立 Node sidecar，嵌 Pi agent，负责多轮对话/工具/SSE | 不是 SuperSonic，也不直连数据源 |
 | Semantic Model | SuperSonic 的指标/维度/数据集定义 | 不是平台物理表 |
 | Query Gateway | 平台 `/api/v1/insight/*`，负责身份、限流、脱敏、审计 | 不是直接 SQL 客户端 |
 | Design Token | 前端颜色/间距/字体等稳定变量，`var(--dg-*)` | 不是 Element Plus 内部变量 |
@@ -40,10 +41,13 @@ Browser
   → dg-app (Spring Boot, /api/v1, 静态 SPA)
       ├─ PostgreSQL (平台元数据库 / Flyway)
       ├─ dg-metadata → DataAccessGateway → 业务数据源
-      └─ Insight Query Gateway
-            → SuperSonic (语义层 / Chat BI / DeepSeek)
-                → StarRocks (POC 内表;生产 External Catalog)
-                    → MinIO / S3 / HDFS (Parquet)
+      ├─ Insight Query Gateway
+      │     → SuperSonic (语义层 / Chat BI / DeepSeek)
+      │           → StarRocks (POC 内表;生产 External Catalog)
+      │                 → MinIO / S3 / HDFS (Parquet)
+      └─ Insight Agent Gateway
+            → agent-service (:8090, Pi agent / SSE)
+                  → 内部工具端点 → Insight Query Gateway / 目录
 ```
 
 - `dg-app` 是唯一同时看见各 Space 的装配层；
@@ -64,6 +68,7 @@ Browser
 | `dg-control` | 任务、编译、调度 | 不直接执行 |
 | `dg-governance` | 监控、告警、审计、报告 | 不向 Control 发命令 |
 | `dg-app` | REST、拦截器、Flyway、SPA | 唯一装配层 |
+| `agent-service` | Node sidecar：Pi agent、会话、SSE | 不直连数据库/数据源；工具只走 Java 内部端点 |
 | `frontend` | Vue 3 + Element Plus + Pinia + Router | 只消费 API |
 
 边界由 Maven 依赖缺失强制，不靠评审自觉。新增跨 Space 调用前先问：

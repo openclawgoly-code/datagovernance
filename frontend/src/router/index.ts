@@ -40,7 +40,7 @@ const routes: RouteRecordRaw[] = [
         path: 'insight/ask',
         name: 'insight-ask',
         component: () => import('@/views/insight/AskView.vue'),
-        meta: { title: '智能问数', permission: 'insight:ask' },
+        meta: { title: '智能问数', permission: 'insight:ask', keepAlive: true },
       },
       {
         path: 'insight/queries',
