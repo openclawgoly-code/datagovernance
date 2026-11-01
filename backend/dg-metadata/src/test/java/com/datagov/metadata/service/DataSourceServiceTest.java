@@ -187,6 +187,31 @@ class DataSourceServiceTest {
     }
 
     @Test
+    @DisplayName("草稿上的旧测试结论也会在改连接参数后清空")
+    void changingConnectionClearsStaleOutcomeOnDraft() {
+        // 新建时点过“测试连接”但未保存成功态,之后又改了主机/端口:
+        // 旧结论属于旧配置,列表里不能再显示“连接成功”。
+        DataSourceEntity existing = draftEntity();
+        existing.setLastTestAt(Instant.now());
+        existing.setLastTestSuccess(true);
+        existing.setLastTestMessage("连接成功");
+        existing.setLastTestLatencyMs(20L);
+        when(dataSourceMapper.selectOne(any())).thenReturn(existing);
+
+        DataSourceUpsertCommand changed = new DataSourceUpsertCommand(
+                existing.getName(), DataSourceType.MYSQL, null, null,
+                "new-host", 3306, "db", "u", Map.of(), List.of(), null, null, null, null, null);
+
+        DataSourceView view = service.update(existing.getId(), changed);
+
+        assertThat(view.status()).isEqualTo(DataSourceStatus.DRAFT);
+        assertThat(view.lastTestAt()).isNull();
+        assertThat(view.lastTestSuccess()).isNull();
+        assertThat(view.lastTestMessage()).isNull();
+        assertThat(view.lastTestLatencyMs()).isNull();
+    }
+
+    @Test
     @DisplayName("只改名称或描述不影响已验证状态")
     void renamingKeepsVerifiedStatus() {
         DataSourceEntity existing = availableEntity();

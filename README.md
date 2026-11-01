@@ -100,14 +100,22 @@ psql -c "CREATE USER datagov WITH PASSWORD 'datagov'; GRANT ALL ON DATABASE data
 
 应用**不内置任何默认密钥** —— 未配置时直接启动失败,而不是退化成一个内置值加密生产凭据。
 
+本地开发把密钥**只生成一次**并保存在 `.env.local`(已在 `.gitignore`),之后每次启动都复用:
+
 ```bash
-export DG_SECRET_KEY="$(openssl rand -base64 32)"       # 凭据/密钥的 AES-GCM 主密钥
-export DG_JWT_SIGNING_KEY="$(openssl rand -base64 48)"  # JWT 签名密钥
-# 可选:不设则首次启动生成随机管理员口令并以 WARN 打印一次
-export DG_ADMIN_PASSWORD="换成你自己的口令"
+if [ ! -f .env.local ]; then
+  umask 077
+  cat > .env.local <<EOF
+DG_SECRET_KEY=$(openssl rand -base64 32)
+DG_JWT_SIGNING_KEY=$(openssl rand -base64 48)
+DG_ADMIN_PASSWORD=换成你自己的口令
+EOF
+fi
+set -a; . ./.env.local; set +a
 ```
 
-> `DG_SECRET_KEY` 一旦用于加密过数据就不能更换,否则已存凭据无法解密。
+> 不要每次启动都重新生成 `DG_SECRET_KEY`。它一旦用于加密数据就不能更换,否则已存凭据无法解密
+> (典型症状:数据源“测试连接”报“主密钥不匹配或密文已被篡改”)。
 > 密文带 `v1:` 版本前缀,将来换算法(如信创场景改用 SM4-GCM)可平滑共存。
 
 ### 3. 启动后端

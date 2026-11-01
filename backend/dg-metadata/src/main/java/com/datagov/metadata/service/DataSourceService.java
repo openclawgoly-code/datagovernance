@@ -190,10 +190,13 @@ public class DataSourceService {
         entity.setUpdatedAt(Instant.now());
         entity.setUpdatedBy(operator);
 
-        if (connectionChanged && entity.getStatus() != DataSourceStatus.DRAFT
-                && entity.getStatus() != DataSourceStatus.DISABLED) {
-            transitionTo(entity, DataSourceStatus.DRAFT, "UpdateConnection");
-            // 上次测试结论对新配置无效,一并清掉,免得界面上显示一个属于旧配置的"连接成功"
+        if (connectionChanged) {
+            if (entity.getStatus() != DataSourceStatus.DRAFT
+                    && entity.getStatus() != DataSourceStatus.DISABLED) {
+                transitionTo(entity, DataSourceStatus.DRAFT, "UpdateConnection");
+            }
+            // 上次测试结论对新配置无效,一并清掉,免得界面上显示一个属于旧配置的"连接成功"。
+            // 草稿也可能带着创建时试连成功的结论,所以这里不能按状态跳过。
             entity.setLastTestAt(null);
             entity.setLastTestSuccess(null);
             entity.setLastTestMessage(null);

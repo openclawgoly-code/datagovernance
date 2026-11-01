@@ -180,7 +180,8 @@ public class CredentialService {
         } catch (IllegalStateException e) {
             // 主密钥换了或密文被篡改。这是运维事故,必须报出来而不是当作"无凭据"
             throw new BizException(ErrorCode.SYS_INTERNAL_ERROR,
-                    "凭据解密失败: 主密钥不匹配或密文已被篡改",
+                    "凭据解密失败: 主密钥不匹配或密文已被篡改。"
+                            + "请确认后端沿用加密时的 DG_SECRET_KEY;若确实换过密钥,请重新保存该凭据的口令。",
                     "credentialId=" + credential.getId(), e);
         } catch (Exception e) {
             throw new BizException(ErrorCode.SYS_INTERNAL_ERROR,
