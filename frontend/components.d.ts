@@ -7,12 +7,14 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AgentDock: typeof import('./src/components/agent/AgentDock.vue')['default']
     AppBootSkeleton: typeof import('./src/components/common/AppBootSkeleton.vue')['default']
     AssetGovernancePanel: typeof import('./src/components/metadata/AssetGovernancePanel.vue')['default']
     DatasetSearchSelect: typeof import('./src/components/metadata/DatasetSearchSelect.vue')['default']
     DetailTabs: typeof import('./src/components/insight/DetailTabs.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAside: typeof import('element-plus/es')['ElAside']
+    ElBadge: typeof import('element-plus/es')['ElBadge']
     ElBreadcrumb: typeof import('element-plus/es')['ElBreadcrumb']
     ElBreadcrumbItem: typeof import('element-plus/es')['ElBreadcrumbItem']
     ElButton: typeof import('element-plus/es')['ElButton']

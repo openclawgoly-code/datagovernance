@@ -3,12 +3,15 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
+import { useAgentSessionStore } from '@/stores/agentSession'
 import { switchWorkspace, logout as logoutApi } from '@/api/auth'
 import { prefetchAllRoutes } from '@/router/prefetch'
 import MenuTree from './MenuTree.vue'
+import AgentDock from '@/components/agent/AgentDock.vue'
 import { confirmAction } from '@/utils/confirm'
 
 const auth = useAuthStore()
+const agentSession = useAgentSessionStore()
 const router = useRouter()
 const route = useRoute()
 
@@ -68,6 +71,7 @@ async function onSwitchWorkspace(workspaceId: string) {
     // 只改前端状态而不换令牌,后端认的还是旧空间
     const result = await switchWorkspace({ workspaceId })
     auth.applySession(result)
+    agentSession.clear()
     ElMessage.success(`已切换到「${auth.currentWorkspace?.name ?? workspaceId}」`)
     // 回工作台:当前页面的数据属于上一个空间,留在原地会看到一片空白或残留
     router.replace('/workbench')
@@ -90,6 +94,7 @@ async function onLogout() {
     // 服务端不维护会话状态,登出失败也应该让用户走
   }
   auth.clearSession()
+  agentSession.clear()
   router.push('/login')
 }
 </script>
@@ -165,6 +170,7 @@ async function onLogout() {
       </el-main>
     </el-container>
   </el-container>
+  <AgentDock />
 </template>
 
 <style scoped>

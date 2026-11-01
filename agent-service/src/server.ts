@@ -41,13 +41,15 @@ app.get('/conversations', (req, res) => {
 })
 
 app.post('/conversations', (req, res) => {
-  const { workspaceId, username, datasetId, datasetLabel } = req.body ?? {}
+  const { workspaceId, userId, platformAdmin, username, datasetId, datasetLabel } = req.body ?? {}
   if (!workspaceId || !username) {
     res.status(400).json({ error: 'workspaceId 和 username 必填' })
     return
   }
   const conversation = store.create({
     workspaceId: String(workspaceId),
+    userId: userId ? String(userId) : undefined,
+    platformAdmin: Boolean(platformAdmin),
     username: String(username),
     datasetId: optionalNumber(datasetId),
     datasetLabel: datasetLabel ? String(datasetLabel) : undefined,
@@ -89,6 +91,13 @@ app.post('/conversations/:id/messages', async (req, res) => {
     conversation.datasetLabel = req.body?.datasetLabel
       ? String(req.body.datasetLabel) : conversation.datasetLabel
   }
+  // 代理层每次发送都会带上当前登录用户；旧会话在这里补齐上下文。
+  if (req.body?.userId) {
+    conversation.userId = String(req.body.userId)
+  }
+  if (req.body?.platformAdmin !== undefined) {
+    conversation.platformAdmin = Boolean(req.body.platformAdmin)
+  }
   const turn: UiTurn = {
     id: `turn_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
     question: text,
@@ -105,6 +114,8 @@ app.post('/conversations/:id/messages', async (req, res) => {
 
   void runTurn(conversation, turn, text, {
     workspaceId: conversation.workspaceId,
+    userId: conversation.userId,
+    platformAdmin: conversation.platformAdmin,
     username: conversation.username,
     datasetId: conversation.datasetId,
     datasetLabel: conversation.datasetLabel,

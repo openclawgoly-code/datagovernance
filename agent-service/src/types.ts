@@ -32,6 +32,8 @@ export interface StoredEvent {
 export interface Conversation {
   id: string
   workspaceId: string
+  userId?: string
+  platformAdmin?: boolean
   username: string
   title: string
   datasetId?: number
@@ -47,6 +49,8 @@ export interface Conversation {
 
 export interface RunContext {
   workspaceId: string
+  userId?: string
+  platformAdmin?: boolean
   username: string
   datasetId?: number
   datasetLabel?: string

@@ -36,7 +36,21 @@ export async function runTurn(
   if (!model) {
     throw new Error(`Pi agent 模型不存在: deepseek/${config.deepseekModel}`)
   }
-  const tools = buildTools(context)
+
+  let finished = false
+  const emit = (type: string, payload: Record<string, unknown>, persist = true) => {
+    const event = store.appendEvent(conversation, type, turn.id, payload, persist)
+    bus.emit(conversation.id, event)
+    return event
+  }
+
+  const tools = buildTools(context, (target) => {
+    emit('navigate', {
+      route: target.route,
+      label: target.label,
+      query: target.query ?? {},
+    })
+  })
   const agent = new Agent({
     initialState: {
       systemPrompt: systemPrompt(context),
@@ -48,13 +62,6 @@ export async function runTurn(
     sessionId: conversation.id,
   })
   activeRuns.set(conversation.id, agent)
-
-  let finished = false
-  const emit = (type: string, payload: Record<string, unknown>, persist = true) => {
-    const event = store.appendEvent(conversation, type, turn.id, payload, persist)
-    bus.emit(conversation.id, event)
-    return event
-  }
 
   agent.subscribe((event: AgentEvent) => {
     switch (event.type) {
@@ -204,6 +211,17 @@ function systemPrompt(context: RunContext): string {
     '3. 只能使用工具返回的事实。工具失败时明确说明失败原因，不要编造结果。',
     '4. 回答使用中文，先给结论，再给必要的要点；不要输出 Markdown 表格、原始行数据或工具调用参数。结构化结果由前端表格展示。',
     '5. 如果用户的问题与当前数据集无关，先说明当前数据集范围，再决定是否调用工具。',
+    '',
+    '本地/NFS Parquet 数据源接入流程（用户提出这类需求时严格执行，不要跳步）：',
+    '6. 先确认两件事：数据源名称、后端机器上的绝对目录（rootPath）。缺少任何一项就先问用户，不要猜路径；提醒用户 rootPath 是后端进程所在机器的路径，不是浏览器所在电脑的路径。',
+    '7. 调用 create_local_datasource 创建 LOCAL 数据源。',
+    '8. 调用 test_datasource；失败时解释失败原因，必要时调用 update_local_datasource 修正 rootPath 后重试。测试不通过就不要继续建目录来源。',
+    '9. 测试成功后，调用 navigate_workspace 打开 /metadata/datasources，query.highlight 填数据源 ID，让用户看到刚建的数据源。',
+    '10. 调用 create_parquet_catalog_source 创建 PARQUET_DIRECTORY 目录来源；名称默认用“数据源名-catalog”，rootPath 留空表示使用数据源根目录。若提示重名，先 list_catalog_sources 查看，再换一个名称。',
+    '11. 调用 refresh_catalog_source 采集目录。',
+    '12. 调用 navigate_workspace 打开 /metadata/catalog，query.sourceId 填目录来源 ID，让页面自动选中并展示刚采集的数据集。',
+    '13. 最后汇总数据集/字段数量，并说明：这里只采集元数据、不复制数据；要查询这批 Parquet，需要先接入 StarRocks/Doris/Trino/Spark 等查询引擎，再在平台建对应数据集。',
+    '14. 所有面向用户的文字（包括工具调用之间的过渡句、最终回答）必须使用中文，不要输出英文过程句。',
   ].join('\n')
 }
 
@@ -222,6 +240,9 @@ function contentText(content: any): string {
 }
 
 function toolSummary(result: any): string {
+  if (result?.details?.summary) {
+    return String(result.details.summary)
+  }
   if (result?.details?.error) {
     return String(result.details.error)
   }

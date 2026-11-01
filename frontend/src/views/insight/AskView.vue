@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { agentApi, streamAgentEvents } from '@/api/agent'
 import { insightApi } from '@/api/insight'
 import { useAuthStore } from '@/stores/auth'
+import { useAgentSessionStore } from '@/stores/agentSession'
 import type { AgentConversation, AgentConversationSummary, AgentStreamEvent, AgentTurn } from '@/types/agent'
 import type { InsightAnswer, InsightDashboard, InsightDataset } from '@/types/insight'
 import { formatDateTime } from '@/utils/format'
@@ -19,6 +21,8 @@ defineOptions({ name: 'AskView' })
  * 事件通过 fetch + SSE 读取，因为 EventSource 不能带 Authorization 头。
  */
 const auth = useAuthStore()
+const router = useRouter()
+const agentSession = useAgentSessionStore()
 
 const conversations = ref<AgentConversationSummary[]>([])
 const conversation = ref<AgentConversation | null>(null)
@@ -40,7 +44,24 @@ const examples = [
   '按状态统计订单数',
   '按区域统计总金额',
   '总金额最高的 3 个区域',
+  '帮我接入本地 Parquet 数据源',
 ]
+
+const TOOL_LABELS: Record<string, string> = {
+  list_datasets: '列出数据集',
+  ask_data: '数据查询',
+  create_local_datasource: '创建本地数据源',
+  update_local_datasource: '修改本地数据源',
+  test_datasource: '测试连接',
+  list_catalog_sources: '列出目录来源',
+  create_parquet_catalog_source: '创建目录来源',
+  refresh_catalog_source: '采集目录',
+  navigate_workspace: '切换工作页面',
+}
+
+function toolLabel(name: string): string {
+  return TOOL_LABELS[name] ?? name
+}
 
 const saveDialogVisible = ref(false)
 const saveDashboards = ref<InsightDashboard[]>([])
@@ -60,6 +81,32 @@ const currentDatasetLabel = computed(() => {
 function datasetLabelOf(id?: number): string {
   const item = datasets.value.find((dataset) => dataset.id === id)
   return item ? `${item.domain} / ${item.name}` : '默认数据集'
+}
+
+/**
+ * 把当前轮次镜像到全局会话状态，供跨页面的 AgentDock 展示。
+ * 完整消息仍在 AskView 里；这里只保留标题、最新问题、正文和工具状态。
+ */
+function syncSession(persist = true) {
+  if (!conversation.value) {
+    return
+  }
+  const last = turns.value[turns.value.length - 1]
+  agentSession.update({
+    conversationId: conversation.value.id,
+    title: conversation.value.title,
+    question: last?.question ?? '',
+    text: last?.text ?? '',
+    status: last?.status ?? 'idle',
+    tools: (last?.tools ?? []).map((tool) => ({
+      name: tool.name,
+      status: tool.status,
+      summary: tool.summary,
+    })),
+    error: last?.error,
+    datasetId: datasetId.value,
+    datasetLabel: datasetLabelOf(datasetId.value),
+  }, persist)
 }
 
 async function loadDatasets() {
@@ -112,6 +159,13 @@ async function openConversation(id: string) {
     if (detail.datasetId) {
       datasetId.value = detail.datasetId
     }
+    agentSession.setActive({
+      id: detail.id,
+      title: detail.title,
+      datasetId: detail.datasetId,
+      datasetLabel: detail.datasetLabel,
+    })
+    syncSession()
     connectStream()
     await scrollToEnd()
   } catch {
@@ -128,6 +182,7 @@ async function newConversation() {
   lastSeq = 0
   question.value = ''
   error.value = ''
+  agentSession.clear()
 }
 
 async function ensureConversation(): Promise<AgentConversation> {
@@ -141,6 +196,13 @@ async function ensureConversation(): Promise<AgentConversation> {
   conversation.value = created
   turns.value = []
   lastSeq = 0
+  agentSession.setActive({
+    id: created.id,
+    title: created.title,
+    datasetId: created.datasetId,
+    datasetLabel: created.datasetLabel,
+  })
+  syncSession()
   connectStream()
   return created
 }
@@ -254,9 +316,29 @@ function applyEvent(event: AgentStreamEvent) {
       sending.value = false
       break
     }
+    case 'navigate': {
+      const route = String(event.route ?? '')
+      const label = String(event.label ?? route)
+      const query = (event.query ?? {}) as Record<string, string>
+      const allowed = ['/metadata/datasources', '/metadata/catalog', '/insight/ask']
+      if (route && allowed.includes(route)) {
+        agentSession.setNavigate({ route, label, query })
+        // KeepAlive 下 AskView 即使被切走也还活着，所以这里仍能跟随后续步骤切页。
+        // 用户可以在 Dock 里关闭“自动切换页面”，改为手动打开。
+        if (agentSession.follow) {
+          const target = router.resolve({ path: route, query })
+          if (router.currentRoute.value.fullPath !== target.fullPath) {
+            void router.push(target)
+          }
+        }
+      }
+      break
+    }
     default:
       break
   }
+  // 流式 token 只更新内存，不每个 delta 都写 sessionStorage；关键事件才落盘。
+  syncSession(event.type !== 'text_delta' && event.type !== 'thinking_delta')
 }
 
 function ensureTurn(turnId: string, questionText: string): AgentTurn {
@@ -305,6 +387,7 @@ async function send() {
         createdAt: new Date().toISOString(),
       })
     }
+    syncSession()
     question.value = ''
     await loadConversations()
     await scrollToEnd()
@@ -462,8 +545,16 @@ function download(blob: Blob, extension: string) {
 
 onMounted(async () => {
   await Promise.all([loadDatasets(), loadConversations()])
-  if (conversations.value.length) {
-    await openConversation(conversations.value[0].id)
+  const preferred = agentSession.state.conversationId
+    ? conversations.value.find((item) => item.id === agentSession.state.conversationId)
+    : undefined
+  if (agentSession.state.conversationId && !preferred) {
+    // 会话可能已被删除，或当前用户/空间已切换；不要继续指向一个不存在的会话。
+    agentSession.clear()
+  }
+  const target = preferred ?? conversations.value[0]
+  if (target) {
+    await openConversation(target.id)
   }
 })
 
@@ -601,7 +692,7 @@ onBeforeUnmount(() => {
             <div v-if="turn.tools.length" class="tool-list">
               <div v-for="tool in turn.tools" :key="tool.id" class="tool-step">
                 <el-tag size="small" :type="toolState(tool).type">{{ toolState(tool).label }}</el-tag>
-                <span class="tool-name">{{ tool.name }}</span>
+                <span class="tool-name">{{ toolLabel(tool.name) }}</span>
                 <span v-if="tool.summary" class="text-muted tool-summary">{{ tool.summary }}</span>
               </div>
             </div>

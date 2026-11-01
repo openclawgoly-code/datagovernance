@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { catalogAssetApi } from '@/api/catalog-assets'
 import { credentialApi } from '@/api/credential'
 import { governanceApi } from '@/api/catalog-governance'
@@ -29,6 +29,7 @@ import type {
 defineOptions({ name: 'CatalogAssetView' })
 
 const router = useRouter()
+const route = useRoute()
 const sources = ref<CatalogSource[]>([])
 const selected = ref<CatalogSource | null>(null)
 const datasets = ref<CatalogDataset[]>([])
@@ -122,6 +123,23 @@ const canCreate = computed(() => {
 
 async function loadSources() {
   sources.value = await catalogAssetApi.listSources()
+  // Agent 切页时会带 sourceId，让刚采集完的来源自动选中。
+  // 只消费一次，之后用户手动切换来源不被 URL 拉回去。
+  const wantedId = typeof route.query.sourceId === 'string' ? route.query.sourceId : ''
+  if (wantedId) {
+    const wanted = sources.value.find((source) => source.id === wantedId)
+    if (wanted) {
+      selected.value = wanted
+      query.page = 1
+      query.keyword = ''
+      query.domainId = ''
+      query.owner = ''
+      query.certificationStatus = ''
+      const nextQuery = { ...route.query }
+      delete nextQuery.sourceId
+      void router.replace({ path: route.path, query: nextQuery })
+    }
+  }
   if (selected.value) {
     selected.value = sources.value.find((s) => s.id === selected.value?.id) ?? null
   }

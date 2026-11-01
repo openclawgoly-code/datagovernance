@@ -73,6 +73,8 @@ public class AgentProxyController {
         Caller caller = WorkspaceContext.require();
         Map<String, Object> payload = body == null ? new LinkedHashMap<>() : new LinkedHashMap<>(body);
         payload.put("workspaceId", caller.workspaceId());
+        payload.put("userId", caller.userId());
+        payload.put("platformAdmin", caller.platformAdmin());
         payload.put("username", caller.username());
         return forward("POST", "/conversations", payload);
     }
@@ -91,7 +93,13 @@ public class AgentProxyController {
     public ResponseEntity<String> send(@PathVariable String id,
                                        @RequestBody Map<String, Object> body) {
         requireOwnership(id);
-        return forward("POST", "/conversations/" + encodePath(id) + "/messages", body);
+        Caller caller = WorkspaceContext.require();
+        Map<String, Object> payload = body == null ? new LinkedHashMap<>() : new LinkedHashMap<>(body);
+        // 旧会话可能还没存过 userId；每次发送都补齐，工具端点才能按真实用户鉴权。
+        payload.put("userId", caller.userId());
+        payload.put("platformAdmin", caller.platformAdmin());
+        payload.put("username", caller.username());
+        return forward("POST", "/conversations/" + encodePath(id) + "/messages", payload);
     }
 
     @PostMapping("/conversations/{id}/abort")

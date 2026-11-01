@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { dataSourceApi, dataSourceCatalogApi } from '@/api/datasource'
 import { statusMeta } from '@/utils/datasource-status'
@@ -19,6 +20,7 @@ import type {
 
 defineOptions({ name: 'DataSourceListView' })
 
+const route = useRoute()
 const loading = ref(false)
 const rows = ref<DataSource[]>([])
 const total = ref(0)
@@ -41,6 +43,15 @@ const visibleRows = computed(() => {
   if (selectedCatalog.value === '__none__') return rows.value.filter((r) => !r.catalogId)
   return rows.value.filter((r) => r.catalogId === selectedCatalog.value)
 })
+
+/** Agent 创建完数据源后会带 highlight 参数切到本页，标出刚建的那一行。 */
+const highlightId = computed(() =>
+  typeof route.query.highlight === 'string' ? route.query.highlight : '',
+)
+
+function rowClassName({ row }: { row: DataSource }): string {
+  return highlightId.value && row.id === highlightId.value ? 'agent-highlight-row' : ''
+}
 
 const catalogTreeData = computed(() => [
   { id: '', name: `全部(${total.value})`, children: [] as DataSourceCatalogNode[] },
@@ -77,6 +88,14 @@ async function loadCatalogs() {
 }
 
 async function bootstrap() {
+  // Agent 带 highlight 切过来时，如果用户之前选过目录/类型/关键词，目标行可能被过滤掉。
+  // 这里先清筛选，保证刚创建的数据源能被看到。
+  if (highlightId.value) {
+    selectedCatalog.value = ''
+    query.type = ''
+    query.keyword = ''
+    query.page = 1
+  }
   types.value = await dataSourceApi.types()
   await Promise.all([load(), loadCatalogs()])
 }
@@ -288,7 +307,12 @@ async function onDeleteCatalog() {
             </el-button>
           </div>
 
-          <el-table :data="visibleRows" v-loading="loading" row-key="id">
+          <el-table
+            :data="visibleRows"
+            v-loading="loading"
+            row-key="id"
+            :row-class-name="rowClassName"
+          >
             <el-table-column prop="name" label="名称" min-width="160" show-overflow-tooltip />
             <el-table-column prop="typeDisplayName" label="类型" width="120" />
             <el-table-column label="状态" width="110">
@@ -440,5 +464,9 @@ async function onDeleteCatalog() {
 .pager {
   margin-top: 12px;
   justify-content: flex-end;
+}
+
+:deep(.agent-highlight-row) {
+  background: var(--el-color-primary-light-9) !important;
 }
 </style>

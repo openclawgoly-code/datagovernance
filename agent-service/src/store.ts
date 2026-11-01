@@ -20,6 +20,8 @@ export class ConversationStore {
 
   create(input: {
     workspaceId: string
+    userId?: string
+    platformAdmin?: boolean
     username: string
     title?: string
     datasetId?: number
@@ -29,6 +31,8 @@ export class ConversationStore {
     const conversation: Conversation = {
       id: `conv_${randomUUID().replaceAll('-', '').slice(0, 24)}`,
       workspaceId: input.workspaceId,
+      userId: input.userId,
+      platformAdmin: input.platformAdmin,
       username: input.username,
       title: input.title?.trim() || '新对话',
       datasetId: input.datasetId,
