@@ -1,0 +1,82 @@
+{
+  "dwd_sales_master_0000": {
+    "model_id": 28,
+    "dataset_id": 24
+  },
+  "dwd_order_master_0001": {
+    "model_id": 29,
+    "dataset_id": 25
+  },
+  "dwd_customer_master_0002": {
+    "model_id": 30,
+    "dataset_id": 26
+  },
+  "dwd_product_master_0003": {
+    "model_id": 31,
+    "dataset_id": 27
+  },
+  "dwd_inventory_master_0004": {
+    "model_id": 32,
+    "dataset_id": 28
+  },
+  "dwd_finance_master_0005": {
+    "model_id": 33,
+    "dataset_id": 29
+  },
+  "dwd_hr_master_0006": {
+    "model_id": 34,
+    "dataset_id": 30
+  },
+  "dwd_supply_master_0007": {
+    "model_id": 35,
+    "dataset_id": 31
+  },
+  "dwd_marketing_master_0008": {
+    "model_id": 36,
+    "dataset_id": 32
+  },
+  "dwd_service_master_0009": {
+    "model_id": 37,
+    "dataset_id": 33
+  },
+  "dwd_risk_master_0010": {
+    "model_id": 38,
+    "dataset_id": 34
+  },
+  "dwd_compliance_master_0011": {
+    "model_id": 39,
+    "dataset_id": 35
+  },
+  "dws_sales_master_0000": {
+    "model_id": 40,
+    "dataset_id": 36
+  },
+  "dws_order_master_0001": {
+    "model_id": 41,
+    "dataset_id": 37
+  },
+  "dws_customer_master_0002": {
+    "model_id": 42,
+    "dataset_id": 38
+  },
+  "dws_product_master_0003": {
+    "model_id": 43,
+    "dataset_id": 39
+  },
+  "dws_inventory_master_0004": {
+    "model_id": 44,
+    "dataset_id": 40
+  },
+  "dws_finance_master_0005": {
+    "model_id": 45,
+    "dataset_id": 41
+  },
+  "ods_order_master_0001": {
+    "model_id": 46,
+    "dataset_id": 42
+  },
+  "ods_product_master_0003": {
+    "model_id": 47,
+    "dataset_id": 43
+  }
+}
